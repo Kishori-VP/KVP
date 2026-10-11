@@ -1,0 +1,98 @@
+from datetime import date
+
+from fastapi import HTTPException, status
+from pymongo.asynchronous.database import AsyncDatabase
+
+from app.db import collections as c
+from app.services import audit, metrics
+from app.services.app_settings import get_setting
+from app.utils.dates import to_date, to_dt, today_local, utcnow
+
+TARGET_STATUSES = ["upcoming", "on_track", "at_risk", "achieved", "missed", "cancelled"]
+
+
+def evaluate(target: dict, achieved: int, thresholds: dict, today: date | None = None) -> dict:
+    today = today or today_local()
+    start, end = to_date(target["period_start"]), to_date(target["period_end"])
+    value = target["target_value"]
+    total_days = (end - start).days + 1
+    elapsed = min(max((today - start).days + 1, 0), total_days)
+    expected_now = value * elapsed / total_days if total_days else value
+    progress = round(100 * achieved / value, 1) if value else 100.0
+
+    if target.get("status") == "cancelled":
+        state = "cancelled"
+    elif today < start:
+        state = "upcoming"
+    elif achieved >= value:
+        state = "achieved"
+    elif today > end:
+        state = "missed"
+    else:
+        ratio = achieved / expected_now if expected_now else 1
+        state = "on_track" if ratio >= thresholds["on_track_min_ratio"] else "at_risk"
+
+    days_left = max((end - today).days, 0) if today <= end else 0
+    return {
+        "achieved": achieved,
+        "progress_pct": progress,
+        "expected_by_now": round(expected_now, 1),
+        "remaining": max(value - achieved, 0),
+        "days_left": days_left,
+        "elapsed_pct": round(100 * elapsed / total_days, 1) if total_days else 100.0,
+        "status": state,
+        "deadline_approaching": state in ("on_track", "at_risk") and days_left <= thresholds["deadline_warning_days"],
+        "low_performance": state in ("at_risk", "missed")
+        and (achieved / expected_now if expected_now else 1) < thresholds["low_performance_ratio"],
+    }
+
+
+async def with_progress(db: AsyncDatabase, targets: list[dict], thresholds: dict | None = None) -> list[dict]:
+    thresholds = thresholds or await get_setting(db, "target_thresholds")
+    out = []
+    for t in targets:
+        if today_local() < to_date(t["period_start"]) or t.get("status") == "cancelled":
+            achieved = 0
+        else:
+            achieved = await metrics.compute(db, t["metric"], t["volunteer_id"], t["village_id"],
+                                             to_date(t["period_start"]), to_date(t["period_end"]))
+        out.append({**t, "progress": evaluate(t, achieved, thresholds)})
+    return out
+
+
+async def handle_reassignment(db: AsyncDatabase, volunteer: dict, new_village_id, action: str,
+                              transfer_to, actor: dict, reason: str) -> dict:
+    """Apply the chosen policy to a reassigned volunteer's open (current/future) targets."""
+    today = today_local()
+    open_targets = await db[c.TARGETS].find({
+        "volunteer_id": volunteer["_id"], "status": "active", "period_end": {"$gte": to_dt(today)},
+    }).to_list()
+    if not open_targets:
+        return {"action": action, "affected": 0}
+
+    new_owner = None
+    if action == "transfer":
+        new_owner = await db[c.USERS].find_one({"_id": transfer_to, "role": "volunteer", "is_active": True})
+        if not new_owner or new_owner.get("village_id") != volunteer.get("village_id"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "Targets can only be transferred to an active volunteer of the old village")
+
+    now = utcnow()
+    for t in open_targets:
+        revision = {"at": now, "by": actor["_id"], "reason": f"Reassignment: {reason}", "changes": {}}
+        sets: dict = {"updated_at": now}
+        if action == "move":
+            sets["village_id"] = new_village_id
+            revision["changes"]["village_id"] = {"from": t["village_id"], "to": new_village_id}
+        elif action == "close":
+            sets.update(status="cancelled", cancel_reason=f"Volunteer reassigned: {reason}")
+            revision["changes"]["status"] = {"from": "active", "to": "cancelled"}
+        else:
+            sets["volunteer_id"] = new_owner["_id"]
+            revision["changes"]["volunteer_id"] = {"from": volunteer["_id"], "to": new_owner["_id"]}
+        await db[c.TARGETS].update_one({"_id": t["_id"]}, {"$set": sets, "$push": {"revisions": revision}})
+        await audit.log(db, actor, "revise", "target", t["_id"], f"Target {action} on reassignment",
+                        revision["changes"], {"reason": reason})
+    return {"action": action, "affected": len(open_targets),
+            "transferred_to": str(new_owner["_id"]) if new_owner else None}
+
