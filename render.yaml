@@ -1,0 +1,40 @@
+# Render Blueprint for the FastAPI backend (the frontend is deployed on Vercel).
+# Render dashboard → New → Blueprint → pick this repository.
+services:
+  - type: web
+    name: kvp-api
+    runtime: python
+    rootDir: backend
+    # A persistent disk (uploads + generated reports) needs a paid instance; the
+    # scheduler also needs the service to stay awake, which the free plan does not do.
+    plan: starter
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    disk:
+      name: kvp-storage
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ENVIRONMENT
+        value: production
+      - key: TIMEZONE
+        value: Asia/Kolkata
+      - key: MONGODB_DB_NAME
+        value: kishori_vikas
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: REPORTS_DIR
+        value: /var/data/reports
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      # Set in the dashboard when creating the Blueprint:
+      - key: MONGODB_URI # MongoDB Atlas connection string
+        sync: false
+      - key: CORS_ORIGINS # the Vercel URL, e.g. https://kishori-vikas.vercel.app
+        sync: false
+      - key: CREDENTIALS_ENCRYPTION_KEY # a Fernet key, see README → Deployment
+        sync: false

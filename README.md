@@ -116,3 +116,30 @@ notifications, SMS & sync, configuration and audit log.
 ## Health check
 
 `GET /api/v1/health` returns the API status and whether MongoDB is reachable.
+
+## Deployment
+
+The frontend goes on **Vercel**, the backend on **Render** (it needs an always-on process for the
+scheduler and a persistent disk for uploads/reports) and the database on **MongoDB Atlas**.
+Both hosts deploy from this GitHub repository and redeploy on every push.
+
+1. **MongoDB Atlas** — create a cluster (free M0 is fine to start, region Mumbai), a database user,
+   and allow network access from `0.0.0.0/0`. Copy the `mongodb+srv://…` connection string.
+2. **Render (backend)** — *New → Blueprint*, pick this repo; it reads [`render.yaml`](render.yaml). Fill in:
+   - `MONGODB_URI` — the Atlas connection string
+   - `CREDENTIALS_ENCRYPTION_KEY` — `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+   - `CORS_ORIGINS` — leave as `http://localhost:5173` for now; update after step 3
+
+   Then, in the service's *Shell* tab, load data and create the first admin
+   (copy the KVP Excel files to the server first, or run the import locally against the Atlas URI):
+   ```bash
+   python -m app.seed.create_admin --name "Programme Coordinator" --phone 9876543210 --email pc@example.org
+   ```
+   Note the service URL, e.g. `https://kvp-api.onrender.com`.
+3. **Vercel (frontend)** — *Add New → Project*, import this repo, keep the root directory as the repo root
+   ([`vercel.json`](vercel.json) sets the build). Add the environment variable
+   `VITE_API_BASE_URL` = `https://<render-service>.onrender.com/api/v1`, then deploy.
+4. Back on Render, set `CORS_ORIGINS` to the Vercel URL (e.g. `https://kishori-vikas.vercel.app`;
+   comma-separate several) and save — the service restarts.
+
+Changing `VITE_API_BASE_URL` later requires a Vercel redeploy, because Vite bakes it in at build time.

@@ -1,0 +1,16 @@
+{
+  "name": "kishori-vikas-program",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Kishori Vikas Program - stakeholder portal (React/Vite frontend, FastAPI backend)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install:frontend": "npm --prefix frontend install",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "dev": "npm --prefix frontend run dev",
+    "preview": "npm --prefix frontend run preview",
+    "lint": "npm --prefix frontend run lint"
+  }
+}
