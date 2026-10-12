@@ -21,7 +21,7 @@ import {
 import { locale, t } from '../lib/i18n'
 import { Table } from './ui'
 
-export const SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948']
+export const SERIES = ['#023b77', '#039583', '#286e88', '#36a795', '#527f99', '#70b9ab', '#7c9eaa', '#9ac9bc']
 export const STATUS = { good: '#0ca30c', warning: '#fab219', serious: '#ec835a', critical: '#d03b3b' }
 const INK2 = '#52514e'
 const MUTED = '#898781'

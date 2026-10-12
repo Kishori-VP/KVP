@@ -18,17 +18,9 @@
   --color-brand-900: #023b77;
 
   /* Gradient tokens */
-  --gradient-brand: linear-gradient(
-    135deg,
-    #023b77 0%,
-    #039583 100%
-  );
+  --gradient-brand: linear-gradient(135deg, #023b77 0%, #039583 100%);
 
-  --gradient-brand-hover: linear-gradient(
-    135deg,
-    #012d5c 0%,
-    #027765 100%
-  );
+  --gradient-brand-hover: linear-gradient(135deg, #012d5c 0%, #027765 100%);
 
   /* Surface and text colors */
   --color-surface: #ffffff;
@@ -72,28 +64,20 @@ body {
 
 /* Brand gradient utilities */
 .bg-brand-gradient {
-  background: linear-gradient(
-    135deg,
-    #023b77 0%,
-    #039583 100%
-  );
+  background: var(--gradient-brand);
 }
 
 .bg-brand-gradient-hover:hover {
-  background: linear-gradient(
-    135deg,
-    #012d5c 0%,
-    #027765 100%
-  );
+  background: var(--gradient-brand-hover);
+}
+
+.bg-brand-gradient:disabled {
+  background: var(--color-brand-200);
 }
 
 /* Gradient text */
 .text-brand-gradient {
-  background: linear-gradient(
-    135deg,
-    #023b77 0%,
-    #039583 100%
-  );
+  background: var(--gradient-brand);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

@@ -75,7 +75,7 @@ function Sidebar({ onNavigate, unread }) {
   return (
     <nav className="flex h-full flex-col overflow-y-auto px-3 py-4">
       <div className="mb-5 flex items-center gap-2 px-2">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">KVP</div>
+        <div className="bg-brand-gradient flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold text-white">KVP</div>
         <div className="leading-tight">
           <div className="text-sm font-semibold text-gray-900">{t('Kishori Vikas')}</div>
           <div className="text-xs text-gray-500">{t('Kishori Vikas Programme')}</div>

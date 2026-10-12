@@ -30,7 +30,7 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-full items-center justify-center bg-gradient-to-br from-brand-50 to-white p-4">
+    <div className="flex min-h-full items-center justify-center bg-gradient-to-br from-brand-50 via-white to-brand-100/50 p-4">
       <form onSubmit={submit} className="w-full max-w-sm rounded-2xl border border-black/10 bg-white p-7 shadow-sm">
         <div className="-mt-2 mb-2 flex justify-end gap-1 text-xs">
           {LANGUAGES.map((l) => (
@@ -45,7 +45,7 @@ export default function Login() {
           ))}
         </div>
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 font-bold text-white">KVP</div>
+          <div className="bg-brand-gradient mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl font-bold text-white">KVP</div>
           <h1 className="text-lg font-semibold text-gray-900">{t('Kishori Vikas Programme')}</h1>
           <p className="text-sm text-gray-500">{t('Stakeholder login')}</p>
         </div>

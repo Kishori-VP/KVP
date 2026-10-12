@@ -8,7 +8,7 @@ export function cx(...classes) {
 }
 
 const BTN = {
-  primary: 'bg-brand-600 text-white hover:bg-brand-700 disabled:bg-brand-200',
+  primary: 'bg-brand-gradient bg-brand-gradient-hover text-white',
   secondary: 'bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 disabled:text-gray-400',
   danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
   ghost: 'text-brand-700 hover:bg-brand-50 disabled:text-gray-400',
