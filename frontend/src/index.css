@@ -1,33 +1,105 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: system-ui, -apple-system, "Segoe UI", "Noto Sans Devanagari", "Nirmala UI", sans-serif;
-  --color-brand-50: #f7f0f9;
-  --color-brand-100: #ecdcf1;
-  --color-brand-200: #d9b8e3;
-  --color-brand-500: #9a4bb0;
-  --color-brand-600: #7b2d8e;
-  --color-brand-700: #652475;
-  --color-brand-800: #4f1c5c;
+  /* Typography */
+  --font-sans: system-ui, -apple-system, "Segoe UI",
+    "Noto Sans Devanagari", "Nirmala UI", sans-serif;
 
-  /* Chart tokens (reference data-viz palette, light mode) */
-  --color-surface: #fcfcfb;
-  --color-page: #f9f9f7;
-  --color-ink: #0b0b0b;
-  --color-ink-2: #52514e;
-  --color-muted: #898781;
-  --color-grid: #e1e0d9;
-  --color-axis: #c3c2b7;
-  --color-series-1: #2a78d6;
-  --color-series-2: #eb6834;
-  --color-series-3: #1baf7a;
-  --color-series-4: #eda100;
-  --color-good: #0ca30c;
-  --color-warning: #fab219;
-  --color-serious: #ec835a;
-  --color-critical: #d03b3b;
+  /* Brand gradient: deep blue to teal */
+  --color-brand-50: #eaf5f8;
+  --color-brand-100: #cce8ed;
+  --color-brand-200: #99d2d8;
+  --color-brand-300: #66bcbf;
+  --color-brand-400: #33a6a6;
+  --color-brand-500: #039583;
+  --color-brand-600: #027c78;
+  --color-brand-700: #025e79;
+  --color-brand-800: #024b78;
+  --color-brand-900: #023b77;
+
+  /* Gradient tokens */
+  --gradient-brand: linear-gradient(
+    135deg,
+    #023b77 0%,
+    #039583 100%
+  );
+
+  --gradient-brand-hover: linear-gradient(
+    135deg,
+    #012d5c 0%,
+    #027765 100%
+  );
+
+  /* Surface and text colors */
+  --color-surface: #ffffff;
+  --color-page: #f5f9fb;
+  --color-ink: #102033;
+  --color-ink-2: #526477;
+  --color-muted: #82909d;
+
+  /* Chart colors */
+  --color-grid: #dce6eb;
+  --color-axis: #b9c9d2;
+  --color-series-1: #023b77;
+  --color-series-2: #039583;
+  --color-series-3: #42a5a0;
+  --color-series-4: #d6a64f;
+
+  /* Status colors */
+  --color-good: #16834a;
+  --color-warning: #d99a16;
+  --color-serious: #d96c42;
+  --color-critical: #c93636;
 }
 
-html, body, #root { height: 100%; }
-body { background: var(--color-page); color: var(--color-ink); }
-.tabular { font-variant-numeric: tabular-nums; }
+/* Global layout */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+/* Brand gradient utilities */
+.bg-brand-gradient {
+  background: linear-gradient(
+    135deg,
+    #023b77 0%,
+    #039583 100%
+  );
+}
+
+.bg-brand-gradient-hover:hover {
+  background: linear-gradient(
+    135deg,
+    #012d5c 0%,
+    #027765 100%
+  );
+}
+
+/* Gradient text */
+.text-brand-gradient {
+  background: linear-gradient(
+    135deg,
+    #023b77 0%,
+    #039583 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Numeric alignment */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
