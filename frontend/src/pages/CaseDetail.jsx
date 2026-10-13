@@ -7,6 +7,7 @@ import api from '../lib/api'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { useAction, useFetch } from '../lib/hooks'
 import { t } from '../lib/i18n'
+import { useAuth } from '../lib/auth'
 
 const NEXT = {
   open: ['in_progress', 'escalated', 'resolved', 'closed'],
@@ -18,6 +19,8 @@ const NEXT = {
 
 export default function CaseDetail() {
   const { id } = useParams()
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
   const { data: c, error, setData } = useFetch(`/cases/${id}`)
   const [note, setNote] = useState({ type: 'note', text: '', next_action: '' })
   const [statusModal, setStatusModal] = useState(null)
@@ -53,8 +56,8 @@ export default function CaseDetail() {
         title={<span>{c.case_code} · {c.title}</span>}
         subtitle={<>{t('Girl')} <Link className="text-brand-700 hover:underline" to={`/girls/${c.girl_id}`}>{c.girl?.girl_code}{c.girl?.name && ` · ${c.girl.name}`}</Link></>}
         actions={<>
-          {NEXT[c.status].map((s) => <Button key={s} size="sm" variant={s === 'escalated' ? 'danger' : 'secondary'} onClick={() => setStatusModal(s)}>Mark {humanize(s).toLowerCase()}</Button>)}
-          <Button size="sm" onClick={() => setAssign({ assigned_to: c.assigned_to || '' })}>{t('Assign')}</Button>
+          {NEXT[c.status].filter((s) => !isVolunteer || s !== 'closed').map((s) => <Button key={s} size="sm" variant={s === 'escalated' ? 'danger' : 'secondary'} onClick={() => setStatusModal(s)}>Mark {humanize(s).toLowerCase()}</Button>)}
+          {!isVolunteer && <Button size="sm" onClick={() => setAssign({ assigned_to: c.assigned_to || '' })}>{t('Assign')}</Button>}
         </>}
       />
       <ErrorBox message={actErr} />
@@ -97,13 +100,13 @@ export default function CaseDetail() {
         </Field>
         <p className="text-xs text-gray-500">{t('Sensitive cases are only closed by a person — the system never closes cases automatically.')}</p>
       </Modal>
-      <Modal open={Boolean(assign)} title={t('Assign case')} onClose={() => setAssign(null)}
+      {!isVolunteer && <Modal open={Boolean(assign)} title={t('Assign case')} onClose={() => setAssign(null)}
         footer={<><Button variant="secondary" onClick={() => setAssign(null)}>{t('Cancel')}</Button><Button busy={busy} disabled={!assign?.assigned_to} onClick={doAssign}>{t('Assign')}</Button></>}>
         <ErrorBox message={actErr} />
         <Field label={t('Volunteer')}><VolunteerSelect villageId={c.village_id} value={assign?.assigned_to} onChange={(v) => setAssign({ ...assign, assigned_to: v })} placeholder={t('Select…')} /></Field>
         <Field label={t('Due date')}><Input type="date" value={assign?.due_date || ''} onChange={(e) => setAssign({ ...assign, due_date: e.target.value })} /></Field>
         <Field label={t('Next action')}><Input value={assign?.next_action || ''} onChange={(e) => setAssign({ ...assign, next_action: e.target.value })} /></Field>
-      </Modal>
+      </Modal>}
     </div>
   )
 }

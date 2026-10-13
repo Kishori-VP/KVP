@@ -386,10 +386,12 @@ async def update_attendance(event_id: str, body: AttendanceUpdate, db: Db,
         missing = set(requested) - set(girls)
         if missing:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown girl ids: {[str(m) for m in missing]}")
+        wrong_village = [str(gid) for gid in requested if girls[gid].get("village_id") != ev["village_id"]]
+        if wrong_village:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Attendance can only include girls from the event's village")
         for gid, present in requested.items():
             current[gid] = {"girl_id": gid, "group_id": girls[gid].get("group_id"), "present": present,
-                            "marked_at": now, "marked_by": user["_id"],
-                            "from_other_village": girls[gid].get("village_id") != ev["village_id"]}
+                            "marked_at": now, "marked_by": user["_id"]}
     sets: dict = {"attendance": list(current.values()), "updated_at": now}
     if body.other_participants:
         sets["other_participants"] = body.other_participants.model_dump()

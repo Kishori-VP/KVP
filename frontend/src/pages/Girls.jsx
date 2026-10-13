@@ -6,12 +6,14 @@ import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Paginat
 import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
+import { useAuth } from '../lib/auth'
 import { locale, t } from '../lib/i18n'
 
 const EMPTY = { q: '', taluka_id: '', village_id: '', group_id: '', school_status: '', age_band: '', participation: '', case_status: '', anaemia: '', profile_incomplete: '' }
 
 export function GirlForm({ initial, onSaved, onCancel }) {
-  const [f, setF] = useState(initial || { household: {} })
+  const { user } = useAuth()
+  const [f, setF] = useState(initial || { household: {}, village_id: user?.role === 'volunteer' ? user.village_id : '' })
   const [error, setError] = useState(null)
   const [dupes, setDupes] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -63,7 +65,7 @@ export function GirlForm({ initial, onSaved, onCancel }) {
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Full name (मुलीचे नाव) *')}><Input value={f.name || ''} onChange={(e) => set('name', e.target.value)} /></Field>
-        <Field label={t('Village *')}><VillageSelect value={f.village_id} onChange={(v) => { set('village_id', v); set('group_id', '') }} placeholder={t('Select village')} /></Field>
+        <Field label={t('Village *')}>{user?.role === 'volunteer' ? <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">Assigned village only</div> : <VillageSelect value={f.village_id} onChange={(v) => { set('village_id', v); set('group_id', '') }} placeholder={t('Select village')} />}</Field>
         <Field label={t('Kishori Group')}><GroupSelect villageId={f.village_id} value={f.group_id} onChange={(v) => set('group_id', v)} placeholder={t('No group')} /></Field>
         <Field label={t('School status')}><LookupSelect type="school_status" value={f.school_status} onChange={(v) => set('school_status', v)} placeholder={t('Unknown')} /></Field>
         <Field label={t('Date of birth')} hint={t('Or give age if DOB is unknown')}><Input type="date" value={f.dob?.slice?.(0, 10) || ''} onChange={(e) => set('dob', e.target.value)} /></Field>
@@ -91,7 +93,8 @@ export function GirlForm({ initial, onSaved, onCancel }) {
 
 export default function Girls() {
   const nav = useNavigate()
-  const [filters, setFilters] = useState(EMPTY)
+  const { user } = useAuth()
+  const [filters, setFilters] = useState(() => user?.role === 'volunteer' ? { ...EMPTY, village_id: user.village_id || '' } : EMPTY)
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
   const set = (k, v) => { setFilters((p) => ({ ...p, [k]: v, ...(k === 'village_id' ? { group_id: '' } : {}) })); setPage(1) }
@@ -99,15 +102,15 @@ export default function Girls() {
 
   return (
     <div>
-      <PageHeader title={t('Girls (beneficiaries)')} subtitle={t('Unique Girl IDs, profiles and participation')} actions={<Button icon={Plus} onClick={() => setCreating(true)}>{t('Register girl')}</Button>} />
+      <PageHeader title={t('Girls (beneficiaries)')} subtitle={t('Unique Girl IDs, profiles and participation')} actions={user?.role === 'volunteer' ? <Button icon={Plus} onClick={() => setCreating(true)}>{t('Register girl')}</Button> : null} />
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative lg:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm" placeholder={t('Search name, Girl ID, parent…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
-          <TalukaSelect value={filters.taluka_id} onChange={(v) => set('taluka_id', v)} />
-          <VillageSelect value={filters.village_id} talukaId={filters.taluka_id} onChange={(v) => set('village_id', v)} />
+          {user?.role === 'stakeholder' && <TalukaSelect value={filters.taluka_id} onChange={(v) => set('taluka_id', v)} />}
+          {user?.role === 'stakeholder' && <VillageSelect value={filters.village_id} talukaId={filters.taluka_id} onChange={(v) => set('village_id', v)} />}
           <GroupSelect villageId={filters.village_id} value={filters.group_id} onChange={(v) => set('group_id', v)} />
           <LookupSelect type="school_status" value={filters.school_status} onChange={(v) => set('school_status', v)} placeholder={t('Any school status')} />
           <Select options={[{ value: '10_14', label: t('Age 10–14') }, { value: '15_19', label: t('Age 15–19') }, { value: 'below_10', label: t('Below 10') }, { value: '20_plus', label: '20+' }]} placeholder={t('Any age')} value={filters.age_band} onChange={(e) => set('age_band', e.target.value)} />
@@ -138,9 +141,9 @@ export default function Girls() {
           </>
         )}
       </Card>
-      <Modal open={creating} title={t('Register a girl')} onClose={() => setCreating(false)} wide>
+      {user?.role === 'volunteer' && <Modal open={creating} title={t('Register a girl')} onClose={() => setCreating(false)} wide>
         <GirlForm onCancel={() => setCreating(false)} onSaved={(g) => nav(`/girls/${g.id}`)} />
-      </Modal>
+      </Modal>}
     </div>
   )
 }

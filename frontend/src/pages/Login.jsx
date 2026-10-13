@@ -20,8 +20,7 @@ export default function Login() {
     setBusy(true)
     setError(null)
     try {
-      const u = await login(identifier.trim(), password)
-      if (u.role !== 'stakeholder') setError(t('This portal is for Stakeholders. Volunteers use the field app.'))
+      await login(identifier.trim(), password)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -47,7 +46,7 @@ export default function Login() {
         <div className="mb-6 text-center">
           <div className="bg-brand-gradient mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl font-bold text-white">KVP</div>
           <h1 className="text-lg font-semibold text-gray-900">{t('Kishori Vikas Programme')}</h1>
-          <p className="text-sm text-gray-500">{t('Stakeholder login')}</p>
+          <p className="text-sm text-gray-500">{t('Volunteer / Stakeholder login')}</p>
         </div>
         <ErrorBox message={error} />
         <div className="space-y-3">

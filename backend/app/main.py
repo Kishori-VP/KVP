@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=f"{settings.app_name} API",
-    description="KVP Digital Field Management, AI & Impact Reporting System — Stakeholder (admin) API",
+    description="KVP Digital Field Management, AI & Impact Reporting System — Volunteer and Stakeholder API",
     version="0.1.0",
     lifespan=lifespan,
 )

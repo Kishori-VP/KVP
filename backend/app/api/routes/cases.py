@@ -53,10 +53,13 @@ def _event(user: dict, type_: str, text: str, **extra) -> dict:
 async def create_case(body: CaseCreate, db: Db, user: Annotated[dict, Depends(require_permission("cases", "create"))]):
     girl = await get_or_404(db[c.GIRLS], body.girl_id, "Girl", {"is_deleted": {"$ne": True}, **village_scope(user)})
     await ensure_code(db, "case_category", body.category, "category")
-    assignee = await _check_assignee(db, body.assigned_to, girl["village_id"]) if body.assigned_to else None
+    if user["role"] == Role.VOLUNTEER:
+        assignee = user
+    else:
+        assignee = await _check_assignee(db, body.assigned_to, girl["village_id"]) if body.assigned_to else None
     if body.source_type in ("home_visit", "event") and body.source_id:
         coll = c.HOME_VISITS if body.source_type == "home_visit" else c.EVENTS
-        await get_or_404(db[coll], body.source_id, body.source_type.replace("_", " ").title())
+        await get_or_404(db[coll], body.source_id, body.source_type.replace("_", " ").title(), village_scope(user))
     rules = await get_setting(db, "escalation_rules")
     due = body.due_date or today_local() + timedelta(days=rules["case_due_days_by_severity"][body.severity])
     now = utcnow()

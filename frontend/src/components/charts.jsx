@@ -42,7 +42,7 @@ function ChartTooltip({ active, payload, label, labelFormatter }) {
       {payload.map((p) => (
         <div key={p.dataKey} className="flex items-center gap-2 text-gray-700">
           <span className="inline-block h-2 w-2 rounded-full" style={{ background: p.color || p.payload?.fill }} />
-          <span className="flex-1">{p.name}</span>
+          <span className="flex-1">{t(p.name)}</span>
           <span className="tabular font-medium text-gray-900">{Number(p.value).toLocaleString(locale())}</span>
         </div>
       ))}

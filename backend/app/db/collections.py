@@ -26,3 +26,6 @@ REPORT_SCHEDULES = "report_schedules"
 GENERATED_REPORTS = "generated_reports"
 AUDIT_LOGS = "audit_logs"
 COUNTERS = "counters"
+
+AI_KNOWLEDGE_CHUNKS = "ai_knowledge_chunks"
+VOLUNTEER_ATTENDANCE = "volunteer_attendance"

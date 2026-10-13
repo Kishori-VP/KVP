@@ -1,7 +1,7 @@
 """Home visits and daily activity reports.
 
-The full mobile house-visit form (GPS, offline, voice) belongs to the Volunteer
-PWA phase; these endpoints give Stakeholders the records that feed targets,
+Mobile field forms support GPS capture, voice input and offline queue retries; these endpoints also provide
+Stakeholders the records that feed targets,
 dashboards and reports, plus planning (upcoming visits) and approvals.
 """
 
@@ -58,6 +58,10 @@ def _check_date_rules(d: date, status_: str):
 @router.post("/home-visits", status_code=status.HTTP_201_CREATED)
 async def create_home_visit(body: HomeVisitCreate, db: Db,
                             user: Annotated[dict, Depends(require_permission("home_visits", "create"))]):
+    if body.client_record_id:
+        existing = await db[c.HOME_VISITS].find_one({"client_record_id": body.client_record_id, "created_by": user["_id"]})
+        if existing:
+            return serialize(existing)
     vol = await _volunteer(db, body.volunteer_id, user)
     _check_date_rules(body.visit_date, body.status)
     girl_ids = await _girls_in_village(db, body.girl_ids, vol["village_id"])
@@ -85,7 +89,14 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
         "created_at": now,
         "updated_at": now,
     }
-    res = await db[c.HOME_VISITS].insert_one(doc)
+    try:
+        res = await db[c.HOME_VISITS].insert_one(doc)
+    except DuplicateKeyError:
+        if body.client_record_id:
+            existing = await db[c.HOME_VISITS].find_one({"client_record_id": body.client_record_id, "created_by": user["_id"]})
+            if existing:
+                return serialize(existing)
+        raise
     if body.status == "completed":
         await touch_participation(db, girl_ids, doc["visit_date"])
     await audit.log(db, user, "create", "home_visit", res.inserted_id,
@@ -130,6 +141,8 @@ async def list_home_visits(
 @router.get("/home-visits/{visit_id}")
 async def get_home_visit(visit_id: str, db: Db, user: Annotated[dict, Depends(require_permission("home_visits", "read"))]):
     visit = await get_or_404(db[c.HOME_VISITS], visit_id, "Home visit", village_scope(user))
+    if user["role"] == Role.VOLUNTEER and visit.get("volunteer_id") != user["_id"]:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Home visit not found")
     out = serialize(visit)
     out["girls"] = serialize(await db[c.GIRLS].find({"_id": {"$in": visit.get("girl_ids", [])}},
                                                    {"girl_code": 1, "name": 1}).to_list())
@@ -141,6 +154,8 @@ async def get_home_visit(visit_id: str, db: Db, user: Annotated[dict, Depends(re
 async def update_home_visit(visit_id: str, body: HomeVisitUpdate, db: Db,
                             user: Annotated[dict, Depends(require_permission("home_visits", "update"))]):
     before = await get_or_404(db[c.HOME_VISITS], visit_id, "Home visit", village_scope(user))
+    if user["role"] == Role.VOLUNTEER and before.get("volunteer_id") != user["_id"]:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Home visit not found")
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return serialize(before)
@@ -188,6 +203,10 @@ async def _decide(db, coll, entity, id_, body: ApprovalDecision, actor):
 @router.post("/activity-reports", status_code=status.HTTP_201_CREATED)
 async def create_activity_report(body: ActivityReportCreate, db: Db,
                                  user: Annotated[dict, Depends(require_permission("activity_reports", "create"))]):
+    if body.client_record_id:
+        existing = await db[c.ACTIVITY_REPORTS].find_one({"client_record_id": body.client_record_id, "submitted_by": user["_id"]})
+        if existing:
+            return serialize(existing)
     vol = await _volunteer(db, body.volunteer_id, user)
     if body.report_date > today_local():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Report date cannot be in the future")
@@ -218,6 +237,10 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
     try:
         res = await db[c.ACTIVITY_REPORTS].insert_one(doc)
     except DuplicateKeyError:
+        if body.client_record_id:
+            existing = await db[c.ACTIVITY_REPORTS].find_one({"client_record_id": body.client_record_id, "submitted_by": user["_id"]})
+            if existing:
+                return serialize(existing)
         raise HTTPException(status.HTTP_409_CONFLICT, "A report for this volunteer and date already exists")
     await touch_participation(db, girl_ids, doc["report_date"])
     await audit.log(db, user, "create", "activity_report", res.inserted_id,

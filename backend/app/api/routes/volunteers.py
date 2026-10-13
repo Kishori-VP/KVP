@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
-from app.core.deps import Db, Stakeholder
+from app.core.deps import CurrentUser, Db, Stakeholder, require_permission
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.users import AssignRequest, GroupAssignment, ReassignRequest
@@ -14,7 +14,15 @@ from app.services.app_settings import get_setting
 from app.services.beneficiaries import OPEN_CASE_STATUSES
 from app.services.events import local_day_bounds
 from app.services.targets import handle_reassignment, with_progress
-from app.utils.dates import day_range, period_bounds, to_date, to_dt, today_local, utcnow
+from app.utils.dates import (
+    day_range,
+    local_tz,
+    period_bounds,
+    to_date,
+    to_dt,
+    today_local,
+    utcnow,
+)
 from app.utils.mongo import ObjectIdStr, get_or_404, oid, serialize
 
 router = APIRouter(prefix="/volunteers", tags=["volunteers"])
@@ -149,6 +157,328 @@ async def submission_status(
     rows.sort(key=lambda r: -r["missing_count"])
     return {"start": start, "end": end, "expected_days": len(expected_days),
             "defaulters": sum(1 for r in rows if r["missing_count"] or r["pending_event_reports"]), "volunteers": rows}
+
+
+@router.get("/me/dashboard")
+async def my_dashboard(db: Db, user: CurrentUser):
+    """Volunteer home screen. All returned records are scoped to the signed-in volunteer's village."""
+    if user.get("role") != Role.VOLUNTEER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer access required")
+
+    today = today_local()
+    village_id = user.get("village_id")
+    if not village_id:
+        return {"assigned": False, "user": {"id": str(user["_id"]), "name": user.get("name"), "role": user.get("role")}, "village": None, "summary": {},
+                "targets": [], "upcoming_targets": [], "upcoming_events": [], "overdue_events": [], "upcoming_visits": [],
+                "upcoming_cases": [], "overdue_case_items": [], "open_cases": 0, "overdue_cases": 0,
+                "recent_visits": [], "recent_reports": [], "contacts": {}}
+    await require_permission("dashboard", "read")(db, user)
+
+    village = await db[c.VILLAGES].find_one({"_id": village_id})
+    groups = await db[c.GROUPS].find({"village_id": village_id, "is_active": True}).sort("name", 1).to_list()
+    group_ids = [group["_id"] for group in groups]
+    group_counts = {row["_id"]: row["count"] async for row in await db[c.GIRLS].aggregate([
+        {"$match": {"village_id": village_id, "is_deleted": {"$ne": True}, "group_id": {"$in": group_ids}}},
+        {"$group": {"_id": "$group_id", "count": {"$sum": 1}}},
+    ])} if group_ids else {}
+    for group in groups:
+        group["girl_count"] = group_counts.get(group["_id"], 0)
+    month_start, _month_end = period_bounds("monthly", today)
+    week_start, _week_end = period_bounds("weekly", today)
+    summary = await metrics.activity_summary(db, user["_id"], village_id, month_start, today)
+    summary.update(
+        girls_total=await db[c.GIRLS].count_documents({"village_id": village_id, "is_deleted": {"$ne": True}}),
+        girls_active=await db[c.GIRLS].count_documents({"village_id": village_id, "is_deleted": {"$ne": True}, "enrollment.status": "active"}),
+        home_visits_today=await metrics.home_visits(db, user["_id"], village_id, today, today),
+        home_visits_this_week=await metrics.home_visits(db, user["_id"], village_id, week_start, today),
+        home_visits_this_month=await metrics.home_visits(db, user["_id"], village_id, month_start, today),
+        pending_visits=await db[c.HOME_VISITS].count_documents({"village_id": village_id, "volunteer_id": user["_id"], "approval.status": "pending"}),
+        pending_reports=await db[c.ACTIVITY_REPORTS].count_documents({"village_id": village_id, "volunteer_id": user["_id"], "approval.status": "pending"}),
+    )
+
+    target_docs = await db[c.TARGETS].find({
+        "volunteer_id": user["_id"], "village_id": village_id, "status": "active",
+        "period_start": {"$lte": to_dt(today)}, "period_end": {"$gte": to_dt(today)},
+    }).sort("period_end", 1).to_list()
+    upcoming_target_docs = await db[c.TARGETS].find({
+        "volunteer_id": user["_id"], "village_id": village_id, "status": "active",
+        "period_start": {"$gt": to_dt(today)},
+    }).sort("period_start", 1).limit(5).to_list()
+    thresholds = await get_setting(db, "target_thresholds")
+    targets = await with_progress(db, target_docs, thresholds)
+    upcoming_targets = await with_progress(db, upcoming_target_docs, thresholds)
+
+    now = utcnow()
+    upcoming_events = await db[c.EVENTS].find({
+        "village_id": village_id, "status": "scheduled", "start_at": {"$gte": now},
+    }).sort("start_at", 1).limit(6).to_list()
+    overdue_events = await db[c.EVENTS].find({
+        "village_id": village_id, "status": "scheduled", "responsible_volunteer_id": user["_id"],
+        "end_at": {"$lt": now},
+    }).sort("end_at", -1).limit(6).to_list()
+    upcoming_visits = await db[c.HOME_VISITS].find({
+        "village_id": village_id, "volunteer_id": user["_id"], "status": "planned",
+        "visit_date": {"$gte": to_dt(today)},
+    }).sort("visit_date", 1).limit(6).to_list()
+
+    open_case_query = {
+        "village_id": village_id, "status": {"$in": OPEN_CASE_STATUSES},
+        "$or": [{"sensitive": False}, {"assigned_to": user["_id"]}],
+    }
+    open_cases = await db[c.CASES].count_documents(open_case_query)
+    overdue_case_query = {**open_case_query, "due_date": {"$lt": to_dt(today)}}
+    overdue_cases = await db[c.CASES].count_documents(overdue_case_query)
+    overdue_case_items = await db[c.CASES].find(overdue_case_query, {"timeline": 0}).sort("due_date", 1).limit(6).to_list()
+    upcoming_cases = await db[c.CASES].find({**open_case_query, "due_date": {"$gte": to_dt(today)}}).sort("due_date", 1).limit(6).to_list()
+    recent_visits = await db[c.HOME_VISITS].find({
+        "village_id": village_id, "volunteer_id": user["_id"],
+    }).sort("visit_date", -1).limit(5).to_list()
+    recent_reports = await db[c.ACTIVITY_REPORTS].find({
+        "village_id": village_id, "volunteer_id": user["_id"],
+    }).sort("report_date", -1).limit(5).to_list()
+
+    contacts = await db[c.CONTACTS].find({
+        "village_id": village_id, "is_active": True,
+    }).to_list()
+    by_category = {contact["category"]: contact for contact in contacts}
+    mandatory = [
+        {"category": category, "present": category in by_category,
+         "verified": bool(by_category.get(category, {}).get("verified")),
+         "contact_id": str(by_category[category]["_id"]) if category in by_category else None,
+         "name": by_category.get(category, {}).get("name")}
+        for category in ("hospital_head", "police_patil", "sarpanch", "talathi")
+    ]
+    unread = await db[c.NOTIFICATIONS].count_documents({"user_id": user["_id"], "is_read": False})
+
+    return {
+        "assigned": True, "user": {"id": str(user["_id"]), "name": user.get("name"), "role": user.get("role"),
+                                   "village_id": str(village_id)}, "village": serialize(village),
+        "groups": serialize(groups), "summary": summary,
+        "targets": serialize(targets), "upcoming_targets": serialize(upcoming_targets),
+        "upcoming_events": serialize(upcoming_events), "overdue_events": serialize(overdue_events),
+        "upcoming_visits": serialize(upcoming_visits), "upcoming_cases": serialize(upcoming_cases),
+        "overdue_case_items": serialize(overdue_case_items), "open_cases": open_cases, "overdue_cases": overdue_cases,
+        "recent_visits": serialize(recent_visits), "recent_reports": serialize(recent_reports),
+        "contacts": {"mandatory": mandatory, "complete": all(item["present"] and item["verified"] for item in mandatory)},
+        "unread_notifications": unread, "month_start": month_start, "today": today,
+    }
+
+
+@router.get("/me/report")
+async def my_report(db: Db, user: CurrentUser, start_date: date | None = None, end_date: date | None = None):
+    """Personal activity report, constrained to the signed-in volunteer and current village."""
+    if user.get("role") != Role.VOLUNTEER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer access required")
+    today = today_local()
+    end = end_date or today
+    start = start_date or period_bounds("monthly", today)[0]
+    if end > today:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "end_date cannot be in the future")
+    if start > end:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "start_date cannot be after end_date")
+    if (end - start).days > 366:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Report range is limited to 367 days")
+    village_id = user.get("village_id")
+    if not village_id:
+        return {"assigned": False, "start_date": start, "end_date": end, "summary": {}, "targets": [],
+                "visits": [], "activity_reports": [], "events": []}
+    await require_permission("reports", "read")(db, user)
+    summary = await metrics.activity_summary(db, user["_id"], village_id, start, end)
+    s, e = day_range(start, end)
+    visits = await db[c.HOME_VISITS].find({"village_id": village_id, "volunteer_id": user["_id"],
+                                            "visit_date": {"$gte": s, "$lt": e}}).sort("visit_date", -1).to_list()
+    reports = await db[c.ACTIVITY_REPORTS].find({"village_id": village_id, "volunteer_id": user["_id"],
+                                                  "report_date": {"$gte": s, "$lt": e}}).sort("report_date", -1).to_list()
+    events = await db[c.EVENTS].find({"village_id": village_id, "responsible_volunteer_id": user["_id"],
+                                      "start_at": {"$gte": s, "$lt": e}}).sort("start_at", -1).to_list()
+    target_docs = await db[c.TARGETS].find({"volunteer_id": user["_id"], "village_id": village_id,
+                                             "period_start": {"$lte": to_dt(end)}, "period_end": {"$gte": to_dt(start)}}).to_list()
+    targets = await with_progress(db, target_docs)
+    return {"assigned": True, "village_id": str(village_id), "start_date": start, "end_date": end,
+            "summary": summary, "targets": serialize(targets), "visits": serialize(visits),
+            "activity_reports": serialize(reports), "events": serialize(events)}
+
+
+@router.get("/me/assignment-history")
+async def my_assignment_history(db: Db, user: CurrentUser):
+    if user.get("role") != Role.VOLUNTEER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer access required")
+    history = await db[c.VOLUNTEER_ASSIGNMENTS].find({"volunteer_id": user["_id"]}).sort(
+        [("start_date", -1), ("created_at", -1)]).to_list()
+    villages = await _names(db, c.VILLAGES, {item["village_id"] for item in history})
+    return [{**serialize(item), "village_name": villages.get(item["village_id"])} for item in history]
+
+@router.get("/me/planned-vs-actual")
+async def my_planned_vs_actual(
+    db: Db,
+    user: CurrentUser,
+    period: Literal["daily", "weekly", "monthly"] = "weekly",
+):
+    """Return planned-versus-actual activity for the signed-in volunteer."""
+    if user.get("role") != Role.VOLUNTEER.value:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Volunteer access required",
+        )
+
+    village_id = user.get("village_id")
+    if not village_id:
+        return {
+            "period": period,
+            "assigned": False,
+            "rows": [],
+            "totals": {
+                "visits_planned": 0,
+                "visits_completed": 0,
+                "events_planned": 0,
+                "events_conducted": 0,
+                "completion_rate": 0,
+            },
+        }
+
+    await require_permission("dashboard", "read")(db, user)
+
+    today = today_local()
+
+    # Build the reporting buckets.
+    if period == "daily":
+        first_date = today - timedelta(days=6)
+        bucket_starts = [
+            first_date + timedelta(days=i)
+            for i in range(7)
+        ]
+    elif period == "weekly":
+        current_monday = today - timedelta(days=today.weekday())
+        first_date = current_monday - timedelta(weeks=7)
+        bucket_starts = [
+            first_date + timedelta(weeks=i)
+            for i in range(8)
+        ]
+    else:
+        current_month = today.replace(day=1)
+        bucket_starts = []
+
+        for offset in range(5, -1, -1):
+            month_index = current_month.year * 12 + current_month.month - 1 - offset
+            year, month_index = divmod(month_index, 12)
+            bucket_starts.append(
+                date(year, month_index + 1, 1)
+            )
+
+        first_date = bucket_starts[0]
+
+    rows = []
+    bucket_by_key = {}
+
+    for bucket_start in bucket_starts:
+        if period == "daily":
+            key = bucket_start.isoformat()
+            label = bucket_start.strftime("%d %b")
+        elif period == "weekly":
+            key = bucket_start.isoformat()
+            label = f"Week of {bucket_start.strftime('%d %b')}"
+        else:
+            key = bucket_start.strftime("%Y-%m")
+            label = bucket_start.strftime("%b %Y")
+
+        row = {
+            "period": key,
+            "label": label,
+            "visits_planned": 0,
+            "visits_completed": 0,
+            "events_planned": 0,
+            "events_conducted": 0,
+        }
+        rows.append(row)
+        bucket_by_key[key] = row
+
+    def bucket_for(day):
+        if period == "daily":
+            key = day.isoformat()
+        elif period == "weekly":
+            key = (day - timedelta(days=day.weekday())).isoformat()
+        else:
+            key = day.strftime("%Y-%m")
+
+        return bucket_by_key.get(key)
+
+    # Calendar dates are stored as UTC-midnight datetimes.
+    visit_start = to_dt(first_date)
+    visit_end = to_dt(today + timedelta(days=1))
+
+    visits = await db[c.HOME_VISITS].find({
+        "volunteer_id": user["_id"],
+        "village_id": village_id,
+        "visit_date": {
+            "$gte": visit_start,
+            "$lt": visit_end,
+        },
+    }).to_list()
+
+    for visit in visits:
+        visit_day = to_date(visit.get("visit_date"))
+        row = bucket_for(visit_day) if visit_day else None
+
+        if not row:
+            continue
+
+        # A visit record represents a scheduled activity; its status
+        # tells us whether the activity was completed.
+        row["visits_planned"] += 1
+
+        if visit.get("status") == "completed":
+            row["visits_completed"] += 1
+
+    # Events are counted only when this volunteer is responsible for them.
+    event_start, event_end = local_day_bounds(first_date, today)
+
+    events = await db[c.EVENTS].find({
+        "responsible_volunteer_id": user["_id"],
+        "village_id": village_id,
+        "start_at": {
+            "$gte": event_start,
+            "$lt": event_end,
+        },
+    }).to_list()
+
+    for event in events:
+        start_at = event.get("start_at")
+        if not start_at:
+            continue
+
+        event_day = start_at.astimezone(local_tz()).date()
+        row = bucket_for(event_day)
+
+        if not row:
+            continue
+
+        if event.get("planned", False):
+            row["events_planned"] += 1
+
+        if event.get("status") == "completed":
+            row["events_conducted"] += 1
+
+    totals = {
+        "visits_planned": sum(r["visits_planned"] for r in rows),
+        "visits_completed": sum(r["visits_completed"] for r in rows),
+        "events_planned": sum(r["events_planned"] for r in rows),
+        "events_conducted": sum(r["events_conducted"] for r in rows),
+    }
+
+    planned = totals["visits_planned"] + totals["events_planned"]
+    completed = totals["visits_completed"] + totals["events_conducted"]
+
+    totals["completion_rate"] = (
+        round(completed / planned * 100)
+        if planned else 0
+    )
+
+    return {
+        "period": period,
+        "assigned": True,
+        "rows": rows,
+        "totals": totals,
+    }
 
 
 @router.get("/{volunteer_id}")

@@ -10,3 +10,7 @@ uharfbuzz>=0.41
 pytest>=8
 tzdata>=2024.1
 pywebpush>=2.0
+
+# Stakeholder-only Gemini RAG assistant
+langchain-core>=1.0
+langchain-google-genai>=4.0
