@@ -14,6 +14,8 @@ from app.utils.mongo import ObjectIdStr, get_or_404, oid, serialize
 
 router = APIRouter(prefix="/media", tags=["media"])
 EntityType = Literal["event", "home_visit", "case", "girl", "activity_report"]
+# Identity documents attached to a girl; each girl holds at most one file per kind.
+MediaKind = Literal["aadhaar_front", "aadhaar_back"]
 PERMISSION_RESOURCE = {"event": "events", "home_visit": "home_visits", "case": "cases", "girl": "girls",
                        "activity_report": "activity_reports"}
 
@@ -41,7 +43,12 @@ async def upload(
     captured_at: datetime | None = Form(None),
     caption: str | None = Form(None),
     sensitive: bool = Form(False),
+    kind: MediaKind | None = Form(None),
 ):
+    if kind and entity_type != "girl":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Document kinds apply only to girls")
+    if kind and not (file.content_type or "").startswith("image/") and file.content_type != "application/pdf":
+        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, "Aadhaar card must be an image or PDF")
     await require_permission(PERMISSION_RESOURCE[entity_type], "update")(db, user)
     coll = storage.ENTITY_COLLECTIONS[entity_type]
     record = await get_or_404(db[coll], entity_id, entity_type.replace("_", " ").title(), village_scope(user))
@@ -49,11 +56,27 @@ async def upload(
         db, file, entity_type, record["_id"], user, lat=lat, lng=lng, accuracy_m=accuracy_m,
         captured_at=captured_at, caption=caption, sensitive=sensitive or entity_type in ("case", "girl"),
     )
+    if kind:
+        if doc.get("kind") not in (None, kind):
+            raise HTTPException(status.HTTP_409_CONFLICT, f"This file is already uploaded as {doc['kind'].replace('_', ' ')}")
+        await _replace_kind(db, user, doc, kind)
+        doc["kind"] = kind
     if created:
         if entity_type in ("event", "home_visit"):
             await db[coll].update_one({"_id": record["_id"]}, {"$addToSet": {"media_ids": doc["_id"]}})
         await audit.log(db, user, "create", "media", doc["_id"], f"Uploaded media to {entity_type}")
     return {**serialize(doc), "duplicate": not created}
+
+
+async def _replace_kind(db, user: dict, doc: dict, kind: str) -> None:
+    """Tag `doc` with `kind` and remove the girl's previous file of that kind."""
+    old = await db[c.MEDIA].find_one(
+        {"entity_type": doc["entity_type"], "entity_id": doc["entity_id"], "kind": kind, "_id": {"$ne": doc["_id"]}})
+    await db[c.MEDIA].update_one({"_id": doc["_id"]}, {"$set": {"kind": kind}})
+    if old:
+        await db[c.MEDIA].delete_one({"_id": old["_id"]})
+        storage.file_path(old).unlink(missing_ok=True)
+        await audit.log(db, user, "delete", "media", old["_id"], f"Replaced {kind.replace('_', ' ')}")
 
 
 @router.get("")

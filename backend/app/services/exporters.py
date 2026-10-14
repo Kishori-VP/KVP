@@ -1,4 +1,4 @@
-"""Render report tables to Excel (openpyxl) and PDF (fpdf2, with Marathi text shaping).
+"""Render report tables to PDF (fpdf2, with Marathi text shaping), Excel (openpyxl), CSV and Word (python-docx).
 
 A report is a dict:
 {
@@ -10,11 +10,19 @@ A report is a dict:
 }
 """
 
+import csv
 import io
 import re
+import zipfile
 from datetime import date, datetime
 from pathlib import Path
+from typing import Literal
 
+from docx import Document
+from docx.enum.section import WD_ORIENT
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Pt, RGBColor
 from fpdf import FPDF
 from fpdf.fonts import FontFace
 from openpyxl import Workbook
@@ -27,6 +35,11 @@ from app.utils.dates import local_tz
 FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 PDF = "application/pdf"
+CSV = "text/csv; charset=utf-8"
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+ZIP = "application/zip"
+ExportFormat = Literal["pdf", "xlsx", "csv", "docx"]
+FORMAT_LABELS = {"pdf": "PDF", "xlsx": "Excel", "csv": "CSV", "docx": "Word"}
 BRAND = "7B2D8E"
 
 
@@ -212,10 +225,131 @@ def to_pdf(report: dict) -> bytes:
     return bytes(pdf.output())
 
 
+# ---------------------------------------------------------------- CSV
+
+def to_csv(report: dict) -> bytes:
+    """All sections in one sheet-like file, separated by blank lines. BOM so Excel reads Marathi correctly."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([report["title"]])
+    if report.get("subtitle"):
+        w.writerow([report["subtitle"]])
+    if report.get("period"):
+        w.writerow([f"Period: {report['period']['label']}"])
+    w.writerow([_generated_line()])
+    if report.get("summary"):
+        w.writerow([])
+        w.writerow(["Indicator", "Value"])
+        for item in report["summary"]:
+            w.writerow([item["label"], _fmt(item["value"])])
+    for section in report.get("sections", []):
+        cols = section["columns"]
+        w.writerow([])
+        w.writerow([section["title"]])
+        w.writerow([col["label"] for col in cols])
+        for row in section["rows"]:
+            w.writerow([_fmt(row.get(col["key"])) for col in cols])
+        if section.get("totals"):
+            w.writerow([_fmt(section["totals"].get(col["key"], "Total" if i == 0 else "")) for i, col in enumerate(cols)])
+    if report.get("notes"):
+        w.writerow([])
+        for note in report["notes"]:
+            w.writerow([note])
+    return buf.getvalue().encode("utf-8-sig")
+
+
+# ---------------------------------------------------------------- Word
+
+def _shade(cell, hex_color: str) -> None:
+    shd = OxmlElement("w:shd")
+    shd.set(qn("w:val"), "clear")
+    shd.set(qn("w:fill"), hex_color)
+    cell._tc.get_or_add_tcPr().append(shd)
+
+
+def _docx_table(doc, columns: list[dict], rows: list[dict], totals: dict | None = None) -> None:
+    table = doc.add_table(rows=1, cols=len(columns))
+    table.style = "Table Grid"
+    for cell, col in zip(table.rows[0].cells, columns):
+        cell.text = ""
+        run = cell.paragraphs[0].add_run(str(col["label"]))
+        run.bold = True
+        run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        _shade(cell, BRAND)
+    for r in rows:
+        for cell, col in zip(table.add_row().cells, columns):
+            cell.text = str(_fmt(r.get(col["key"])))
+    if totals:
+        for i, (cell, col) in enumerate(zip(table.add_row().cells, columns)):
+            cell.text = ""
+            cell.paragraphs[0].add_run(str(_fmt(totals.get(col["key"], "Total" if i == 0 else "")))).bold = True
+
+
+def to_docx(report: dict) -> bytes:
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Nirmala UI"  # ships with Windows and covers both Latin and Devanagari
+    style.font.size = Pt(9)
+    if max([len(s["columns"]) for s in report.get("sections", [])] + [0]) > 6:
+        sec = doc.sections[0]
+        sec.orientation = WD_ORIENT.LANDSCAPE
+        sec.page_width, sec.page_height = sec.page_height, sec.page_width
+    doc.add_heading(report["title"], level=1)
+    for line in (report.get("subtitle"), report.get("period") and f"Period: {report['period']['label']}", _generated_line()):
+        if line:
+            doc.add_paragraph(line)
+    if report.get("summary"):
+        doc.add_heading("Key indicators", level=2)
+        _docx_table(doc, [{"key": "label", "label": "Indicator"}, {"key": "value", "label": "Value"}], report["summary"])
+    for section in report.get("sections", []):
+        if not section["rows"]:
+            continue
+        doc.add_heading(section["title"], level=2)
+        rows = section["rows"]
+        _docx_table(doc, section["columns"], rows[:2000], section.get("totals"))
+        if len(rows) > 2000:
+            doc.add_paragraph(f"Showing first 2000 of {len(rows)} rows. Use the Excel export for the full list.")
+    if report.get("notes"):
+        doc.add_heading("Notes", level=2)
+        for note in report["notes"]:
+            doc.add_paragraph(note, style="List Bullet")
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+RENDERERS = {"pdf": (to_pdf, PDF), "xlsx": (to_xlsx, XLSX), "csv": (to_csv, CSV), "docx": (to_docx, DOCX)}
+
+
 def render(report: dict, fmt: str) -> tuple[bytes, str, str]:
-    if fmt == "xlsx":
-        return to_xlsx(report), XLSX, "xlsx"
-    return to_pdf(report), PDF, "pdf"
+    fn, media_type = RENDERERS.get(fmt, RENDERERS["pdf"])
+    return fn(report), media_type, fmt if fmt in RENDERERS else "pdf"
+
+
+def render_many(report: dict, formats: list[str], stem: str,
+                extra: list[tuple[str, bytes, str]] | None = None) -> tuple[bytes, str, str]:
+    """One format gives that file; several formats, or any `extra` files (e.g. a template's attached
+    cover letter), are bundled into a ZIP. Returns (content, media_type, filename)."""
+    formats = list(dict.fromkeys(formats))  # de-duplicate, keep order
+    if len(formats) == 1 and not extra:
+        content, media_type, ext = render(report, formats[0])
+        return content, media_type, f"{stem}.{ext}"
+    buf = io.BytesIO()
+    used: set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for fmt in formats:
+            content, _, ext = render(report, fmt)
+            used.add(f"{stem}.{ext}")
+            zf.writestr(f"{stem}.{ext}", content)
+        for name, content, _ in extra or []:
+            base, dot, ext = name.rpartition(".")
+            unique, i = name, 2
+            while unique in used:
+                unique = f"{base}-{i}{dot}{ext}" if dot else f"{name}-{i}"
+                i += 1
+            used.add(unique)
+            zf.writestr(unique, content)
+    return buf.getvalue(), ZIP, f"{stem}.zip"
 
 
 # ---------------------------------------------------------------- event report

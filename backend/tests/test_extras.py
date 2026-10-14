@@ -1,5 +1,7 @@
 """Report templates, SMS participant reminders, push subscriptions, sync status, village locations."""
 
+import io
+import zipfile
 from datetime import date, timedelta
 
 API = "/api/v1"
@@ -46,9 +48,31 @@ def test_report_templates(client, admin):
     assert rep["notes"][0] == "Prepared by SEDT" and "For donor review" in rep["subtitle"]
     pdf = client.get(f"{API}/reports/templates/{tpl['id']}/run", headers=admin, params={"format": "pdf"})
     assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    both = client.get(f"{API}/reports/templates/{tpl['id']}/run", headers=admin, params={"formats": "docx,csv"})
+    assert both.status_code == 200 and both.headers["content-type"] == "application/zip"
+
+    # PDF / Word attachments travel with every report the template produces.
+    attach = f"{API}/reports/templates/{tpl['id']}/attachments"
+    cover = ok(client.post(attach, headers=admin, files={"file": ("Cover letter.pdf", b"%PDF-1.4 cover", "application/pdf")}), 201)
+    annex = ok(client.post(attach, headers=admin, files={"file": ("Annexure.docx", b"PK annexure", "application/octet-stream")}), 201)
+    assert annex["content_type"].endswith("wordprocessingml.document")
+    assert client.post(attach, headers=admin, files={"file": ("notes.txt", b"hi", "text/plain")}).status_code == 415
+    assert client.get(f"{attach}/{cover['id']}", headers=admin).content == b"%PDF-1.4 cover"
+    single = client.get(f"{API}/reports/templates/{tpl['id']}/run", headers=admin, params={"format": "pdf"})
+    assert single.headers["content-type"] == "application/zip"  # one format + attachments is still a bundle
+    with zipfile.ZipFile(io.BytesIO(single.content)) as zf:
+        names = sorted(zf.namelist())
+    assert "Annexure.docx" in names and "Cover letter.pdf" in names and len(names) == 3
+
     me = ok(client.get(f"{API}/auth/me", headers=admin))
     shared = ok(client.post(f"{API}/reports/templates/{tpl['id']}/share", headers=admin, json={"recipient_user_ids": [me["id"]]}))
     assert shared["template_id"] == tpl["id"]
+    assert sorted(f.get("name") for f in shared["files"] if f["format"] == "attachment") == ["Annexure.docx", "Cover letter.pdf"]
+    assert client.delete(f"{attach}/{annex['id']}", headers=admin).status_code == 204
+    kept = client.get(f"{API}/reports/generated/{shared['id']}/download", headers=admin,
+                      params={"format": "attachment", "name": "Annexure.docx"})
+    assert kept.status_code == 200 and kept.content == b"PK annexure"  # generated report keeps its copy
+    assert [a["id"] for a in ok(client.get(f"{API}/reports/templates/{tpl['id']}", headers=admin))["attachments"]] == [cover["id"]]
     sch = ok(client.post(f"{API}/reports/schedules", headers=admin, json={
         "name": "Weekly template", "template_id": tpl["id"], "frequency": "weekly", "recipient_user_ids": [me["id"]]}), 201)
     assert sch["report_type"] == "village_wise"

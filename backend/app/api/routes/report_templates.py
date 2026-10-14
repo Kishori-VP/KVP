@@ -8,14 +8,16 @@ custom title and notes. Templates can be run, exported, shared and scheduled.
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import Response
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from pymongo.errors import DuplicateKeyError
 
 from app.core.deps import Db, Stakeholder
 from app.db import collections as c
-from app.services import audit, exporters
+from app.api.routes.reports import export_response, parse_formats
+from app.services import audit, template_attachments
+from app.services.exporters import ExportFormat
 from app.services.report_delivery import generate_and_share
 from app.services.reports import REPORT_TYPES, apply_template, build_report, report_structure, validate_template_against
 from app.utils.dates import PeriodType, utcnow
@@ -42,7 +44,7 @@ class TemplateBase(BaseModel):
     sections: list[SectionSelection] | None = Field(None, description="Sections to include, in order (default: all)")
     notes: list[str] | None = None
     append_default_notes: bool | None = None
-    default_formats: list[Literal["pdf", "xlsx"]] | None = None
+    default_formats: list[ExportFormat] | None = None
 
 
 class TemplateCreate(TemplateBase):
@@ -51,7 +53,7 @@ class TemplateCreate(TemplateBase):
     default_period: PeriodType = "monthly"
     include_summary: bool = True
     append_default_notes: bool = True
-    default_formats: list[Literal["pdf", "xlsx"]] = Field(default_factory=lambda: ["pdf"], min_length=1)
+    default_formats: list[ExportFormat] = Field(default_factory=lambda: ["pdf"], min_length=1)
 
 
 class TemplateUpdate(TemplateBase):
@@ -64,7 +66,7 @@ class TemplateShare(BaseModel):
     reference_date: date | None = None
     start_date: date | None = None
     end_date: date | None = None
-    formats: list[Literal["pdf", "xlsx"]] | None = None
+    formats: list[ExportFormat] | None = None
     recipient_user_ids: list[ObjectIdStr] = Field(default_factory=list)
     recipient_emails: list[EmailStr] = Field(default_factory=list)
 
@@ -166,22 +168,23 @@ async def run_template(
     reference_date: date | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-    format: Literal["json", "pdf", "xlsx"] = "json",
+    format: Literal["json", "pdf", "xlsx", "csv", "docx"] = "json",
+    formats: str | None = Query(None, description="Comma-separated, e.g. pdf,xlsx; several are bundled as a ZIP"),
 ):
     """Build the report defined by a template. Period defaults to the template's default period."""
     tpl = await get_or_404(db[c.REPORT_TEMPLATES], template_id, "Report template", {"is_active": True})
     report = await build_report(db, tpl["report_type"], period or tpl["default_period"], reference_date, start_date,
                                 end_date, tpl.get("taluka_id"), tpl.get("village_id"))
     report = apply_template(report, tpl)
-    if format == "json":
+    chosen = parse_formats(formats, format)
+    if chosen is None:
         return serialize(report)
-    content, media_type, ext = exporters.render(report, format)
-    await audit.log(db, actor, "export", "report_template", tpl["_id"], f"Exported template '{tpl['name']}' ({format})",
-                    meta={"period": report["period"]["label"]})
+    await audit.log(db, actor, "export", "report_template", tpl["_id"],
+                    f"Exported template '{tpl['name']}' ({', '.join(chosen)})", meta={"period": report["period"]["label"]})
     p = report["period"]
     safe = "".join(ch if ch.isalnum() else "_" for ch in tpl["name"])[:40]
-    filename = f"{safe}_{p['start']:%Y%m%d}-{p['end']:%Y%m%d}.{ext}"
-    return Response(content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return export_response(report, chosen, f"{safe}_{p['start']:%Y%m%d}-{p['end']:%Y%m%d}",
+                           template_attachments.load_all(tpl))
 
 
 @router.post("/templates/{template_id}/share")
@@ -198,3 +201,44 @@ async def share_template(template_id: str, body: TemplateShare, db: Db, actor: S
     await audit.log(db, actor, "export", "report_template", tpl["_id"], f"Shared template '{tpl['name']}'",
                     meta={"generated_report_id": out["_id"]})
     return serialize(out)
+
+
+# ---------------------------------------------------------------- attachments (PDF / Word sent with every report)
+
+@router.post("/templates/{template_id}/attachments", status_code=status.HTTP_201_CREATED)
+async def add_attachment(template_id: str, db: Db, actor: Stakeholder, file: UploadFile = File(...)):
+    tpl = await get_or_404(db[c.REPORT_TEMPLATES], template_id, "Report template", {"is_active": True})
+    entry = await template_attachments.save(file, tpl.get("attachments") or [], actor)
+    await db[c.REPORT_TEMPLATES].update_one({"_id": tpl["_id"]}, {"$push": {"attachments": entry},
+                                                                  "$set": {"updated_at": utcnow()}})
+    await audit.log(db, actor, "config_change", "report_template", tpl["_id"],
+                    f"Attached '{entry['original_name']}' to report template '{tpl['name']}'")
+    return serialize(entry)
+
+
+async def _attachment(db, template_id: str, attachment_id: str) -> tuple[dict, dict]:
+    tpl = await get_or_404(db[c.REPORT_TEMPLATES], template_id, "Report template")
+    entry = next((a for a in tpl.get("attachments") or [] if a["id"] == attachment_id), None)
+    if not entry:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Attachment not found")
+    return tpl, entry
+
+
+@router.get("/templates/{template_id}/attachments/{attachment_id}")
+async def download_attachment(template_id: str, attachment_id: str, db: Db, _: Stakeholder):
+    _, entry = await _attachment(db, template_id, attachment_id)
+    path = template_attachments.file_path(entry)
+    if not path.exists():
+        raise HTTPException(status.HTTP_410_GONE, "Attachment file is missing")
+    return FileResponse(path, media_type=entry["content_type"], filename=entry["original_name"])
+
+
+@router.delete("/templates/{template_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_attachment(template_id: str, attachment_id: str, db: Db, actor: Stakeholder):
+    tpl, entry = await _attachment(db, template_id, attachment_id)
+    await db[c.REPORT_TEMPLATES].update_one({"_id": tpl["_id"]}, {"$pull": {"attachments": {"id": attachment_id}},
+                                                                  "$set": {"updated_at": utcnow()}})
+    # Reports already generated keep their own copy, so the template's file can go.
+    template_attachments.file_path(entry).unlink(missing_ok=True)
+    await audit.log(db, actor, "config_change", "report_template", tpl["_id"],
+                    f"Removed '{entry['original_name']}' from report template '{tpl['name']}'")

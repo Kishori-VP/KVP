@@ -4,6 +4,7 @@ import asyncio
 import smtplib
 from datetime import UTC, date, datetime, time, timedelta
 from email.message import EmailMessage
+from pathlib import Path
 
 from bson import ObjectId
 from fastapi import HTTPException, status
@@ -11,7 +12,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import settings
 from app.db import collections as c
-from app.services import exporters, notifications
+from app.services import exporters, notifications, template_attachments
 from app.services.app_settings import get_setting
 from app.services.reports import apply_template, build_report
 from app.utils.dates import local_tz, period_bounds, previous_period, today_local, utcnow
@@ -94,6 +95,13 @@ async def generate_and_share(
         files.append({"format": ext, "path": path.relative_to(settings.reports_dir).as_posix(), "size_bytes": len(data),
                       "content_type": mime})
         attachments.append((path.name, data, mime))
+    # The template's own PDF / Word attachments are copied so the generated report keeps them.
+    for i, (name, data, mime) in enumerate(template_attachments.load_all(template), start=1):
+        path = folder / f"{stem}_attachment{i}{Path(name).suffix}"
+        path.write_bytes(data)
+        files.append({"format": "attachment", "name": name, "path": path.relative_to(settings.reports_dir).as_posix(),
+                      "size_bytes": len(data), "content_type": mime})
+        attachments.append((name, data, mime))
 
     doc = {
         "report_type": report_type,

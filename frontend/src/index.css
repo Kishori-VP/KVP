@@ -57,9 +57,18 @@ html {
 
 body {
   margin: 0;
-  background: var(--color-page);
+  background:
+    radial-gradient(900px circle at 0% 0%, rgb(3 149 131 / 6%), transparent 48%),
+    var(--color-page);
   color: var(--color-ink);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgb(3 149 131 / 18%);
+  color: var(--color-brand-900);
 }
 
 /* Brand gradient utilities */

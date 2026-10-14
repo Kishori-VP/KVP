@@ -1,12 +1,40 @@
-import { Plus, Search } from 'lucide-react'
-import { useState } from 'react'
+import { FileText, ImagePlus, Plus, Search, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GroupSelect, LookupSelect, TalukaSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table } from '../components/ui'
+import { AADHAAR_SIDES, uploadAadhaar } from '../lib/aadhaar'
 import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
 import { locale, t } from '../lib/i18n'
+
+/** File picker with a thumbnail preview, used for each side of the Aadhaar card. */
+function AadhaarPicker({ label, file, onChange }) {
+  const preview = useMemo(() => (file?.type.startsWith('image/') ? URL.createObjectURL(file) : null), [file])
+  useEffect(() => () => preview && URL.revokeObjectURL(preview), [preview])
+  const shown = preview
+  return (
+    <div>
+      <div className="mb-1 text-sm font-medium text-gray-700">{t(label)}</div>
+      <label className="relative flex h-36 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-dashed border-gray-300 bg-gray-50 text-sm text-gray-500 hover:border-brand-400 hover:bg-brand-50/40">
+        {shown ? (
+          <img src={shown} alt={t(label)} className="h-full w-full object-contain" />
+        ) : file ? (
+          <span className="flex items-center gap-1.5 px-3 text-center"><FileText className="h-5 w-5 shrink-0" /> {file.name}</span>
+        ) : (
+          <span className="flex flex-col items-center gap-1"><ImagePlus className="h-6 w-6" /> {t('Choose photo or PDF')}</span>
+        )}
+        <input type="file" accept="image/*,application/pdf" className="sr-only" onChange={(e) => { onChange(e.target.files[0] || null); e.target.value = '' }} />
+      </label>
+      {file && (
+        <button type="button" className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-700" onClick={() => onChange(null)}>
+          <X className="h-3 w-3" /> {t('Remove')}
+        </button>
+      )}
+    </div>
+  )
+}
 
 const EMPTY = { q: '', taluka_id: '', village_id: '', group_id: '', school_status: '', age_band: '', participation: '', case_status: '', anaemia: '', profile_incomplete: '' }
 
@@ -15,6 +43,8 @@ export function GirlForm({ initial, onSaved, onCancel }) {
   const [error, setError] = useState(null)
   const [dupes, setDupes] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [aadhaar, setAadhaar] = useState({})
+  const [saved, setSaved] = useState(null)
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
   const setH = (k, v) => setF((p) => ({ ...p, household: { ...(p.household || {}), [k]: v } }))
   const editing = Boolean(initial?.id)
@@ -33,7 +63,18 @@ export function GirlForm({ initial, onSaved, onCancel }) {
       const r = editing
         ? await api.patch(`/girls/${initial.id}`, body)
         : await api.post('/girls', { ...body, confirm_not_duplicate: confirm })
-      onSaved(r.data)
+      setSaved(r.data)
+      const failed = []
+      for (const { kind, label } of AADHAAR_SIDES) {
+        if (!aadhaar[kind]) continue
+        try {
+          await uploadAadhaar(r.data.id, kind, aadhaar[kind])
+        } catch (e) {
+          failed.push(`${t(label)}: ${errorMessage(e)}`)
+        }
+      }
+      if (failed.length) setError(`${t('The girl was saved, but the Aadhaar upload failed. You can upload it again from her profile.')} ${failed.join(' · ')}`)
+      else onSaved(r.data)
     } catch (e) {
       if (e.response?.status === 409 && e.response.data?.detail?.candidates) setDupes(e.response.data.detail.candidates)
       else setError(errorMessage(e))
@@ -81,9 +122,22 @@ export function GirlForm({ initial, onSaved, onCancel }) {
         <Field label={t('Economic status')}><Select options={['bpl', 'apl', 'unknown']} placeholder="—" value={f.household?.economic_status || ''} onChange={(e) => setH('economic_status', e.target.value)} /></Field>
         <Field label={t('Address / hamlet')} className="sm:col-span-2"><Input value={f.household?.address || ''} onChange={(e) => setH('address', e.target.value)} /></Field>
       </div>
+      <div className="pt-1 text-xs font-semibold uppercase tracking-wide text-gray-500">{t('Aadhaar card')}</div>
+      {editing && <p className="text-xs text-gray-500">{t('Choose a file only to replace the one already uploaded.')}</p>}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {AADHAAR_SIDES.map(({ kind, label }) => (
+          <AadhaarPicker key={kind} label={label} file={aadhaar[kind]} onChange={(file) => setAadhaar((p) => ({ ...p, [kind]: file }))} />
+        ))}
+      </div>
       <div className="flex justify-end gap-2 pt-2">
-        {onCancel && <Button variant="secondary" onClick={onCancel}>{t('Cancel')}</Button>}
-        <Button busy={busy} onClick={() => save(false)} disabled={!f.village_id || !f.name}>{editing ? t('Save changes') : t('Register girl')}</Button>
+        {saved ? (
+          <Button onClick={() => onSaved(saved)}>{editing ? t('Close') : t('Open profile')}</Button>
+        ) : (
+          <>
+            {onCancel && <Button variant="secondary" onClick={onCancel}>{t('Cancel')}</Button>}
+            <Button busy={busy} onClick={() => save(false)} disabled={!f.village_id || !f.name}>{editing ? t('Save changes') : t('Register girl')}</Button>
+          </>
+        )}
       </div>
     </div>
   )

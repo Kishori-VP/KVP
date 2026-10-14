@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import { Spinner } from './components/ui'
 import { AuthProvider, useAuth } from './lib/auth'
 import { LanguageProvider, t } from './lib/i18n'
+import Home from './pages/Home'
 import Login from './pages/Login'
 
 // Pages load on demand to keep the first download small on mobile data.
@@ -32,7 +33,7 @@ const Volunteers = lazy(() => import('./pages/Volunteers'))
 function Protected({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <Spinner />
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/home" replace />
   if (user.role !== 'stakeholder') {
     return (
       <div className="p-10 text-center text-sm text-gray-600">
@@ -50,6 +51,7 @@ export default function App() {
       <BrowserRouter>
         <Suspense fallback={<Spinner />}>
         <Routes>
+          <Route path="/home" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route
             element={

@@ -1,7 +1,7 @@
 """Reports & analytics (PRD 4.14): on-demand reports, exports, schedules and sharing."""
 
 from datetime import date
-from typing import Literal
+from typing import Literal, get_args
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import FileResponse, Response
@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.core.deps import Db, Pagination, Stakeholder
 from app.db import collections as c
 from app.services import audit, exporters
+from app.services.exporters import FORMAT_LABELS, ExportFormat
 from app.services.report_delivery import (
     FREQUENCY_PERIOD,
     generate_and_share,
@@ -25,6 +26,24 @@ from app.utils.mongo import ObjectIdStr, get_or_404, oid, oids, paginate, serial
 router = APIRouter(prefix="/reports", tags=["reports"])
 
 
+def parse_formats(formats: str | None, single: str) -> list[str] | None:
+    """`formats=pdf,csv` (comma-separated) wins over the single `format`; None means return JSON."""
+    if not formats:
+        return None if single == "json" else [single]
+    chosen = [f.strip().lower() for f in formats.split(",") if f.strip()]
+    unknown = [f for f in chosen if f not in get_args(ExportFormat)]
+    if unknown or not chosen:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            f"Unknown format(s) {unknown}. Use any of {list(get_args(ExportFormat))}")
+    return list(dict.fromkeys(chosen))
+
+
+def export_response(report: dict, formats: list[str], stem: str,
+                    extra: list[tuple[str, bytes, str]] | None = None) -> Response:
+    content, media_type, filename = exporters.render_many(report, formats, stem, extra)
+    return Response(content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 class ShareRequest(BaseModel):
     period: PeriodType = "monthly"
     reference_date: date | None = None
@@ -32,7 +51,7 @@ class ShareRequest(BaseModel):
     end_date: date | None = None
     taluka_id: ObjectIdStr | None = None
     village_id: ObjectIdStr | None = None
-    formats: list[Literal["pdf", "xlsx"]] = Field(default_factory=lambda: ["pdf", "xlsx"], min_length=1)
+    formats: list[ExportFormat] = Field(default_factory=lambda: ["pdf", "xlsx"], min_length=1)
     recipient_user_ids: list[ObjectIdStr] = Field(default_factory=list)
     recipient_emails: list[EmailStr] = Field(default_factory=list)
 
@@ -43,7 +62,7 @@ class ScheduleCreate(BaseModel):
     template_id: ObjectIdStr | None = None
     frequency: Literal["daily", "weekly", "monthly", "quarterly", "yearly"]
     run_time: str = Field("07:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$", description="Local time (IST)")
-    formats: list[Literal["pdf", "xlsx"]] = Field(default_factory=lambda: ["pdf"], min_length=1)
+    formats: list[ExportFormat] = Field(default_factory=lambda: ["pdf"], min_length=1)
     taluka_id: ObjectIdStr | None = None
     village_id: ObjectIdStr | None = None
     recipient_user_ids: list[ObjectIdStr] = Field(default_factory=list)
@@ -55,7 +74,7 @@ class ScheduleUpdate(BaseModel):
     name: str | None = None
     frequency: Literal["daily", "weekly", "monthly", "quarterly", "yearly"] | None = None
     run_time: str | None = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
-    formats: list[Literal["pdf", "xlsx"]] | None = None
+    formats: list[ExportFormat] | None = None
     recipient_user_ids: list[ObjectIdStr] | None = None
     recipient_emails: list[EmailStr] | None = None
     is_active: bool | None = None
@@ -64,7 +83,7 @@ class ScheduleUpdate(BaseModel):
 @router.get("/types")
 async def report_types(_: Stakeholder):
     return {"report_types": REPORT_TYPES, "periods": ["daily", "weekly", "monthly", "quarterly", "yearly", "custom"],
-            "formats": ["json", "pdf", "xlsx"]}
+            "formats": ["json", *get_args(ExportFormat)], "format_labels": FORMAT_LABELS}
 
 
 # ---------------------------------------------------------------- schedules & history (before /{report_type})
@@ -153,15 +172,17 @@ async def generated_reports(db: Db, _: Stakeholder, pg: Pagination, report_type:
 
 
 @router.get("/generated/{report_id}/download")
-async def download_generated(report_id: str, db: Db, _: Stakeholder, format: Literal["pdf", "xlsx"] = "pdf"):
+async def download_generated(report_id: str, db: Db, _: Stakeholder,
+                             format: ExportFormat | Literal["attachment"] = "pdf", name: str | None = None):
+    """format=attachment&name=<file name> downloads a template attachment sent with the report."""
     doc = await get_or_404(db[c.GENERATED_REPORTS], report_id, "Generated report")
-    f = next((f for f in doc["files"] if f["format"] == format), None)
+    f = next((f for f in doc["files"] if f["format"] == format and (name is None or f.get("name") == name)), None)
     if not f:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No {format} file for this report")
     path = (settings.reports_dir / f["path"]).resolve()
     if settings.reports_dir.resolve() not in path.parents or not path.exists():
         raise HTTPException(status.HTTP_410_GONE, "Report file is missing")
-    return FileResponse(path, media_type=f["content_type"], filename=path.name)
+    return FileResponse(path, media_type=f["content_type"], filename=f.get("name") or path.name)
 
 
 # ---------------------------------------------------------------- on-demand
@@ -177,19 +198,20 @@ async def get_report(
     end_date: date | None = None,
     taluka_id: ObjectIdStr | None = None,
     village_id: ObjectIdStr | None = None,
-    format: Literal["json", "pdf", "xlsx"] = "json",
+    format: Literal["json", "pdf", "xlsx", "csv", "docx"] = "json",
+    formats: str | None = None,
 ):
-    """Build a report for a period. format=pdf|xlsx downloads the file."""
+    """Build a report for a period. format=pdf|xlsx|csv|docx downloads one file;
+    formats=pdf,xlsx,... (comma-separated) downloads several, bundled as a ZIP."""
+    chosen = parse_formats(formats, format)
     report = await build_report(db, report_type, period, reference_date, start_date, end_date,
                                 oid(taluka_id) if taluka_id else None, oid(village_id) if village_id else None)
-    if format == "json":
+    if chosen is None:
         return serialize(report)
-    content, media_type, ext = exporters.render(report, format)
-    await audit.log(db, actor, "export", "report", report_type, f"Exported {report_type} ({format})",
+    await audit.log(db, actor, "export", "report", report_type, f"Exported {report_type} ({', '.join(chosen)})",
                     meta={"period": report["period"]["label"]})
     p = report["period"]
-    filename = f"{report_type}_{p['start']:%Y%m%d}-{p['end']:%Y%m%d}.{ext}"
-    return Response(content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return export_response(report, chosen, f"{report_type}_{p['start']:%Y%m%d}-{p['end']:%Y%m%d}")
 
 
 @router.post("/{report_type}/share")

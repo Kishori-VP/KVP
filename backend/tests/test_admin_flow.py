@@ -3,6 +3,8 @@
 Tests run in order and share state (ids) through the module-level `S` dict.
 """
 
+import io
+import zipfile
 from datetime import date, timedelta
 
 import pytest
@@ -136,6 +138,22 @@ def test_girls_and_duplicates(client, admin):
     merged = ok(client.post(f"{API}/girls/{S['girl']}/merge", headers=admin, json={"duplicate_id": S["girl_dup"], "reason": "Same girl"}))
     assert merged["id"] == S["girl"]
     assert ok(client.get(f"{API}/girls", headers=admin, params={"village_id": S["v1"]}))["total"] == 1
+
+
+def test_girl_aadhaar_images(client, admin):
+    def upload(content, kind, entity_type="girl"):
+        return client.post(f"{API}/media", headers=admin, files={"file": ("aadhaar.png", content, "image/png")},
+                           data={"entity_type": entity_type, "entity_id": S["girl"], "kind": kind})
+
+    front = ok(upload(b"\x89PNG front-1", "aadhaar_front"), 201)
+    assert front["kind"] == "aadhaar_front" and front["sensitive"] is True
+    ok(upload(b"\x89PNG back", "aadhaar_back"), 201)
+    assert upload(b"\x89PNG back", "aadhaar_front").status_code == 409
+    new_front = ok(upload(b"\x89PNG front-2", "aadhaar_front"), 201)
+    media = ok(client.get(f"{API}/media", headers=admin, params={"entity_type": "girl", "entity_id": S["girl"]}))
+    assert sorted(m["kind"] for m in media) == ["aadhaar_back", "aadhaar_front"]
+    assert new_front["id"] in {m["id"] for m in media} and front["id"] not in {m["id"] for m in media}
+    assert upload(b"\x89PNG x", "aadhaar_front", entity_type="case").status_code == 422
 
 
 def test_health_and_cases(client, admin):
@@ -308,7 +326,21 @@ def test_reports(client, admin):
     xlsx = client.get(f"{API}/reports/village_wise", headers=admin, params={"period": "quarterly", "format": "xlsx"})
     assert xlsx.status_code == 200 and xlsx.content[:2] == b"PK"
     assert client.get(f"{API}/reports/village_wise", headers=admin, params={"period": "custom"}).status_code == 422
+    csv_ = client.get(f"{API}/reports/village_wise", headers=admin, params={"format": "csv"})
+    assert csv_.status_code == 200 and csv_.content.startswith(b"\xef\xbb\xbf") and "Banwas" in csv_.content.decode("utf-8-sig")
+    docx = client.get(f"{API}/reports/village_wise", headers=admin, params={"format": "docx"})
+    assert docx.status_code == 200 and docx.content[:2] == b"PK" and docx.headers["content-disposition"].endswith('.docx"')
+    bundle = client.get(f"{API}/reports/donor_summary", headers=admin, params={"formats": "pdf,xlsx,csv,docx"})
+    assert bundle.status_code == 200 and bundle.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(bundle.content)) as zf:
+        assert sorted(n.rsplit(".", 1)[1] for n in zf.namelist()) == ["csv", "docx", "pdf", "xlsx"]
+    single = client.get(f"{API}/reports/donor_summary", headers=admin, params={"formats": "csv"})
+    assert single.headers["content-disposition"].endswith('.csv"')
+    assert client.get(f"{API}/reports/donor_summary", headers=admin, params={"formats": "pdf,odt"}).status_code == 422
     me = ok(client.get(f"{API}/auth/me", headers=admin))
+    multi = ok(client.post(f"{API}/reports/village_wise/share", headers=admin, json={
+        "recipient_user_ids": [me["id"]], "formats": ["pdf", "csv", "docx"]}))
+    assert sorted(f["format"] for f in multi["files"]) == ["csv", "docx", "pdf"]
     shared = ok(client.post(f"{API}/reports/programme_summary/share", headers=admin, json={
         "recipient_user_ids": [me["id"]], "formats": ["pdf"]}))
     assert shared["delivery"]["in_app"] == 1
@@ -318,7 +350,7 @@ def test_reports(client, admin):
         "name": "Monthly donor", "report_type": "donor_summary", "frequency": "monthly", "recipient_user_ids": [me["id"]]}), 201)
     ok(client.post(f"{API}/reports/schedules/{sch['id']}/run-now", headers=admin))
     gen = ok(client.get(f"{API}/reports/generated", headers=admin))
-    assert gen["total"] == 2
+    assert gen["total"] == 3
     dl = client.get(f"{API}/reports/generated/{gen['items'][0]['id']}/download", headers=admin, params={"format": "pdf"})
     assert dl.status_code == 200 and dl.content[:4] == b"%PDF"
 

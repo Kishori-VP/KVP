@@ -1,5 +1,5 @@
-import { ArrowLeft, Pencil, Plus } from 'lucide-react'
-import { useState } from 'react'
+import { ArrowLeft, FileText, Pencil, Plus, Upload } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { LookupSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
@@ -7,6 +7,7 @@ import api, { errorMessage } from '../lib/api'
 import { fmtDate, fmtDateTime, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups } from '../lib/hooks'
 import { GirlForm } from './Girls'
+import { AADHAAR_SIDES, uploadAadhaar } from '../lib/aadhaar'
 import { t } from '../lib/i18n'
 
 export function CaseCreateModal({ open, onClose, girl, onCreated }) {
@@ -96,6 +97,78 @@ function HealthTab({ girl, reload }) {
   )
 }
 
+function AadhaarCard({ girl }) {
+  const { data: media, reload } = useFetch('/media', { entity_type: 'girl', entity_id: girl.id })
+  const [urls, setUrls] = useState({})
+  const [busy, setBusy] = useState(null)
+  const [error, setError] = useState(null)
+  const byKind = Object.fromEntries((media || []).filter((m) => m.kind).map((m) => [m.kind, m]))
+
+  useEffect(() => {
+    let alive = true
+    const created = []
+    ;(async () => {
+      for (const m of media || []) {
+        if (!m.kind) continue
+        try {
+          const r = await api.get(`/media/${m.id}/file`, { responseType: 'blob' })
+          const u = URL.createObjectURL(r.data)
+          created.push(u)
+          if (alive) setUrls((p) => ({ ...p, [m.id]: u }))
+        } catch { /* ignore broken file */ }
+      }
+    })()
+    return () => { alive = false; created.forEach(URL.revokeObjectURL) }
+  }, [media])
+
+  const replace = async (kind, file) => {
+    setBusy(kind)
+    setError(null)
+    try {
+      await uploadAadhaar(girl.id, kind, file)
+      reload()
+    } catch (e) {
+      setError(errorMessage(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <Card title={t('Aadhaar card')}>
+      <ErrorBox message={error} />
+      {!media ? <Spinner /> : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {AADHAAR_SIDES.map(({ kind, label }) => {
+            const m = byKind[kind]
+            const url = m && urls[m.id]
+            return (
+              <div key={kind}>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-gray-700">{t(label)}</span>
+                  <label className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-brand-700 hover:underline">
+                    <Upload className="h-3.5 w-3.5" /> {busy === kind ? t('Uploading…') : m ? t('Replace') : t('Upload')}
+                    <input type="file" accept="image/*,application/pdf" className="sr-only" disabled={Boolean(busy)}
+                      onChange={(e) => { if (e.target.files[0]) replace(kind, e.target.files[0]); e.target.value = '' }} />
+                  </label>
+                </div>
+                <div className="flex h-44 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-gray-50 text-sm text-gray-500">
+                  {!m ? t('Not uploaded') : !url ? <Spinner /> : m.content_type?.startsWith('image/') ? (
+                    <a href={url} target="_blank" rel="noreferrer" className="h-full w-full"><img src={url} alt={t(label)} className="h-full w-full object-contain" /></a>
+                  ) : (
+                    <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-brand-700 hover:underline"><FileText className="h-5 w-5" /> {m.original_name || 'PDF'}</a>
+                  )}
+                </div>
+                {m && <div className="mt-1 text-xs text-gray-500">{t('Uploaded {date}', { date: fmtDateTime(m.uploaded_at) })}</div>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 function MergeModal({ open, onClose, girl, onMerged }) {
   const [dupId, setDupId] = useState('')
   const [reason, setReason] = useState('')
@@ -137,6 +210,7 @@ export default function GirlDetail() {
   const { data: g, error, reload, setData } = useFetch(`/girls/${id}`)
   const [tab, setTab] = useState('profile')
   const [editing, setEditing] = useState(false)
+  const [aadhaarVersion, setAadhaarVersion] = useState(0)
   const [newCase, setNewCase] = useState(false)
   const [merging, setMerging] = useState(false)
   const { data: part } = useFetch(tab === 'participation' ? `/girls/${id}/participation` : null)
@@ -208,6 +282,7 @@ export default function GirlDetail() {
               { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
             ]} rows={g.recent_cases} empty={t('No cases.')} />
           </Card>
+          <div className="lg:col-span-2"><AadhaarCard key={aadhaarVersion} girl={g} /></div>
         </div>
       )}
       {tab === 'health' && <HealthTab girl={g} reload={reload} />}
@@ -239,7 +314,7 @@ export default function GirlDetail() {
       )}
 
       <Modal open={editing} title={t('Edit {code}', { code: g.girl_code })} onClose={() => setEditing(false)} wide>
-        <GirlForm initial={{ ...g, dob: g.dob?.slice(0, 10) }} onCancel={() => setEditing(false)} onSaved={(r) => { setData({ ...g, ...r }); setEditing(false); reload() }} />
+        <GirlForm initial={{ ...g, dob: g.dob?.slice(0, 10) }} onCancel={() => setEditing(false)} onSaved={(r) => { setData({ ...g, ...r }); setEditing(false); setAadhaarVersion((v) => v + 1); reload() }} />
       </Modal>
       <CaseCreateModal open={newCase} onClose={() => setNewCase(false)} girl={g} onCreated={() => { setNewCase(false); reload(); reloadCases() }} />
       <MergeModal open={merging} onClose={() => setMerging(false)} girl={g} onMerged={() => { setMerging(false); reload() }} />

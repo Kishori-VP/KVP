@@ -9,7 +9,7 @@ export function cx(...classes) {
 
 const BTN = {
   primary: 'bg-brand-gradient bg-brand-gradient-hover text-white',
-  secondary: 'bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 disabled:text-gray-400',
+  secondary: 'border border-gray-200 bg-white text-gray-800 shadow-sm hover:border-brand-200 hover:bg-brand-50 disabled:text-gray-400',
   danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
   ghost: 'text-brand-700 hover:bg-brand-50 disabled:text-gray-400',
 }
@@ -19,8 +19,8 @@ export function Button({ variant = 'primary', size = 'md', busy, className, chil
     <button
       type="button"
       className={cx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors disabled:cursor-not-allowed',
-        size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3.5 py-2 text-sm',
+        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed',
+        size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-3.5 py-2 text-sm',
         BTN[variant],
         className,
       )}
@@ -35,10 +35,10 @@ export function Button({ variant = 'primary', size = 'md', busy, className, chil
 
 export function Card({ title, actions, children, className, padded = true }) {
   return (
-    <section className={cx('rounded-xl border border-black/10 bg-white shadow-sm', className)}>
+    <section className={cx('overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm shadow-slate-900/[0.03]', className)}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-black/5 px-4 py-3">
-          {title && <h2 className="text-sm font-semibold text-gray-900">{title}</h2>}
+        <header className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gradient-to-r from-brand-50/60 to-white px-4 py-3">
+          {title && <h2 className="text-sm font-semibold tracking-[-0.01em] text-gray-900">{title}</h2>}
           {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
@@ -49,10 +49,10 @@ export function Card({ title, actions, children, className, padded = true }) {
 
 export function PageHeader({ title, subtitle, actions }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
-        {subtitle && <p className="mt-0.5 text-sm text-gray-500">{subtitle}</p>}
+        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{title}</h1>
+        {subtitle && <p className="mt-1 text-sm leading-relaxed text-gray-500">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
     </div>
@@ -112,7 +112,7 @@ export function Field({ label, hint, children, className, group }) {
   )
 }
 
-const INPUT = 'w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-gray-50'
+const INPUT = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm outline-none transition placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-gray-50'
 
 export function Input(props) {
   return <input className={INPUT} {...props} />
@@ -283,9 +283,9 @@ export function Tabs({ tabs, value, onChange }) {
 /** KPI tile: label, big number, optional sub line. */
 export function StatTile({ label, value, sub, tone }) {
   return (
-    <div className="rounded-xl border border-black/10 bg-white px-4 py-3 shadow-sm">
+    <div className="relative overflow-hidden rounded-xl border border-gray-200/80 bg-white px-4 py-3.5 shadow-sm shadow-slate-900/[0.03] transition-all hover:-translate-y-0.5 hover:shadow-md before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-brand-gradient">
       <div className="text-xs font-medium text-gray-500">{label}</div>
-      <div className={cx('mt-1 text-2xl font-semibold', tone === 'alert' ? 'text-red-700' : 'text-gray-900')}>
+      <div className={cx('mt-1 text-2xl font-semibold tracking-tight', tone === 'alert' ? 'text-red-700' : 'text-gray-900')}>
         {value ?? '—'}
       </div>
       {sub && <div className="mt-0.5 text-xs text-gray-500">{sub}</div>}
