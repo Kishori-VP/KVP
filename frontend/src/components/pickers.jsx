@@ -26,7 +26,7 @@ export function VolunteerSelect({ value, onChange, villageId, placeholder = t('A
   const vols = useVolunteers()
   const opts = vols
     .filter((v) => !villageId || v.village_id === villageId)
-    .map((v) => ({ value: v.id, label: v.village_name ? `${v.name} (${v.village_name})` : v.name }))
+    .map((v) => ({ value: v.id, label: v.village_name ? `${bilingual(v.name, v.name_mr)} (${bilingual(v.village_name, v.village_name_mr)})` : bilingual(v.name, v.name_mr) }))
   return <Select options={opts} placeholder={placeholder} value={value || ''} onChange={(e) => onChange(e.target.value)} />
 }
 
@@ -34,7 +34,7 @@ export function GroupSelect({ value, onChange, villageId, placeholder = t('All g
   const { data } = useFetch(villageId ? '/groups' : null, { village_id: villageId, group_type: groupType, page_size: 200 })
   return (
     <Select
-      options={(data?.items || []).map((g) => ({ value: g.id, label: g.name }))}
+      options={(data?.items || []).map((g) => ({ value: g.id, label: bilingual(g.name, g.name_mr) }))}
       placeholder={villageId ? placeholder : t('Pick a village first')}
       value={value || ''}
       disabled={!villageId}
@@ -70,7 +70,7 @@ export function GroupMultiSelect({ villageId, value = [], onChange }) {
           className={`cursor-pointer rounded-full border px-3 py-1 text-xs ${value.includes(g.id) ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-gray-300 text-gray-700'}`}
         >
           <input type="checkbox" className="sr-only" checked={value.includes(g.id)} onChange={() => toggle(g.id)} />
-          {g.name} {g.group_type === 'bal_panchayat' && <span className="text-gray-400">(BP)</span>}
+          {bilingual(g.name, g.name_mr)} {g.group_type === 'bal_panchayat' && <span className="text-gray-400">(BP)</span>}
         </label>
       ))}
     </div>

@@ -121,6 +121,9 @@ async def change_role(user_id: str, body: RoleChange, db: Db, actor: Stakeholder
     user = await get_or_404(db[c.USERS], user_id, "User")
     if user["role"] == body.role:
         raise HTTPException(status.HTTP_409_CONFLICT, f"User is already a {body.role.value}")
+    # SEDT rule: an administrative Stakeholder account must not be converted into a field Volunteer.
+    if user["role"] == Role.STAKEHOLDER and body.role == Role.VOLUNTEER:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Stakeholder/Admin accounts cannot be converted to Volunteers. Create a separate Volunteer account.")
     if user["_id"] == actor["_id"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own role")
     reason = body.reason or "Role change"

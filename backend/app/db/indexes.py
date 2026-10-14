@@ -57,9 +57,11 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("village_id", ASCENDING), ("visit_date", DESCENDING)]),
         IndexModel("girl_ids"),
         IndexModel("status"),
+        IndexModel("client_record_id", unique=True, partialFilterExpression={"client_record_id": {"$type": "string"}}),
     ],
     c.ACTIVITY_REPORTS: [
         IndexModel([("volunteer_id", ASCENDING), ("report_date", ASCENDING)], unique=True),
+        IndexModel("client_record_id", unique=True, partialFilterExpression={"client_record_id": {"$type": "string"}}),
         IndexModel([("village_id", ASCENDING), ("report_date", DESCENDING)]),
     ],
     c.EVENTS: [
@@ -96,6 +98,8 @@ INDEXES: dict[str, list[IndexModel]] = {
     c.REPORT_TEMPLATES: [IndexModel("name", unique=True), IndexModel([("report_type", ASCENDING), ("is_active", ASCENDING)])],
     c.REPORT_SCHEDULES: [IndexModel([("is_active", ASCENDING), ("next_run_at", ASCENDING)])],
     c.GENERATED_REPORTS: [IndexModel("created_at")],
+    c.AI_KNOWLEDGE_CHUNKS: [IndexModel([("source_collection", ASCENDING), ("source_id", ASCENDING), ("chunk_no", ASCENDING)], unique=True)],
+    c.VOLUNTEER_ATTENDANCE: [IndexModel([("volunteer_id", ASCENDING), ("attendance_date", DESCENDING)], unique=True), IndexModel([("attendance_date", DESCENDING), ("status", ASCENDING)])],
     c.AUDIT_LOGS: [
         IndexModel([("at", DESCENDING)]),
         IndexModel([("entity_type", ASCENDING), ("entity_id", ASCENDING), ("at", DESCENDING)]),

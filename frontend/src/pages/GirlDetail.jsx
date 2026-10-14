@@ -9,6 +9,7 @@ import { useAction, useFetch, useLookups } from '../lib/hooks'
 import { GirlForm } from './Girls'
 import { AADHAAR_SIDES, uploadAadhaar } from '../lib/aadhaar'
 import { t } from '../lib/i18n'
+import { useAuth } from '../lib/auth'
 
 export function CaseCreateModal({ open, onClose, girl, onCreated }) {
   const [f, setF] = useState({ severity: 'medium', sensitive: true })
@@ -206,6 +207,8 @@ function MergeModal({ open, onClose, girl, onMerged }) {
 
 export default function GirlDetail() {
   const { id } = useParams()
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
   const nav = useNavigate()
   const { data: g, error, reload, setData } = useFetch(`/girls/${id}`)
   const [tab, setTab] = useState('profile')
@@ -240,8 +243,8 @@ export default function GirlDetail() {
         actions={<>
           <Button variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>{t('Edit')}</Button>
           <Button variant="secondary" icon={Plus} onClick={() => setNewCase(true)}>{t('New case')}</Button>
-          <Button variant="ghost" onClick={() => setMerging(true)}>{t('Merge duplicate')}</Button>
-          <Button variant="ghost" className="text-red-700" onClick={() => setDeleting(true)}>{t('Delete')}</Button>
+          {!isVolunteer && <Button variant="ghost" onClick={() => setMerging(true)}>{t('Merge duplicate')}</Button>}
+          {!isVolunteer && <Button variant="ghost" className="text-red-700" onClick={() => setDeleting(true)}>{t('Delete')}</Button>}
         </>}
       />
       <div className="flex flex-wrap gap-2">
@@ -317,12 +320,12 @@ export default function GirlDetail() {
         <GirlForm initial={{ ...g, dob: g.dob?.slice(0, 10) }} onCancel={() => setEditing(false)} onSaved={(r) => { setData({ ...g, ...r }); setEditing(false); setAadhaarVersion((v) => v + 1); reload() }} />
       </Modal>
       <CaseCreateModal open={newCase} onClose={() => setNewCase(false)} girl={g} onCreated={() => { setNewCase(false); reload(); reloadCases() }} />
-      <MergeModal open={merging} onClose={() => setMerging(false)} girl={g} onMerged={() => { setMerging(false); reload() }} />
-      <Modal open={deleting} title={t('Delete {code}?', { code: g.girl_code })} onClose={() => setDeleting(false)}
+      {!isVolunteer && <MergeModal open={merging} onClose={() => setMerging(false)} girl={g} onMerged={() => { setMerging(false); reload() }} />}
+      {!isVolunteer && <Modal open={deleting} title={t('Delete {code}?', { code: g.girl_code })} onClose={() => setDeleting(false)}
         footer={<><Button variant="secondary" onClick={() => setDeleting(false)}>{t('Cancel')}</Button><Button variant="danger" disabled={delReason.length < 3} onClick={doDelete}>{t('Delete')}</Button></>}>
         <p className="text-sm text-gray-600">{t('The record is hidden from lists but kept for the audit trail.')}</p>
         <Field label={t('Reason *')}><Input value={delReason} onChange={(e) => setDelReason(e.target.value)} /></Field>
-      </Modal>
+      </Modal>}
     </div>
   )
 }

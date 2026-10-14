@@ -2,6 +2,8 @@ from fastapi import APIRouter
 
 from app.api.routes import (
     audit_logs,
+    ai,
+    attendance,
     auth,
     cases,
     config,
@@ -24,6 +26,8 @@ from app.api.routes import (
 
 api_router = APIRouter()
 api_router.include_router(health.router)
+api_router.include_router(ai.router)  # Stakeholder-only Gemini RAG assistant
+api_router.include_router(attendance.router)  # Stakeholder-only volunteer attendance
 api_router.include_router(auth.router)
 api_router.include_router(users.router)
 api_router.include_router(volunteers.router)

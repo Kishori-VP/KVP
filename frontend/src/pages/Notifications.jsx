@@ -8,6 +8,7 @@ import { fmtDateTime, humanize } from '../lib/format'
 import { useAction, useFetch } from '../lib/hooks'
 import { currentSubscription, disablePush, enablePush, pushSupported } from '../lib/push'
 import { t } from '../lib/i18n'
+import { useAuth } from '../lib/auth'
 
 const LINK = { case: (id) => `/cases/${id}`, event: (id) => `/events/${id}`, target: () => '/targets', generated_report: () => '/reports', village: (id) => `/villages/${id}`, home_visit: () => '/field' }
 
@@ -58,6 +59,8 @@ function Announce({ open, onClose }) {
 }
 
 export default function Notifications() {
+  const { user } = useAuth()
+  const isStakeholder = user?.role === 'stakeholder'
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [announcing, setAnnouncing] = useState(false)
@@ -72,8 +75,8 @@ export default function Notifications() {
       <PageHeader title={t('Notifications & alerts')} subtitle={t('Reminders, missed targets, overdue reports and case escalations')}
         actions={<>
           <PushToggle />
-          <Button variant="secondary" icon={RefreshCw} busy={busy} onClick={runChecks}>{t('Run checks now')}</Button>
-          <Button variant="secondary" icon={Megaphone} onClick={() => setAnnouncing(true)}>{t('Announce')}</Button>
+          {isStakeholder && <Button variant="secondary" icon={RefreshCw} busy={busy} onClick={runChecks}>{t('Run checks now')}</Button>}
+          {isStakeholder && <Button variant="secondary" icon={Megaphone} onClick={() => setAnnouncing(true)}>{t('Announce')}</Button>}
           <Button variant="secondary" icon={CheckCheck} onClick={markAll}>{t('Mark all read')}</Button>
         </>} />
       {checks && <p className="mb-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">{t('New')}: {Object.entries(checks).map(([k, n]) => `${humanize(k)} ${n}`).join(' · ')}</p>}
@@ -104,7 +107,7 @@ export default function Notifications() {
         )}
         <Pagination page={page} pageSize={30} total={data?.total} onPage={setPage} />
       </Card>
-      <Announce key={String(announcing)} open={announcing} onClose={() => setAnnouncing(false)} />
+      {isStakeholder && <Announce key={String(announcing)} open={announcing} onClose={() => setAnnouncing(false)} />}
     </div>
   )
 }

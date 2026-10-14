@@ -484,7 +484,6 @@ async def health(db, start, end, period, scope):
 async def donor_summary(db, start, end, period, scope):
     """Mirrors the existing monthly donor report layout."""
     vids = [v["_id"] for v in scope["villages"]]
-    upto = min(end, today_local())
     ls, le = local_day_bounds(start, end)
     s, e = day_range(start, end)
     rows = await _village_rows(db, scope["villages"], start, end)

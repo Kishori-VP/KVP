@@ -19,11 +19,17 @@ def test_setup(client, admin):
     v = ok(client.post(f"{API}/villages", headers=admin, json={"name": "Isaad", "name_mr": "इसाद", "taluka_id": t["id"]}), 201)
     g = ok(client.post(f"{API}/groups", headers=admin, json={"name": "स्वराज", "village_id": v["id"]}), 201)
     X.update(taluka=t["id"], village=v["id"], group=g["id"])
+    # Girls are registered by the village's Volunteer (Stakeholders cannot register girls).
+    ok(client.post(f"{API}/users", headers=admin, json={
+        "name": "Isaad volunteer", "phone": "9822222222", "password": "volunteer-isaad", "role": "volunteer",
+        "village_id": v["id"]}), 201)
+    login = ok(client.post(f"{API}/auth/login", json={"identifier": "9822222222", "password": "volunteer-isaad"}))
+    vh = {"Authorization": f"Bearer {login['access_token']}"}
     for name, phone in (("Asha Kale", "9811111111"), ("Usha Kale", "9811111111"), ("Rupa Jadhav", None)):
         body = {"name": name, "village_id": v["id"], "group_id": g["id"], "age": 15, "confirm_not_duplicate": True}
         if phone:
             body["household"] = {"phone": phone}
-        ok(client.post(f"{API}/girls", headers=admin, json=body), 201)
+        ok(client.post(f"{API}/girls", headers=vh, json=body), 201)
 
 
 def test_report_templates(client, admin):

@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
 from app.core.deps import CurrentUser, Db, Stakeholder, require_permission, village_scope

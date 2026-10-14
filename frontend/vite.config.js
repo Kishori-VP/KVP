@@ -12,7 +12,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // Forward API calls to the FastAPI backend during development.
         // Set VITE_PROXY_TARGET in frontend/.env if the backend runs on another port.
-        '/api': env.VITE_PROXY_TARGET || 'http://localhost:8000',
+        '/api': env.VITE_PROXY_TARGET || 'http://localhost:8001',
       },
     },
   }

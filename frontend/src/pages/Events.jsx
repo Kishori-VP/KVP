@@ -8,6 +8,7 @@ import api from '../lib/api'
 import { fmtDateTime, humanize, todayISO } from '../lib/format'
 import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
 import { t } from '../lib/i18n'
+import { useAuth } from '../lib/auth'
 
 export function EventForm({ onSaved, onCancel }) {
   const [f, setF] = useState({ event_date: todayISO(), start_time: '10:00', group_ids: [], expected_participants: 0, is_historical: false, notify_participants: false })
@@ -129,6 +130,8 @@ function PlannedVsConducted() {
 
 export default function Events() {
   const nav = useNavigate()
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
   const types = useLookups('event_type')
   const [tab, setTab] = useState('list')
   const [f, setF] = useState({ status: '', village_id: '', event_type: '' })
@@ -137,8 +140,8 @@ export default function Events() {
   const { data, error, loading } = useFetch(tab === 'list' ? '/events' : null, { ...f, page, page_size: 25 })
   return (
     <div>
-      <PageHeader title={t('Events')} subtitle={t('Scheduling, attendance and post-event reporting')} actions={<Button icon={Plus} onClick={() => setCreating(true)}>{t('Schedule event')}</Button>} />
-      <Tabs tabs={[{ value: 'list', label: t('List') }, { value: 'calendar', label: t('Calendar') }, { value: 'pvc', label: t('Planned vs conducted') }]} value={tab} onChange={setTab} />
+      <PageHeader title={t('Events')} subtitle={t('Village events, attendance and post-event reporting')} actions={!isVolunteer && <Button icon={Plus} onClick={() => setCreating(true)}>{t('Schedule event')}</Button>} />
+      <Tabs tabs={[{ value: 'list', label: t('List') }, { value: 'calendar', label: t('Calendar') }, ...(!isVolunteer ? [{ value: 'pvc', label: t('Planned vs conducted') }] : [])]} value={tab} onChange={setTab} />
       {tab === 'list' && (
         <Card padded={false}>
           <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-3">
@@ -164,9 +167,9 @@ export default function Events() {
       )}
       {tab === 'calendar' && <CalendarView villageId={f.village_id} />}
       {tab === 'pvc' && <PlannedVsConducted />}
-      <Modal open={creating} title={t('Schedule an event')} onClose={() => setCreating(false)} wide>
+      {!isVolunteer && <Modal open={creating} title={t('Schedule an event')} onClose={() => setCreating(false)} wide>
         <EventForm onCancel={() => setCreating(false)} onSaved={(ev) => nav(`/events/${ev.id}`)} />
-      </Modal>
+      </Modal>}
     </div>
   )
 }

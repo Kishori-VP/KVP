@@ -69,7 +69,7 @@ DEFAULT_VOLUNTEER_PERMISSIONS = {
     "events": ["read", "update"],
     "targets": ["read"],
     "dashboard": ["read"],
-    "reports": [],
+    "reports": ["read"],
     "notifications": ["read", "update"],
 }
 

@@ -168,6 +168,7 @@ class HomeVisitCreate(BaseModel):
     gps: GpsCapture | None = None
     is_historical: bool = False
     notes: str | None = None
+    client_record_id: str | None = Field(None, min_length=8, max_length=100)
 
 
 class HomeVisitUpdate(BaseModel):
@@ -195,6 +196,7 @@ class ActivityReportCreate(BaseModel):
     home_visit_girl_ids: list[ObjectIdStr] = Field(default_factory=list)
     other_meetings: str | None = Field(None, description="Others met and information received")
     is_historical: bool = False
+    client_record_id: str | None = Field(None, min_length=8, max_length=100)
 
 
 class ApprovalDecision(BaseModel):

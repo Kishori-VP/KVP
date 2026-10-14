@@ -81,7 +81,17 @@ def _duplicates_out(found: list) -> list:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(require_permission("girls", "create"))]):
+    # Girl registration is a field-work action, not a Stakeholder action.
+    if user.get("role") == Role.STAKEHOLDER:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Volunteers can register girls")
+    assigned_village_id = user.get("village_id")
+    if not assigned_village_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your account has no assigned village. Contact a Stakeholder.")
     data = body.model_dump(exclude={"confirm_not_duplicate", "survey_date"})
+    # Never trust the client-supplied village for a Volunteer. It must match their assignment.
+    if data.get("village_id") and str(data["village_id"]) != str(assigned_village_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only register girls in your assigned village")
+    data["village_id"] = str(assigned_village_id)
     await validate_entity(db, "girl", data)
     data = await _resolve_refs(db, data, user)
     data["birth_year"] = estimate_birth_year(body.dob, body.age, today_local())
@@ -122,6 +132,8 @@ async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(re
 async def check_duplicates(body: DuplicateCheck, db: Db, user: Annotated[dict, Depends(require_permission("girls", "read"))]):
     data = body.model_dump(exclude={"exclude_id"})
     data["village_id"] = oid(body.village_id) if body.village_id else None
+    if user["role"] == Role.VOLUNTEER and data["village_id"] != user.get("village_id"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only check duplicates in your assigned village")
     data["group_id"] = oid(body.group_id) if body.group_id else None
     found = await find_duplicates(db, _probe(data), oid(body.exclude_id) if body.exclude_id else None)
     return {"candidates": _duplicates_out(found)}
@@ -262,18 +274,18 @@ async def participation_history(girl_id: str, db: Db, user: Annotated[dict, Depe
     girl = await get_or_404(db[c.GIRLS], girl_id, "Girl", village_scope(user))
     gid = girl["_id"]
     items = []
-    async for ev in db[c.EVENTS].find({"attendance.girl_id": gid}, {"title": 1, "event_type": 1, "start_at": 1,
+    async for ev in db[c.EVENTS].find({"attendance.girl_id": gid, **village_scope(user)}, {"title": 1, "event_type": 1, "start_at": 1,
                                                                    "status": 1, "attendance.$": 1}):
         att = ev.get("attendance", [{}])[0]
         items.append({"type": "event", "date": ev["start_at"], "id": ev["_id"], "title": ev["title"],
                       "event_type": ev["event_type"], "present": att.get("present"), "event_status": ev["status"]})
-    async for hv in db[c.HOME_VISITS].find({"girl_ids": gid}, {"visit_date": 1, "purpose": 1, "status": 1,
+    async for hv in db[c.HOME_VISITS].find({"girl_ids": gid, **village_scope(user)}, {"visit_date": 1, "purpose": 1, "status": 1,
                                                               "volunteer_id": 1, "observations": 1}):
         items.append({"type": "home_visit", "date": hv["visit_date"], "id": hv["_id"], "purpose": hv["purpose"],
                       "visit_status": hv["status"], "observations": hv.get("observations")})
-    async for rp in db[c.ACTIVITY_REPORTS].find({"home_visit_girl_ids": gid}, {"report_date": 1, "volunteer_id": 1}):
+    async for rp in db[c.ACTIVITY_REPORTS].find({"home_visit_girl_ids": gid, **village_scope(user)}, {"report_date": 1, "volunteer_id": 1}):
         items.append({"type": "home_visit_report", "date": rp["report_date"], "id": rp["_id"]})
-    async for hr in db[c.HEALTH_RECORDS].find({"girl_id": gid}, {"recorded_on": 1, "source": 1, "hb_level": 1}):
+    async for hr in db[c.HEALTH_RECORDS].find({"girl_id": gid, **village_scope(user)}, {"recorded_on": 1, "source": 1, "hb_level": 1}):
         items.append({"type": "health_check", "date": hr["recorded_on"], "id": hr["_id"], "source": hr["source"],
                       "hb_level": hr.get("hb_level")})
     items.sort(key=lambda x: x["date"], reverse=True)

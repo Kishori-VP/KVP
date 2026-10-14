@@ -6,6 +6,7 @@ import api from '../lib/api'
 import { fmtDate, fmtDateTime, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useVolunteers } from '../lib/hooks'
 import { t } from '../lib/i18n'
+import { useAuth } from '../lib/auth'
 
 function CreateModal({ open, onClose, onSaved }) {
   const vols = useVolunteers()
@@ -98,7 +99,19 @@ function DetailModal({ target, onClose, onChanged }) {
   )
 }
 
+function ModalReadOnlyTarget({ target, onClose }) {
+  return <Modal open title={target.title} onClose={onClose}>
+    <div className="mb-2 text-sm text-gray-600">{fmtDate(target.period_start)} – {fmtDate(target.period_end)} · {humanize(target.period_type)}</div>
+    <ProgressBar pct={target.progress?.progress_pct} />
+    <div className="mt-2 text-sm">{target.progress?.achieved || 0} / {target.target_value} · <StatusBadge value={target.progress?.status} /></div>
+    {target.notes && <p className="mt-3 text-sm text-gray-600">{target.notes}</p>}
+    <p className="mt-3 text-xs text-gray-500">{t('Targets can only be created or revised by a Stakeholder.')}</p>
+  </Modal>
+}
+
 export default function Targets() {
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
   const [f, setF] = useState({ when: 'current', volunteer_id: '', target_type: '', status: '' })
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
@@ -107,11 +120,11 @@ export default function Targets() {
   const set = (k, v) => { setF({ ...f, [k]: v }); setPage(1) }
   return (
     <div>
-      <PageHeader title={t('Targets')} subtitle={t('Live progress against assigned jobs and targets')} actions={<Button icon={Plus} onClick={() => setCreating(true)}>{t('Assign targets')}</Button>} />
+      <PageHeader title={t(isVolunteer ? 'My targets' : 'Targets')} subtitle={t('Live progress against assigned jobs and targets')} actions={!isVolunteer && <Button icon={Plus} onClick={() => setCreating(true)}>{t('Assign targets')}</Button>} />
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-4">
           <Select options={['current', 'upcoming', 'past', 'all']} value={f.when} onChange={(e) => set('when', e.target.value)} />
-          <VolunteerSelect value={f.volunteer_id} onChange={(v) => set('volunteer_id', v)} />
+          {!isVolunteer && <VolunteerSelect value={f.volunteer_id} onChange={(v) => set('volunteer_id', v)} />}
           <LookupSelect type="target_type" value={f.target_type} onChange={(v) => set('target_type', v)} placeholder={t('Any type')} />
           <Select options={['on_track', 'at_risk', 'achieved', 'missed', 'upcoming', 'cancelled']} placeholder={t('Any status')} value={f.status} onChange={(e) => set('status', e.target.value)} />
         </div>
@@ -120,7 +133,7 @@ export default function Targets() {
         {loading && !data ? <Spinner /> : (
           <>
             <Table onRowClick={setSelected} columns={[
-              { key: 'volunteer_name', label: t('Volunteer'), className: 'font-medium' },
+              ...(!isVolunteer ? [{ key: 'volunteer_name', label: t('Volunteer'), className: 'font-medium' }] : []),
               { key: 'title', label: t('Target') },
               { key: 'period', label: t('Period'), render: (tg) => `${fmtDate(tg.period_start)} – ${fmtDate(tg.period_end)}` },
               { key: 'value', label: t('Done / target'), render: (tg) => `${tg.progress.achieved} / ${tg.target_value}` },
@@ -132,8 +145,8 @@ export default function Targets() {
           </>
         )}
       </Card>
-      <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />
-      {selected && <DetailModal target={selected} onClose={() => setSelected(null)} onChanged={() => { setSelected(null); reload() }} />}
+      {!isVolunteer && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
+      {selected && (isVolunteer ? <ModalReadOnlyTarget target={selected} onClose={() => setSelected(null)} /> : <DetailModal target={selected} onClose={() => setSelected(null)} onChanged={() => { setSelected(null); reload() }} />)}
     </div>
   )
 }

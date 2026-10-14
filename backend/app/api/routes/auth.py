@@ -11,7 +11,6 @@ account-provisioning mechanism.
 import hmac
 from typing import Annotated
 
-from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pymongo.errors import DuplicateKeyError

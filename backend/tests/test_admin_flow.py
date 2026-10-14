@@ -118,16 +118,23 @@ def test_contacts(client, admin):
 def test_girls_and_duplicates(client, admin):
     body = {"name": "पूजा राजू शिंदे", "village_id": S["v1"], "group_id": S["g1"], "age": 14, "school_status": "studying",
             "household": {"father_name": "राजू शिंदे", "mother_name": "सुनीता"}}
-    g = ok(client.post(f"{API}/girls", headers=admin, json=body), 201)
+    # Girls are registered by the Volunteer of that village; Stakeholders are read-only here.
+    assert client.post(f"{API}/girls", headers=admin, json=body).status_code == 403
+    vh = S["vol_headers"]
+    g = ok(client.post(f"{API}/girls", headers=vh, json=body), 201)
     S["girl"] = g["id"]
     assert g["girl_code"].startswith("KVP-2627-") and g["age_band"] == "10_14"
-    r = client.post(f"{API}/girls", headers=admin, json={**body, "name": "पूजा राजु शिंदे"})
+    r = client.post(f"{API}/girls", headers=vh, json={**body, "name": "पूजा राजु शिंदे"})
     assert r.status_code == 409 and r.json()["detail"]["candidates"]
-    g2 = ok(client.post(f"{API}/girls", headers=admin, json={**body, "name": "पूजा राजु शिंदे", "confirm_not_duplicate": True}), 201)
+    g2 = ok(client.post(f"{API}/girls", headers=vh, json={**body, "name": "पूजा राजु शिंदे", "confirm_not_duplicate": True}), 201)
     S["girl_dup"] = g2["id"]
-    ok(client.post(f"{API}/girls", headers=admin, json={"name": "Kavita More", "village_id": S["v2"], "age": 17}), 201)
-    assert client.post(f"{API}/girls", headers=admin, json={**body, "group_id": S["g3"], "name": "Other"}).status_code == 422
-    assert client.post(f"{API}/girls", headers=admin, json={**body, "school_status": "nope", "name": "Zed"}).status_code == 422
+    # A volunteer cannot register a girl outside their own village.
+    assert client.post(f"{API}/girls", headers=vh, json={"name": "Kavita More", "village_id": S["v2"], "age": 17}).status_code in (403, 422)
+    r2 = ok(client.post(f"{API}/auth/login", json={"identifier": "9000000012", "password": "volunteer-2"}))
+    ok(client.post(f"{API}/girls", headers={"Authorization": f"Bearer {r2['access_token']}"},
+                   json={"name": "Kavita More", "village_id": S["v2"], "age": 17}), 201)
+    assert client.post(f"{API}/girls", headers=vh, json={**body, "group_id": S["g3"], "name": "Other"}).status_code == 422
+    assert client.post(f"{API}/girls", headers=vh, json={**body, "school_status": "nope", "name": "Zed"}).status_code == 422
 
     lst = ok(client.get(f"{API}/girls", headers=admin, params={"village_id": S["v1"], "age_band": "10_14"}))
     assert lst["total"] == 2

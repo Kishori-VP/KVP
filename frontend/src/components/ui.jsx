@@ -85,7 +85,7 @@ export function Badge({ tone, children }) {
 /** Badge whose colour follows a status code; always shows the text label (never colour alone). */
 export function StatusBadge({ value }) {
   if (value === null || value === undefined) return <span className="text-gray-400">—</span>
-  return <Badge tone={STATUS_TONE[value] || 'gray'}>{humanize(value)}</Badge>
+  return <Badge tone={STATUS_TONE[value] || 'gray'}>{t(humanize(value))}</Badge>
 }
 
 /**
