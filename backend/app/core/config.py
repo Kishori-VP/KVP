@@ -65,7 +65,7 @@ class Settings(BaseSettings):
 
     # Gemini RAG assistant (Stakeholder-only). Keep keys in backend/.env, never frontend/.env.
     gemini_api_key: str = ""
-    gemini_chat_model: str = "gemini-2.5-flash"
+    gemini_chat_model: str = "gemini-3.8-flash"
     gemini_embedding_model: str = "models/gemini-embedding-001"
 
     # Optional SMTP configuration for scheduled report emails
