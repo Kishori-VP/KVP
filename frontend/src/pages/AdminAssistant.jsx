@@ -63,15 +63,57 @@ export default function AdminAssistant() {
   ])
   const [busy, setBusy] = useState(false)
   const [reindexing, setReindexing] = useState(false)
+  const [reindexProgress, setReindexProgress] = useState('')
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const pollTimerRef = useRef(null)
+
+  function startPollingReindex() {
+    if (pollTimerRef.current) return
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const res = await api.get('/ai/reindex/status')
+        const data = res.data || {}
+        if (data.is_running) {
+          setReindexing(true)
+          const pct = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0
+          setReindexProgress(
+            data.total > 0
+              ? `${data.progress}/${data.total} (${pct}%)`
+              : 'Indexing…'
+          )
+        } else {
+          clearInterval(pollTimerRef.current)
+          pollTimerRef.current = null
+          setReindexing(false)
+          setReindexProgress('')
+          await loadStatus()
+          if (data.message && data.message !== 'Idle' && data.message !== 'Ready') {
+            setMessages((previous) => [
+              ...previous,
+              {
+                role: 'assistant',
+                content: data.message,
+              },
+            ])
+          }
+        }
+      } catch {
+        // network blip during polling, keep polling
+      }
+    }, 1500)
+  }
 
   async function loadStatus() {
     try {
       const response = await api.get('/ai/status')
       setStatus(response.data)
       setError('')
+      if (response.data?.is_reindexing) {
+        setReindexing(true)
+        startPollingReindex()
+      }
       return response.data
     } catch (err) {
       setError(errorMessage(err))
@@ -81,6 +123,9 @@ export default function AdminAssistant() {
 
   useEffect(() => {
     loadStatus()
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -88,7 +133,7 @@ export default function AdminAssistant() {
       behavior: 'smooth',
       block: 'end',
     })
-  }, [messages, busy, open, showDatabase])
+  }, [messages, busy, open, showDatabase, reindexing])
 
   useEffect(() => {
     if (open && !minimized) {
@@ -101,27 +146,26 @@ export default function AdminAssistant() {
     if (reindexing) return
 
     setReindexing(true)
+    setReindexProgress('Starting…')
     setError('')
 
     try {
       const response = await api.post('/ai/reindex')
       const result = response.data || {}
-
-      await loadStatus()
-
-      setMessages((previous) => [
-        ...previous,
-        {
-          role: 'assistant',
-          content:
-            result.message ||
-            `Knowledge index rebuilt. Indexed ${result.indexed_records ?? 0} chunks across ${result.indexed_collections ?? 0} collections.`,
-        },
-      ])
+      if (result.message) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            role: 'assistant',
+            content: result.message,
+          },
+        ])
+      }
+      startPollingReindex()
     } catch (err) {
-      setError(errorMessage(err))
-    } finally {
       setReindexing(false)
+      setReindexProgress('')
+      setError(errorMessage(err))
     }
   }
 
@@ -299,11 +343,17 @@ export default function AdminAssistant() {
 
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-500">
             <span className="truncate">
-              {status
-                ? `${status.indexed_chunks || 0} chunks · ${
-                    status.configured ? 'Assistant ready' : 'AI not configured'
-                  } · ${status.retrieval_mode || 'unknown'} retrieval`
-                : 'Checking assistant status…'}
+              {reindexing ? (
+                <span className="font-medium text-brand-700 animate-pulse">
+                  ⚡ {reindexProgress ? `Reindexing: ${reindexProgress}` : 'Rebuilding index…'}
+                </span>
+              ) : status ? (
+                `${status.indexed_chunks || 0} chunks · ${
+                  status.configured ? 'Assistant ready' : 'AI not configured'
+                } · ${status.retrieval_mode || 'unknown'} retrieval`
+              ) : (
+                'Checking assistant status…'
+              )}
             </span>
 
             <button
@@ -316,7 +366,7 @@ export default function AdminAssistant() {
               <RefreshCw
                 className={`h-3 w-3 ${reindexing ? 'animate-spin' : ''}`}
               />
-              {reindexing ? 'Indexing…' : 'Reindex'}
+              {reindexing ? (reindexProgress || 'Indexing…') : 'Reindex'}
             </button>
           </div>
 

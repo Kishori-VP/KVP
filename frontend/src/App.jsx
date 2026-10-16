@@ -1,11 +1,44 @@
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import { Spinner } from './components/ui'
+import api from './lib/api'
 import { AuthProvider, useAuth } from './lib/auth'
 import { LanguageProvider } from './lib/i18n'
 import Home from './pages/Home'
 import Login from './pages/Login'
+
+function WakingBanner() {
+  const [waking, setWaking] = useState(false)
+
+  useEffect(() => {
+    // Eagerly ping backend on initial page load to start Render spin-up immediately
+    api.get('/health').catch(() => {})
+
+    function handleWaking(event) {
+      setWaking(Boolean(event.detail?.waking))
+    }
+
+    window.addEventListener('kvp:backend-waking', handleWaking)
+    return () => window.removeEventListener('kvp:backend-waking', handleWaking)
+  }, [])
+
+  if (!waking) return null
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] max-w-[92vw] sm:max-w-md px-4 py-2.5 rounded-xl bg-amber-600 text-white text-xs sm:text-sm font-medium shadow-2xl flex items-center gap-2.5"
+    >
+      <span className="relative flex h-2.5 w-2.5 shrink-0">
+        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+      </span>
+      <span>Connecting to Render… Free-tier server is waking up (~30-50s on initial load).</span>
+    </div>
+  )
+}
 
 // Pages load on demand to keep the first download small on mobile data.
 const AuditLog = lazy(() => import('./pages/AuditLog'))
@@ -69,6 +102,7 @@ export default function App() {
     <AuthProvider>
       <LanguageProvider>
       <BrowserRouter>
+        <WakingBanner />
         <Suspense fallback={<Spinner />}>
         <Routes>
           <Route path="/home" element={<Home />} />
