@@ -1,4 +1,12 @@
-"""Stakeholder-only RAG assistant over KVP MongoDB records."""
+"""Stakeholder-only RAG assistant over KVP MongoDB records.
+
+Features:
+- Comprehensive coverage across all database collections.
+- Relation enrichment (resolves village, taluka, group, and volunteer names directly into chunk headers).
+- Incremental check-and-add sync (reindex checks for newly added or modified data without re-embedding unchanged records).
+- Native MongoDB text search + vector hybrid search for sub-second candidate retrieval.
+- Asynchronous background task execution so Render HTTP proxy never times out.
+"""
 from __future__ import annotations
 
 import ast
@@ -12,8 +20,9 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from pymongo import ASCENDING, ReplaceOne, TEXT
 
 from app.core.config import settings
 from app.core.deps import Db, Stakeholder
@@ -22,7 +31,7 @@ from app.db import collections as c
 router = APIRouter(prefix="/ai", tags=["AI assistant"])
 log = logging.getLogger(__name__)
 
-# Domain knowledge collections to index (excludes ephemeral noise like audit logs, notifications, media)
+# Complete list of database collections containing knowledge, operational, and reference data
 RAG_COLLECTIONS = [
     c.TALUKAS,
     c.VILLAGES,
@@ -36,7 +45,12 @@ RAG_COLLECTIONS = [
     c.EVENTS,
     c.TARGETS,
     c.VOLUNTEER_ASSIGNMENTS,
+    c.VOLUNTEER_ATTENDANCE,
     c.USERS,
+    c.LOOKUPS,
+    c.REPORT_TEMPLATES,
+    c.NOTIFICATIONS,
+    c.AUDIT_LOGS,
 ]
 
 SENSITIVE_KEYS = {
@@ -67,6 +81,9 @@ class ReindexStatusResponse(BaseModel):
     current_collection: str
     retrieval_mode: str
     message: str
+    new_added: int = 0
+    updated: int = 0
+    deleted: int = 0
     error: str | None = None
     last_completed: str | None = None
 
@@ -80,6 +97,9 @@ class ReindexState:
         self.indexed_records: int = 0
         self.indexed_collections: int = 0
         self.retrieval_mode: str = "vector"
+        self.new_added: int = 0
+        self.updated: int = 0
+        self.deleted: int = 0
         self.error: str | None = None
         self.message: str = "Idle"
         self.last_completed: str | None = None
@@ -124,22 +144,91 @@ def _safe(value: Any) -> Any:
     return str(value)
 
 
-def _chunks_for_document(collection: str, doc: dict) -> list[dict]:
-    record_id = str(doc.get("_id", "unknown"))
-    safe_doc = _safe(doc)
-    content = json.dumps(safe_doc, ensure_ascii=False, default=str)
+async def _build_lookup_maps(db: Db) -> dict[str, dict[str, str]]:
+    """Preload human-readable names to resolve foreign keys directly into chunks."""
+    villages: dict[str, str] = {}
+    async for v in db[c.VILLAGES].find({}, {"name": 1}):
+        villages[str(v["_id"])] = v.get("name") or str(v["_id"])
 
-    max_chars = 4500
-    overlap = 300
+    talukas: dict[str, str] = {}
+    async for t in db[c.TALUKAS].find({}, {"name": 1}):
+        talukas[str(t["_id"])] = t.get("name") or str(t["_id"])
+
+    groups: dict[str, str] = {}
+    async for g in db[c.GROUPS].find({}, {"name": 1, "group_type": 1}):
+        name = g.get("name") or ""
+        gtype = g.get("group_type") or ""
+        groups[str(g["_id"])] = f"{name} ({gtype})".strip() if gtype else name
+
+    users: dict[str, str] = {}
+    async for u in db[c.USERS].find({}, {"full_name": 1, "name": 1, "role": 1}):
+        uname = u.get("full_name") or u.get("name") or "User"
+        urole = u.get("role") or ""
+        users[str(u["_id"])] = f"{uname} ({urole})".strip() if urole else uname
+
+    return {
+        "villages": villages,
+        "talukas": talukas,
+        "groups": groups,
+        "users": users,
+    }
+
+
+def _enrich_doc(collection: str, doc: dict, lookups: dict[str, dict[str, str]] | None) -> dict:
+    """Inject human-readable relation names so semantic search and LLM can understand them."""
+    if not lookups:
+        return doc
+
+    enriched = dict(doc)
+    v_id = str(doc.get("village_id") or "")
+    if v_id in lookups.get("villages", {}):
+        enriched["village_name"] = lookups["villages"][v_id]
+
+    t_id = str(doc.get("taluka_id") or "")
+    if t_id in lookups.get("talukas", {}):
+        enriched["taluka_name"] = lookups["talukas"][t_id]
+
+    g_id = str(doc.get("group_id") or "")
+    if g_id in lookups.get("groups", {}):
+        enriched["group_name"] = lookups["groups"][g_id]
+
+    vol_id = str(doc.get("volunteer_id") or doc.get("assigned_to") or doc.get("responsible_volunteer_id") or "")
+    if vol_id in lookups.get("users", {}):
+        enriched["volunteer_name"] = lookups["users"][vol_id]
+
+    return enriched
+
+
+def _chunks_for_document(collection: str, doc: dict, lookups: dict[str, dict[str, str]] | None = None) -> list[dict]:
+    """Break a document into searchable, hash-tracked chunks with clear semantic headers."""
+    record_id = str(doc.get("_id", "unknown"))
+    enriched = _enrich_doc(collection, doc, lookups)
+    safe_doc = _safe(enriched)
+
+    # Human-readable header prepended to every chunk
+    header_parts = [f"KVP Collection: {collection}", f"Record ID: {record_id}"]
+    if "village_name" in safe_doc:
+        header_parts.append(f"Village: {safe_doc['village_name']}")
+    if "taluka_name" in safe_doc:
+        header_parts.append(f"Taluka: {safe_doc['taluka_name']}")
+    if "group_name" in safe_doc:
+        header_parts.append(f"Group: {safe_doc['group_name']}")
+    if "girl_code" in safe_doc:
+        header_parts.append(f"Girl Code: {safe_doc['girl_code']}")
+    if "name" in safe_doc and safe_doc["name"]:
+        header_parts.append(f"Name: {safe_doc['name']}")
+
+    header = " | ".join(header_parts)
+    content_body = json.dumps(safe_doc, ensure_ascii=False, default=str)
+
+    max_chars = 4000
+    overlap = 250
     chunks = []
     start = 0
 
-    while start < len(content):
-        body = content[start:start + max_chars]
-        chunk_text = (
-            f"KVP collection: {collection}; record ID: {record_id}\n"
-            f"{body}"
-        )
+    while start < len(content_body):
+        body_part = content_body[start:start + max_chars]
+        chunk_text = f"{header}\n{body_part}"
         content_hash = hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
         chunks.append({
             "source_collection": collection,
@@ -148,10 +237,8 @@ def _chunks_for_document(collection: str, doc: dict) -> list[dict]:
             "content": chunk_text,
             "content_hash": content_hash,
         })
-
-        if start + max_chars >= len(content):
+        if start + max_chars >= len(content_body):
             break
-
         start += max_chars - overlap
 
     return chunks
@@ -274,6 +361,10 @@ async def ai_status(db: Db, _: Stakeholder):
         "reindex_progress": reindex_state.progress,
         "reindex_total": reindex_state.total,
         "reindex_message": reindex_state.message,
+        "new_added": reindex_state.new_added,
+        "updated": reindex_state.updated,
+        "deleted": reindex_state.deleted,
+        "last_completed": reindex_state.last_completed,
     }
 
 
@@ -286,184 +377,229 @@ async def get_reindex_status(_: Stakeholder):
         current_collection=reindex_state.current_collection,
         retrieval_mode=reindex_state.retrieval_mode,
         message=reindex_state.message,
+        new_added=reindex_state.new_added,
+        updated=reindex_state.updated,
+        deleted=reindex_state.deleted,
         error=reindex_state.error,
         last_completed=reindex_state.last_completed,
     )
 
 
-async def _chunk_cursor(cursor, size=500):
-    batch = []
-    async for doc in cursor:
-        batch.append(doc)
-        if len(batch) >= size:
-            yield batch
-            batch = []
-    if batch:
-        yield batch
-
-
-async def _run_reindex_task(db: Db):
-    """Background task for rebuilding the knowledge index without timing out."""
+async def _run_reindex_task(db: Db, force: bool = False):
+    """Background incremental sync task that checks database data and adds new/modified records."""
     global reindex_state
     reindex_state.is_running = True
     reindex_state.progress = 0
     reindex_state.total = 0
+    reindex_state.new_added = 0
+    reindex_state.updated = 0
+    reindex_state.deleted = 0
     reindex_state.error = None
-    reindex_state.message = "Preparing documents for indexing..."
+    reindex_state.message = "Scanning database and preloading relations..."
     reindex_state.retrieval_mode = "vector"
 
     try:
         _chat_model, embeddings = _models()
         index = db[c.AI_KNOWLEDGE_CHUNKS]
-        staging = db[f"{c.AI_KNOWLEDGE_CHUNKS}_staging"]
 
-        await staging.delete_many({})
+        # 1. Preload relation names for enrichment
+        lookups = await _build_lookup_maps(db)
 
-        # 1. Build cache of existing embeddings to enable instant incremental reuse
-        existing_cache: dict[tuple[str, str, int], tuple[str, list[float]]] = {}
-        try:
+        # 2. Map existing live chunks: (col, rec_id, chunk_no) -> (_id, hash, has_embedding)
+        existing_map: dict[tuple[str, str, int], dict[str, Any]] = {}
+        if not force:
             cursor = index.find(
-                {"embedding": {"$exists": True}},
+                {},
                 {"source_collection": 1, "source_id": 1, "chunk_no": 1, "content_hash": 1, "embedding": 1},
             )
             async for doc in cursor:
                 key = (doc.get("source_collection"), str(doc.get("source_id")), doc.get("chunk_no", 0))
-                existing_cache[key] = (doc.get("content_hash"), doc.get("embedding"))
-        except Exception as e:
-            log.warning("Could not read existing embeddings cache: %s", e)
+                existing_map[key] = {
+                    "_id": doc["_id"],
+                    "hash": doc.get("content_hash"),
+                    "has_embedding": bool(doc.get("embedding")),
+                }
+        else:
+            await index.delete_many({})
 
-        # 2. Gather all chunks across targeted domain collections
-        all_chunks = []
+        # 3. Scan all collections and compare chunks
+        seen_keys: set[tuple[str, str, int]] = set()
+        chunks_to_upsert: list[dict] = []
+        unchanged_count = 0
+        new_count = 0
+        updated_count = 0
+        collections_seen: set[str] = set()
+
+        reindex_state.message = "Checking database records across all collections..."
+
         for collection in RAG_COLLECTIONS:
+            reindex_state.current_collection = collection
             cursor = db[collection].find({})
             async for doc in cursor:
-                all_chunks.extend(_chunks_for_document(collection, doc))
+                doc_chunks = _chunks_for_document(collection, doc, lookups)
+                for chunk in doc_chunks:
+                    key = (chunk["source_collection"], chunk["source_id"], chunk["chunk_no"])
+                    seen_keys.add(key)
+                    collections_seen.add(collection)
 
-        reindex_state.total = len(all_chunks)
-        reindex_state.message = f"Collected {len(all_chunks)} chunks across collections. Indexing..."
+                    existing = existing_map.get(key)
+                    if existing and existing["hash"] == chunk["content_hash"]:
+                        # Record already in index with identical content - unchanged!
+                        unchanged_count += 1
+                    elif existing and existing["hash"] != chunk["content_hash"]:
+                        # Record was modified in the database
+                        updated_count += 1
+                        chunks_to_upsert.append(chunk)
+                    else:
+                        # Brand new record added to the database
+                        new_count += 1
+                        chunks_to_upsert.append(chunk)
 
-        total = 0
-        collections_seen = set()
-        batch_size = 35
+        total_scanned = len(seen_keys)
+        reindex_state.total = total_scanned
+        reindex_state.progress = unchanged_count
+
+        # 4. Remove chunks for documents that were deleted in the database
+        deleted_count = 0
+        if not force:
+            deleted_ids = [
+                val["_id"]
+                for key, val in existing_map.items()
+                if key not in seen_keys
+            ]
+            if deleted_ids:
+                deleted_count = len(deleted_ids)
+                await index.delete_many({"_id": {"$in": deleted_ids}})
+
+        reindex_state.new_added = new_count
+        reindex_state.updated = updated_count
+        reindex_state.deleted = deleted_count
+
+        # 5. Embed only new or modified chunks
         embeddings_available = True
         fallback_reason = None
+        batch_size = 35
 
-        for offset in range(0, len(all_chunks), batch_size):
-            batch = all_chunks[offset:offset + batch_size]
-            chunks_to_embed = []
-            embed_indices = []
-
-            for idx, item in enumerate(batch):
-                key = (item["source_collection"], item["source_id"], item["chunk_no"])
-                cached = existing_cache.get(key)
-                if cached and cached[0] == item.get("content_hash") and cached[1]:
-                    # Reuse existing embedding - zero API calls needed!
-                    item["embedding"] = cached[1]
-                    item["retrieval_mode"] = "vector"
-                else:
-                    chunks_to_embed.append(item["content"])
-                    embed_indices.append(idx)
-
-            # Embed new or modified chunks with exponential backoff
-            if chunks_to_embed and embeddings_available:
-                vectors = None
-                for attempt in range(4):
-                    try:
-                        vectors = await embeddings.aembed_documents(chunks_to_embed)
-                        break
-                    except Exception as exc:
-                        err_str = str(exc)
-                        if "429" in err_str or "ResourceExhausted" in err_str or "quota" in err_str.lower():
-                            if attempt < 3:
-                                wait_sec = (attempt + 1) * 3
-                                log.info("Gemini quota rate limit hit. Waiting %ss before retry...", wait_sec)
-                                await asyncio.sleep(wait_sec)
-                                continue
-                        embeddings_available = False
-                        fallback_reason = _provider_error(exc)
-                        log.warning(
-                            "Embedding API limit hit. Continuing remaining chunks with keyword mode: %s",
-                            fallback_reason,
-                        )
-                        break
-
-                if vectors:
-                    for v_idx, b_idx in enumerate(embed_indices):
-                        if v_idx < len(vectors):
-                            batch[b_idx]["embedding"] = vectors[v_idx]
-                            batch[b_idx]["retrieval_mode"] = "vector"
-
-                # Gentle pacing between embedding calls to respect 15 RPM
-                await asyncio.sleep(0.35)
-
-            for item in batch:
-                if "embedding" not in item:
-                    item["retrieval_mode"] = "keyword"
-                item["indexed_at"] = datetime.now(timezone.utc)
-                collections_seen.add(item["source_collection"])
-                reindex_state.current_collection = item["source_collection"]
-
-            await staging.insert_many(batch, ordered=False)
-            total += len(batch)
-            reindex_state.progress = total
-            reindex_state.message = f"Indexing {reindex_state.current_collection} ({total}/{reindex_state.total} chunks)..."
-
-        # 3. Publish staging to live collection
-        staged_count = await staging.count_documents({})
-        if staged_count > 0:
-            await index.delete_many({})
-            async for chunk_batch in _chunk_cursor(staging.find({}), 500):
-                await index.insert_many(chunk_batch, ordered=False)
-            await staging.delete_many({})
-
-        # Ensure text & query indexes on live collection
-        try:
-            await index.create_index([("source_collection", 1), ("source_id", 1), ("chunk_no", 1)], unique=True)
-            await index.create_index([("content", "text")], default_language="none")
-            await index.create_index([("retrieval_mode", 1)])
-            await index.create_index([("content_hash", 1)])
-        except Exception as e:
-            log.warning("Could not create indexes on live chunks collection: %s", e)
-
-        reindex_state.indexed_records = total
-        reindex_state.indexed_collections = len(collections_seen)
-        reindex_state.last_completed = datetime.now(timezone.utc).isoformat()
-        if fallback_reason:
-            reindex_state.retrieval_mode = "hybrid"
+        if chunks_to_upsert:
             reindex_state.message = (
-                f"Indexing completed with {total} chunks across {len(collections_seen)} collections. "
-                "Hybrid mode active (vectors preserved; remaining indexed via MongoDB full-text search)."
+                f"Syncing changes: {new_count} new, {updated_count} updated ({len(chunks_to_upsert)} chunks to process)..."
+            )
+
+            for offset in range(0, len(chunks_to_upsert), batch_size):
+                batch = chunks_to_upsert[offset:offset + batch_size]
+                vectors = None
+
+                if embeddings_available:
+                    for attempt in range(2):
+                        try:
+                            vectors = await embeddings.aembed_documents([item["content"] for item in batch])
+                            break
+                        except Exception as exc:
+                            err_str = str(exc)
+                            if "quota" in err_str.lower() or "limit:" in err_str:
+                                # Daily quota limit exceeded - do not loop retry
+                                embeddings_available = False
+                                fallback_reason = _provider_error(exc)
+                                log.warning("Embedding daily quota reached: %s", fallback_reason)
+                                break
+                            elif "429" in err_str or "ResourceExhausted" in err_str:
+                                if attempt < 1:
+                                    log.info("Rate limit hit. Pausing 3s before retry...")
+                                    await asyncio.sleep(3.0)
+                                    continue
+                            embeddings_available = False
+                            fallback_reason = _provider_error(exc)
+                            log.warning("Embedding API limit hit during sync: %s", fallback_reason)
+                            break
+
+                for idx, item in enumerate(batch):
+                    if vectors and idx < len(vectors):
+                        item["embedding"] = vectors[idx]
+                        item["retrieval_mode"] = "vector"
+                    else:
+                        item.pop("embedding", None)
+                        item["retrieval_mode"] = "keyword"
+                    item["indexed_at"] = datetime.now(timezone.utc)
+
+                # Bulk upsert using ReplaceOne
+                operations = [
+                    ReplaceOne(
+                        {
+                            "source_collection": item["source_collection"],
+                            "source_id": item["source_id"],
+                            "chunk_no": item["chunk_no"],
+                        },
+                        item,
+                        upsert=True,
+                    )
+                    for item in batch
+                ]
+                await index.bulk_write(operations, ordered=False)
+
+                reindex_state.progress += len(batch)
+                if vectors is not None:
+                    # Gentle pacing between embedding API calls
+                    await asyncio.sleep(0.35)
+
+        # 6. Ensure live text and query indexes
+        try:
+            await index.create_index(
+                [("source_collection", ASCENDING), ("source_id", ASCENDING), ("chunk_no", ASCENDING)],
+                unique=True,
+            )
+            await index.create_index([("content", TEXT)], default_language="none")
+            await index.create_index([("retrieval_mode", ASCENDING)])
+            await index.create_index([("content_hash", ASCENDING)])
+        except Exception as e:
+            log.warning("Indexes could not be verified: %s", e)
+
+        current_total = await index.count_documents({})
+        has_vectors = bool(await index.find_one({"embedding": {"$exists": True}}, {"_id": 1}))
+        mode = "vector" if has_vectors else "keyword"
+
+        reindex_state.last_completed = datetime.now(timezone.utc).isoformat()
+        reindex_state.retrieval_mode = mode
+
+        if fallback_reason:
+            reindex_state.message = (
+                f"Sync finished ({total_scanned} records checked). "
+                f"Added {new_count} new, updated {updated_count}, deleted {deleted_count}. "
+                f"Total chunks: {current_total}. Note: Some new items indexed via text search due to quota limit."
             )
         else:
-            reindex_state.retrieval_mode = "vector"
-            reindex_state.message = f"Indexing complete. {total} chunks indexed with vector retrieval."
+            reindex_state.message = (
+                f"Sync complete. Checked {total_scanned} records across {len(collections_seen)} collections: "
+                f"{new_count} newly added, {updated_count} updated, {deleted_count} deleted. "
+                f"Total knowledge base: {current_total} chunks ({mode} mode)."
+            )
 
     except Exception as exc:
-        log.exception("Background reindexing failed")
+        log.exception("Knowledge sync failed")
         reindex_state.error = str(exc)
-        reindex_state.message = f"Reindexing error: {str(exc)[:200]}"
+        reindex_state.message = f"Sync error: {str(exc)[:200]}"
     finally:
         reindex_state.is_running = False
 
 
 @router.post("/reindex", response_model=ReindexResponse)
-async def reindex(db: Db, _: Stakeholder):
-    """Initiate an asynchronous knowledge index rebuild in the background."""
+async def reindex(db: Db, _: Stakeholder, force: bool = Query(default=False, description="Force a full rebuild from scratch")):
+    """Check database records and add newly added or modified data to the knowledge base."""
     if reindex_state.is_running:
         return ReindexResponse(
             indexed_records=reindex_state.progress,
             indexed_collections=reindex_state.indexed_collections,
-            message=f"Reindex already in progress ({reindex_state.progress}/{reindex_state.total} chunks).",
+            message=f"Sync already in progress ({reindex_state.progress}/{reindex_state.total} records).",
             status="running",
         )
 
-    # Launch background reindexing so Render HTTP proxy never times out
-    asyncio.create_task(_run_reindex_task(db))
+    # Launch background incremental sync so Render HTTP connection never times out
+    asyncio.create_task(_run_reindex_task(db, force=force))
 
+    action = "Full rebuild" if force else "Incremental check-and-add sync"
     return ReindexResponse(
         indexed_records=0,
         indexed_collections=0,
-        message="Knowledge index rebuild started in background.",
+        message=f"{action} started in background. Checking database for updates...",
         status="started",
     )
 
@@ -477,7 +613,7 @@ async def chat(body: ChatRequest, db: Db, _: Stakeholder):
     if count == 0:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "The knowledge index is empty. Use Reindex first.",
+            "The knowledge index is empty. Click Reindex to check and add database records.",
         )
 
     query_vector = None
@@ -550,7 +686,7 @@ async def chat(body: ChatRequest, db: Db, _: Stakeholder):
         raise HTTPException(
             status.HTTP_404_NOT_FOUND,
             "No indexed records matched. Try a village name, group name, event, "
-            "or a specific field term.",
+            "girl code, or specific field term.",
         )
 
     # 5. Fetch full content for ONLY the top 7 winning documents (<20KB payload)

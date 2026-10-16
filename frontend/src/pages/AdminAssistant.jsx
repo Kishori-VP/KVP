@@ -142,15 +142,15 @@ export default function AdminAssistant() {
     }
   }, [open, minimized])
 
-  async function handleReindex() {
+  async function handleReindex(force = false) {
     if (reindexing) return
 
     setReindexing(true)
-    setReindexProgress('Starting…')
+    setReindexProgress(force ? 'Rebuilding…' : 'Checking…')
     setError('')
 
     try {
-      const response = await api.post('/ai/reindex')
+      const response = await api.post(`/ai/reindex${force ? '?force=true' : ''}`)
       const result = response.data || {}
       if (result.message) {
         setMessages((previous) => [
@@ -331,13 +331,39 @@ export default function AdminAssistant() {
                 <strong>{status?.configured ? 'Yes' : 'No'}</strong>
               </div>
 
-              <button
-                type="button"
-                onClick={loadStatus}
-                className="mt-2 rounded border border-blue-200 bg-white px-2 py-1 hover:bg-blue-100"
-              >
-                Refresh database status
-              </button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleReindex(false)}
+                  disabled={reindexing || !status?.configured}
+                  className="rounded border border-blue-300 bg-white px-2.5 py-1 font-semibold text-blue-900 shadow-sm hover:bg-blue-100 disabled:opacity-50"
+                  title="Check database for newly added or modified data"
+                >
+                  {reindexing ? 'Syncing…' : 'Sync New Data'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm('Do you want to force a full re-index of all records?')) {
+                      handleReindex(true)
+                    }
+                  }}
+                  disabled={reindexing || !status?.configured}
+                  className="rounded border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                  title="Force a complete rebuild from scratch"
+                >
+                  Full Rebuild
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loadStatus}
+                  className="rounded border border-blue-200 bg-white px-2 py-1 text-blue-800 hover:bg-blue-100"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
           )}
 
@@ -345,7 +371,7 @@ export default function AdminAssistant() {
             <span className="truncate">
               {reindexing ? (
                 <span className="font-medium text-brand-700 animate-pulse">
-                  ⚡ {reindexProgress ? `Reindexing: ${reindexProgress}` : 'Rebuilding index…'}
+                  ⚡ {reindexProgress ? `Syncing: ${reindexProgress}` : 'Syncing database…'}
                 </span>
               ) : status ? (
                 `${status.indexed_chunks || 0} chunks · ${
@@ -358,15 +384,15 @@ export default function AdminAssistant() {
 
             <button
               type="button"
-              onClick={handleReindex}
+              onClick={() => handleReindex(false)}
               disabled={reindexing || !status?.configured}
               className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-medium text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50"
-              title="Rebuild knowledge index"
+              title="Check database and add newly added data"
             >
               <RefreshCw
                 className={`h-3 w-3 ${reindexing ? 'animate-spin' : ''}`}
               />
-              {reindexing ? (reindexProgress || 'Indexing…') : 'Reindex'}
+              {reindexing ? (reindexProgress || 'Syncing…') : 'Sync Data'}
             </button>
           </div>
 
