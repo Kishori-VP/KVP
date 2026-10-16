@@ -13,7 +13,7 @@ import {
 import api, { errorMessage } from '../lib/api'
 
 const WELCOME_MESSAGE =
-  'Hi! Ask me about KVP villages, field activity, targets, cases, events, or attendance. I answer using indexed KVP database records.'
+  'Hi! Ask me anything about our programmes, field activities, villages, beneficiaries, targets, cases, events, or attendance. I answer using all database records across all programmes.'
 
 function readableAnswer(value) {
   if (typeof value === 'string') return value.trim()
@@ -249,7 +249,7 @@ export default function AdminAssistant() {
       {open && !minimized && (
         <section
           role="dialog"
-          aria-label="KVP Assistant"
+          aria-label="Ask AI"
           className="mb-3 flex h-[min(620px,calc(100dvh-100px))] w-[min(410px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 sm:h-[600px]"
         >
           <header className="flex shrink-0 items-center gap-3 bg-brand-700 px-4 py-3 text-white">
@@ -258,9 +258,9 @@ export default function AdminAssistant() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="font-semibold">KVP Assistant</div>
+              <div className="font-semibold">Ask AI</div>
               <div className="text-xs text-white/75">
-                KVP database assistant
+                All programmes & database assistant
               </div>
             </div>
 
@@ -409,7 +409,7 @@ export default function AdminAssistant() {
                 {message.role === 'assistant' && (
                   <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700">
                     <Sparkles className="h-3 w-3" />
-                    KVP Assistant
+                    Ask AI
                   </div>
                 )}
 
@@ -431,7 +431,7 @@ export default function AdminAssistant() {
             {busy && (
               <div className="w-fit rounded-xl border border-gray-100 bg-white px-3 py-2 text-xs text-gray-500 shadow-sm">
                 <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-brand-600" />
-                Searching KVP records…
+                Searching database records…
               </div>
             )}
 
@@ -463,8 +463,8 @@ export default function AdminAssistant() {
               }}
               rows={1}
               maxLength={2000}
-              placeholder="Ask about KVP data…"
-              aria-label="Ask the KVP assistant"
+              placeholder="Ask about any programme or data…"
+              aria-label="Ask AI"
               className="max-h-24 min-h-10 min-w-0 flex-1 resize-y rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
 
@@ -489,10 +489,10 @@ export default function AdminAssistant() {
         onClick={toggleAssistant}
         aria-label={
           minimized
-            ? 'Restore KVP assistant'
+            ? 'Restore Ask AI'
             : open
-              ? 'Close KVP assistant'
-              : 'Open KVP assistant'
+              ? 'Close Ask AI'
+              : 'Open Ask AI'
         }
         aria-expanded={open && !minimized}
         className="ml-auto flex h-14 items-center gap-2 rounded-full bg-brand-700 px-4 text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-brand-800 focus:outline-none focus:ring-4 focus:ring-brand-200"
@@ -507,10 +507,10 @@ export default function AdminAssistant() {
 
         <span className="text-sm font-semibold">
           {minimized
-            ? 'Restore assistant'
+            ? 'Restore Ask AI'
             : open
-              ? 'Close assistant'
-              : 'Ask KVP'}
+              ? 'Close Ask AI'
+              : 'Ask AI'}
         </span>
       </button>
     </div>
