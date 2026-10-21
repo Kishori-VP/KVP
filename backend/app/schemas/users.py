@@ -38,9 +38,12 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8)
     role: Role
     village_id: ObjectIdStr | None = Field(
-        None, description="Optional for Volunteers: a volunteer has at most one village and can be assigned later"
+        None, description="Optional village for Tais"
     )
-    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Kishori Groups in the assigned village")
+    village_ids: list[ObjectIdStr] = Field(
+        default_factory=list, description="Optional multiple villages for Tais"
+    )
+    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Kishori Groups in assigned villages")
     assignment_start_date: date | None = None
     contact: ContactDetails = Field(default_factory=ContactDetails)
     designation: str | None = None
@@ -53,10 +56,15 @@ class UserCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_village_rule(self):
-        if self.group_ids and not self.village_id:
+        if self.village_id and not self.village_ids:
+            self.village_ids = [self.village_id]
+        elif self.village_ids and not self.village_id:
+            self.village_id = self.village_ids[0]
+
+        if self.group_ids and not (self.village_id or self.village_ids):
             raise ValueError("Groups can only be assigned together with a village")
-        if self.role == Role.STAKEHOLDER and (self.village_id or self.group_ids):
-            raise ValueError("Stakeholders are not mapped to a village")
+        if self.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and (self.village_id or self.village_ids or self.group_ids):
+            raise ValueError("Admins and Super Admins are not mapped to a village")
         return self
 
 
@@ -119,3 +127,8 @@ class AssignRequest(BaseModel):
 
 class GroupAssignment(BaseModel):
     group_ids: list[ObjectIdStr]
+
+
+class MultiAssignRequest(BaseModel):
+    village_ids: list[ObjectIdStr] = Field(min_length=1)
+    effective_date: date | None = None

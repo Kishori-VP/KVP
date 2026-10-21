@@ -15,8 +15,10 @@ from typing import Dict, List
 class Role(str, Enum):
     """Application roles."""
 
-    STAKEHOLDER = "stakeholder"
-    VOLUNTEER = "volunteer"
+    STAKEHOLDER = "stakeholder"  # Top-level monitor (oversight over Admin and Tai)
+    ADMIN = "admin"              # Administrator / Program Coordinator
+    VOLUNTEER = "volunteer"      # Tai (field worker)
+    SUPER_ADMIN = "super_admin"  # Alias for Stakeholder
 
 
 # Resources supported by the permission system.
@@ -111,5 +113,7 @@ def full_matrix(
 
     return {
         Role.STAKEHOLDER: stakeholder_permissions,
+        Role.ADMIN: stakeholder_permissions,
+        Role.SUPER_ADMIN: stakeholder_permissions,
         Role.VOLUNTEER: volunteer_matrix,
     }

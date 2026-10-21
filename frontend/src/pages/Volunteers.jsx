@@ -8,7 +8,7 @@ import { fmtDate } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
 import { t } from '../lib/i18n'
 
-function AddVolunteer({ onClose, onSaved }) {
+function AddTai({ onClose, onSaved }) {
   const [f, setF] = useState({ group_ids: [] })
   const { busy, error, run } = useAction()
   const save = () => run(async () => {
@@ -20,8 +20,8 @@ function AddVolunteer({ onClose, onSaved }) {
     onSaved(r.data)
   }).catch(() => {})
   return (
-    <Modal open title={t('Add volunteer')} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.phone || !f.password} onClick={save}>{t('Add volunteer')}</Button></>}>
+    <Modal open title={t('Add Tai')} onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.phone || !f.password} onClick={save}>{t('Add Tai')}</Button></>}>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Name *')}><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
@@ -30,7 +30,7 @@ function AddVolunteer({ onClose, onSaved }) {
         <Field label={t('Designation')}><Input placeholder={t('e.g. Field worker')} value={f.designation || ''} onChange={(e) => setF({ ...f, designation: e.target.value })} /></Field>
         <Field label={t('Initial password * (min 8)')} className="sm:col-span-2"><Input type="password" value={f.password || ''} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
       </div>
-      <Field label={t('Village (optional)')} hint={t('Leave empty to assign later. A volunteer can have only one village at a time.')}>
+      <Field label={t('Village (optional)')} hint={t('Assign a village to this Tai. Multiple villages can also be assigned from Tai details.')}>
         <VillageSelect value={f.village_id} onChange={(v) => setF({ ...f, village_id: v, group_ids: [] })} placeholder={t('Assign later')} />
       </Field>
       {f.village_id && <Field label={t('Kishori Groups')} group><GroupMultiSelect villageId={f.village_id} value={f.group_ids} onChange={(v) => setF({ ...f, group_ids: v })} /></Field>}
@@ -46,13 +46,14 @@ function Roster() {
   if (error) return <ErrorBox message={error} />
   if (!data) return <Spinner />
   return (
-    <Card padded={false} title={t('{n} volunteer(s)', { n: data.length })} actions={<>
-      <Select options={[{ value: 'true', label: t('Assigned to a village') }, { value: 'false', label: t('Not yet assigned') }]} placeholder={t('All volunteers')}
+    <Card padded={false} title={t('{n} Tai(s)', { n: data.length })} actions={<>
+      <Select options={[{ value: 'true', label: t('Assigned to a village') }, { value: 'false', label: t('Not yet assigned') }]} placeholder={t('All Tais')}
         value={assigned} onChange={(e) => setAssigned(e.target.value)} />
-      <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>{t('Add volunteer')}</Button>
+      <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>{t('Add Tai')}</Button>
     </>}>
       <Table onRowClick={(r) => nav(`/volunteers/${r.id}`)} columns={[
-        { key: 'name', label: t('Volunteer'), className: 'font-medium' },
+        { key: 'name', label: t('Tai'), className: 'font-medium' },
+        { key: 'phone', label: t('Mobile') },
         { key: 'phone', label: t('Mobile') },
         { key: 'village_name', label: t('Village'), render: (r) => r.village_name || <Badge tone="yellow">{t('Not assigned')}</Badge> },
         { key: 'groups', label: t('Groups'), render: (r) => r.groups.map((g) => g.name).join(', ') || '—' },
@@ -61,7 +62,7 @@ function Roster() {
         { key: 'last_report_date', label: t('Last daily report'), render: (r) => fmtDate(r.last_report_date) },
         { key: 'is_active', label: '', render: (r) => (!r.is_active ? <Badge>{t('Inactive')}</Badge> : null) },
       ]} rows={data} empty={t('No volunteers yet. Use “Add volunteer” — the village can be assigned later.')} />
-      {adding && <AddVolunteer onClose={() => setAdding(false)} onSaved={(v) => { setAdding(false); reload(); nav(`/volunteers/${v.id}`) }} />}
+      {adding && <AddTai onClose={() => setAdding(false)} onSaved={(v) => { setAdding(false); reload(); nav(`/volunteers/${v.id}`) }} />}
     </Card>
   )
 }
@@ -73,7 +74,7 @@ function Performance() {
     <Card title={t('Performance against targets')} actions={<Select options={['daily', 'weekly', 'monthly', 'quarterly', 'yearly']} value={period} onChange={(e) => setPeriod(e.target.value)} />}>
       {!data ? <Spinner /> : (
         <Table rowKey={(r) => r.volunteer_id} columns={[
-          { key: 'name', label: t('Volunteer'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
+          { key: 'name', label: t('Tai'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
           { key: 'village_name', label: t('Village') },
           { key: 'hv', label: t('Home visits'), render: (r) => r.activity.home_visits, className: 'tabular text-right' },
           { key: 'gm', label: t('Meetings'), render: (r) => r.activity.group_meetings, className: 'tabular text-right' },
@@ -99,7 +100,7 @@ function Submissions() {
         <>
           <p className="mb-2 text-sm text-gray-600">{fmtDate(data.start)} – {fmtDate(data.end)} · {t('{n} working days', { n: data.expected_days })} · <b>{data.defaulters}</b> {t('volunteer(s) behind')}</p>
           <Table rowKey={(r) => r.volunteer_id} columns={[
-            { key: 'name', label: t('Volunteer'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
+            { key: 'name', label: t('Tai'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
             { key: 'village_name', label: t('Village') },
             { key: 'sub', label: t('Daily reports'), render: (r) => `${r.submitted} / ${r.expected}` },
             { key: 'missing_dates', label: t('Missing dates'), render: (r) => r.missing_dates.map(fmtDate).join(', ') || '—' },
@@ -115,7 +116,7 @@ export default function Volunteers() {
   const [tab, setTab] = useState('roster')
   return (
     <div>
-      <PageHeader title={t('Volunteers')} subtitle={t('Field team · at most one village per volunteer · performance · report submission')} />
+      <PageHeader title={t('Tais')} subtitle={t('Field team · multiple village assignment · performance · report submission')} />
       <Tabs tabs={[{ value: 'roster', label: t('Roster') }, { value: 'performance', label: t('Performance') }, { value: 'submissions', label: t('Submission status') }]} value={tab} onChange={setTab} />
       {tab === 'roster' && <Roster />}
       {tab === 'performance' && <Performance />}

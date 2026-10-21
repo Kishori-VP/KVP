@@ -40,7 +40,7 @@ async def create_targets(body: TargetCreate, db: Db, actor: Stakeholder):
     volunteers = await db[c.USERS].find(vq).to_list()
     if not body.all_active_volunteers and len(volunteers) != len(set(body.volunteer_ids)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Some volunteers were not found or are inactive")
-    no_village = [v["name"] for v in volunteers if not v.get("village_id")]
+    no_village = [v["name"] for v in volunteers if not (v.get("village_id") or v.get("village_ids"))]
     if no_village:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Volunteers without a village: {no_village}")
 
@@ -50,6 +50,7 @@ async def create_targets(body: TargetCreate, db: Db, actor: Stakeholder):
     now = utcnow()
     created, skipped = [], []
     for vol in volunteers:
+        vid = vol.get("village_id") or (vol.get("village_ids")[0] if vol.get("village_ids") else None)
         for start, end in periods:
             clash = await db[c.TARGETS].find_one({
                 "volunteer_id": vol["_id"], "target_type": body.target_type, "status": "active",
@@ -61,7 +62,7 @@ async def create_targets(body: TargetCreate, db: Db, actor: Stakeholder):
                 continue
             doc = {
                 "volunteer_id": vol["_id"],
-                "village_id": vol["village_id"],  # one village per volunteer -> target applies to that village
+                "village_id": vid,
                 "taluka_id": vol.get("taluka_id"),
                 "target_type": body.target_type,
                 "metric": metric,
@@ -108,7 +109,8 @@ async def list_targets(
         query["volunteer_id"] = user["_id"]
     elif volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
-    if village_id and user["role"] == Role.STAKEHOLDER:
+    from app.core.deps import ADMIN_ROLES
+    if village_id and user["role"] in ADMIN_ROLES:
         query["village_id"] = oid(village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
@@ -141,6 +143,134 @@ async def list_targets(
     for t in enriched:
         by_status[t["progress"]["status"]] = by_status.get(t["progress"]["status"], 0) + 1
     return {"items": items, "total": total, "page": pg.page, "page_size": pg.page_size, "by_status": by_status}
+
+
+from pydantic import BaseModel, Field
+
+class TaiTargetDefaults(BaseModel):
+    weekly_visits: int = Field(20, ge=1, le=1000)
+    monthly_visits: int = Field(400, ge=1, le=10000)
+    auto_assign: bool = True
+
+class ApplyDefaultsRequest(BaseModel):
+    volunteer_ids: list[ObjectIdStr] = Field(default_factory=list)
+    all_active: bool = True
+    periods: list[Literal["weekly", "monthly"]] = Field(default_factory=lambda: ["weekly", "monthly"])
+    weekly_visits: int | None = None
+    monthly_visits: int | None = None
+
+@router.get("/defaults")
+async def get_target_defaults(db: Db, _: Stakeholder):
+    """Retrieve default weekly and monthly visit targets for Tais."""
+    from app.services.app_settings import get_setting
+    setting = await get_setting(db, "tai_targets")
+    return {
+        "weekly_visits": setting.get("weekly_visits", 20),
+        "monthly_visits": setting.get("monthly_visits", 400),
+        "auto_assign": setting.get("auto_assign", True),
+    }
+
+@router.put("/defaults")
+async def update_target_defaults(body: TaiTargetDefaults, db: Db, actor: Stakeholder):
+    """Update default weekly and monthly visit targets for Tais (Admin configurable)."""
+    now = utcnow()
+    doc = {
+        "key": "tai_targets",
+        "value": body.model_dump(),
+        "updated_at": now,
+        "updated_by": actor["_id"],
+    }
+    await db[c.APP_SETTINGS].update_one({"key": "tai_targets"}, {"$set": doc}, upsert=True)
+    await audit.log(db, actor, "update", "app_setting", None, "Updated default Tai targets", body.model_dump())
+    return body.model_dump()
+
+@router.post("/apply-defaults")
+async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stakeholder):
+    """Apply default weekly (20) and monthly (400) visit targets to active Tais."""
+    from app.services.app_settings import get_setting
+    setting = await get_setting(db, "tai_targets")
+    weekly_visits = body.weekly_visits if body.weekly_visits is not None else setting.get("weekly_visits", 20)
+    monthly_visits = body.monthly_visits if body.monthly_visits is not None else setting.get("monthly_visits", 400)
+    
+    today = today_local()
+    now = utcnow()
+
+    if body.weekly_visits is not None or body.monthly_visits is not None:
+        doc = {
+            "key": "tai_targets",
+            "value": {
+                "weekly_visits": weekly_visits,
+                "monthly_visits": monthly_visits,
+                "auto_assign": setting.get("auto_assign", True),
+            },
+            "updated_at": now,
+            "updated_by": actor["_id"],
+        }
+        await db[c.APP_SETTINGS].update_one({"key": "tai_targets"}, {"$set": doc}, upsert=True)
+
+    vq: dict = {"role": Role.VOLUNTEER.value, "is_active": True}
+    if not body.all_active and body.volunteer_ids:
+        vq["_id"] = {"$in": oids(body.volunteer_ids)}
+    volunteers = await db[c.USERS].find(vq).to_list()
+    
+    created = []
+    skipped = []
+    
+    target_configs = []
+    if "weekly" in body.periods:
+        start_w, end_w = period_bounds("weekly", today)
+        target_configs.append(("weekly", start_w, end_w, weekly_visits, f"Weekly Visits ({weekly_visits})"))
+    if "monthly" in body.periods:
+        start_m, end_m = period_bounds("monthly", today)
+        target_configs.append(("monthly", start_m, end_m, monthly_visits, f"Monthly Visits ({monthly_visits})"))
+        
+    for vol in volunteers:
+        vid = vol.get("village_id") or (vol.get("village_ids")[0] if vol.get("village_ids") else None)
+        if not vid:
+            skipped.append({"volunteer": vol["name"], "reason": "No assigned village"})
+            continue
+            
+        for period_type, start, end, value, title in target_configs:
+            clash = await db[c.TARGETS].find_one({
+                "volunteer_id": vol["_id"],
+                "target_type": "home_visits",
+                "period_type": period_type,
+                "status": "active",
+                "period_start": {"$lte": to_dt(end)},
+                "period_end": {"$gte": to_dt(start)},
+            })
+            if clash:
+                await db[c.TARGETS].update_one(
+                    {"_id": clash["_id"]},
+                    {"$set": {"target_value": value, "title": title, "updated_at": now}}
+                )
+                created.append({**clash, "target_value": value, "title": title})
+                await audit.log(db, actor, "update", "target", clash["_id"], f"Updated default {period_type} target to {value} for {vol['name']}")
+                continue
+            
+            doc = {
+                "volunteer_id": vol["_id"],
+                "village_id": vid,
+                "taluka_id": vol.get("taluka_id"),
+                "target_type": "home_visits",
+                "metric": "home_visits",
+                "title": title,
+                "notes": f"Default {period_type} target for Tai (editable by Admin)",
+                "period_type": period_type,
+                "period_start": to_dt(start),
+                "period_end": to_dt(end),
+                "target_value": value,
+                "original_value": value,
+                "status": "active",
+                "revisions": [],
+                "created_by": actor["_id"],
+                "created_at": now,
+                "updated_at": now,
+            }
+            res = await db[c.TARGETS].insert_one(doc)
+            created.append({**doc, "_id": res.inserted_id})
+            await audit.log(db, actor, "create", "target", res.inserted_id, f"Applied default {period_type} target to {vol['name']}")
+    return {"created_count": len(created), "skipped_count": len(skipped), "created": serialize(created), "skipped": skipped}
 
 
 @router.get("/{target_id}")
@@ -197,3 +327,5 @@ async def cancel_target(target_id: str, body: TargetCancel, db: Db, actor: Stake
     await audit.log(db, actor, "status_change", "target", t["_id"], f"Cancelled target '{t['title']}'",
                     {"status": {"from": "active", "to": "cancelled"}}, {"reason": body.reason})
     return serialize(await db[c.TARGETS].find_one({"_id": t["_id"]}))
+
+

@@ -89,7 +89,7 @@ function RoleSwitch({ stakeholder, volunteer }) {
 
 function StakeholderOnly({ children }) {
   const { user } = useAuth()
-  return user?.role === 'stakeholder' ? children : <Navigate to="/" replace />
+  return (user?.role === 'admin' || user?.role === 'stakeholder' || user?.role === 'super_admin') ? children : <Navigate to="/" replace />
 }
 
 function VolunteerOnly({ children }) {

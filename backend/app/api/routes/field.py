@@ -6,12 +6,12 @@ dashboards and reports, plus planning (upcoming visits) and approvals.
 """
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, village_scope
+from app.core.deps import Db, Pagination, Stakeholder, require_permission, village_scope, ADMIN_ROLES
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import ActivityReportCreate, ApprovalDecision, HomeVisitCreate, HomeVisitUpdate
@@ -25,15 +25,20 @@ from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, oids, paginate, 
 router = APIRouter(tags=["field activity"])
 
 
-async def _volunteer(db, volunteer_id, user: dict) -> dict:
+async def _volunteer(db, volunteer_id, user: dict, requested_village_id: str | None = None) -> tuple[dict, Any]:
     vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Volunteer not found")
-    if not vol.get("village_id"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer has no assigned village")
+    from app.core.deps import user_village_ids, can_access_village
+    v_ids = user_village_ids(vol)
+    if not v_ids:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Tai has no assigned village")
+    target_village_id = oid(requested_village_id) if requested_village_id else v_ids[0]
+    if not can_access_village(vol, target_village_id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai is not assigned to this village")
     if user["role"] == Role.VOLUNTEER and vol["_id"] != user["_id"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteers can only record their own activity")
-    return vol
+    return vol, target_village_id
 
 
 async def _girls_in_village(db, girl_ids: list, village_id) -> list:
@@ -62,18 +67,18 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
         existing = await db[c.HOME_VISITS].find_one({"client_record_id": body.client_record_id, "created_by": user["_id"]})
         if existing:
             return serialize(existing)
-    vol = await _volunteer(db, body.volunteer_id, user)
+    vol, target_village_id = await _volunteer(db, body.volunteer_id, user, getattr(body, "village_id", None))
     _check_date_rules(body.visit_date, body.status)
-    girl_ids = await _girls_in_village(db, body.girl_ids, vol["village_id"])
+    girl_ids = await _girls_in_village(db, body.girl_ids, target_village_id)
     data = body.model_dump(exclude={"volunteer_id", "girl_ids", "visit_date"})
-    await validate_entity(db, "home_visit", {**data, "volunteer_id": vol["_id"], "village_id": vol["village_id"],
+    await validate_entity(db, "home_visit", {**data, "volunteer_id": vol["_id"], "village_id": target_village_id,
                                              "visit_date": body.visit_date})
     now = utcnow()
     is_historical = body.is_historical or body.visit_date < today_local()
     doc = {
         **data,
         "volunteer_id": vol["_id"],
-        "village_id": vol["village_id"],
+        "village_id": target_village_id,
         "taluka_id": vol.get("taluka_id"),
         "girl_ids": girl_ids,
         "visit_date": to_dt(body.visit_date),
@@ -81,10 +86,10 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
         "source": "app",
         "location_flag": None if body.gps else ("missing_gps" if body.status == "completed" else None),
         "media_ids": [],
-        # Stakeholder entries and live captures are auto-approved; back-dated volunteer entries need review.
-        "approval": {"status": "approved" if user["role"] == Role.STAKEHOLDER or not is_historical else "pending",
-                     "by": user["_id"] if user["role"] == Role.STAKEHOLDER else None,
-                     "at": now if user["role"] == Role.STAKEHOLDER else None, "remarks": None},
+        # Admin/Stakeholder entries and live captures are auto-approved; back-dated volunteer entries need review.
+        "approval": {"status": "approved" if user["role"] in ADMIN_ROLES or not is_historical else "pending",
+                     "by": user["_id"] if user["role"] in ADMIN_ROLES else None,
+                     "at": now if user["role"] in ADMIN_ROLES else None, "remarks": None},
         "created_by": user["_id"],
         "created_at": now,
         "updated_at": now,
@@ -121,7 +126,8 @@ async def list_home_visits(
     query: dict = village_scope(user)
     if volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
-    if village_id and user["role"] == Role.STAKEHOLDER:
+    from app.core.deps import ADMIN_ROLES
+    if village_id and user["role"] in ADMIN_ROLES:
         query["village_id"] = oid(village_id)
     if girl_id:
         query["girl_ids"] = oid(girl_id)
@@ -207,30 +213,38 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
         existing = await db[c.ACTIVITY_REPORTS].find_one({"client_record_id": body.client_record_id, "submitted_by": user["_id"]})
         if existing:
             return serialize(existing)
-    vol = await _volunteer(db, body.volunteer_id, user)
+    vol, target_village_id = await _volunteer(db, body.volunteer_id, user, getattr(body, "village_id", None))
     if body.report_date > today_local():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Report date cannot be in the future")
     for code in body.activities:
         await ensure_code(db, "activity_type", code, "activity")
+    from app.core.deps import user_village_ids, ADMIN_ROLES
+    v_ids = user_village_ids(vol)
     group_ids = oids(body.group_ids)
-    if group_ids and await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, "village_id": vol["village_id"]}) != len(set(group_ids)):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Groups must belong to the volunteer's village")
-    girl_ids = await _girls_in_village(db, body.home_visit_girl_ids, vol["village_id"])
+    if group_ids:
+        found_g = await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, "village_id": {"$in": v_ids}})
+        if found_g != len(set(group_ids)):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Groups must belong to the volunteer's assigned villages")
+    girl_ids = oids(body.home_visit_girl_ids)
+    if girl_ids:
+        found_girls = await db[c.GIRLS].count_documents({"_id": {"$in": girl_ids}, "village_id": {"$in": v_ids}, "is_deleted": {"$ne": True}})
+        if found_girls != len(set(girl_ids)):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "All girls must belong to the volunteer's assigned villages")
     now = utcnow()
     is_historical = body.is_historical or body.report_date < today_local()
     doc = {
         **body.model_dump(exclude={"volunteer_id", "group_ids", "home_visit_girl_ids", "report_date"}),
         "volunteer_id": vol["_id"],
-        "village_id": vol["village_id"],
+        "village_id": oid(body.village_id) if body.village_id else target_village_id,
         "taluka_id": vol.get("taluka_id"),
         "report_date": to_dt(body.report_date),
         "group_ids": group_ids,
         "home_visit_girl_ids": girl_ids,
         "is_historical": is_historical,
         "source": "app",
-        "approval": {"status": "approved" if user["role"] == Role.STAKEHOLDER else "pending",
-                     "by": user["_id"] if user["role"] == Role.STAKEHOLDER else None,
-                     "at": now if user["role"] == Role.STAKEHOLDER else None, "remarks": None},
+        "approval": {"status": "approved" if user["role"] in ADMIN_ROLES else "pending",
+                     "by": user["_id"] if user["role"] in ADMIN_ROLES else None,
+                     "at": now if user["role"] in ADMIN_ROLES else None, "remarks": None},
         "submitted_by": user["_id"],
         "submitted_at": now,
     }
@@ -262,7 +276,8 @@ async def list_activity_reports(
     query: dict = village_scope(user)
     if volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
-    if village_id and user["role"] == Role.STAKEHOLDER:
+    from app.core.deps import ADMIN_ROLES
+    if village_id and user["role"] in ADMIN_ROLES:
         query["village_id"] = oid(village_id)
     if approval:
         query["approval.status"] = approval
@@ -275,3 +290,21 @@ async def list_activity_reports(
 @router.post("/activity-reports/{report_id}/approval")
 async def approve_activity_report(report_id: str, body: ApprovalDecision, db: Db, actor: Stakeholder):
     return await _decide(db, c.ACTIVITY_REPORTS, "activity_report", report_id, body, actor)
+
+
+@router.get("/activity-reports/{report_id}")
+async def get_activity_report(report_id: str, db: Db,
+                              user: Annotated[dict, Depends(require_permission("activity_reports", "read"))]):
+    doc = await get_or_404(db[c.ACTIVITY_REPORTS], report_id, "Activity report")
+    if user["role"] == Role.VOLUNTEER.value and doc.get("volunteer_id") != user["_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
+    return serialize(doc)
+
+
+@router.delete("/activity-reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_activity_report(report_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by coordinator", min_length=3)):
+    report = await get_or_404(db[c.ACTIVITY_REPORTS], report_id, "Activity report")
+    await db[c.ACTIVITY_REPORTS].delete_one({"_id": report["_id"]})
+    await audit.log(db, actor, "delete", "activity_report", report["_id"], "Deleted activity report",
+                    meta={"reason": reason, "record": serialize(report)})
+

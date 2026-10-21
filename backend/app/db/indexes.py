@@ -11,12 +11,12 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel("village_id"),
     ],
     c.VOLUNTEER_ASSIGNMENTS: [
-        # Enforces "one village per Volunteer at a time" at the database level.
+        # Allows a Tai (volunteer) to be assigned to multiple villages concurrently.
         IndexModel(
-            "volunteer_id",
+            [("volunteer_id", ASCENDING), ("village_id", ASCENDING)],
             unique=True,
             partialFilterExpression={"is_current": True},
-            name="one_current_assignment_per_volunteer",
+            name="current_assignment_per_volunteer_village",
         ),
         IndexModel([("volunteer_id", ASCENDING), ("start_date", DESCENDING)]),
         IndexModel("village_id"),
@@ -114,5 +114,9 @@ INDEXES: dict[str, list[IndexModel]] = {
 
 
 async def ensure_indexes(db: AsyncDatabase) -> None:
+    try:
+        await db[c.VOLUNTEER_ASSIGNMENTS].drop_index("one_current_assignment_per_volunteer")
+    except Exception:
+        pass
     for coll_name, indexes in INDEXES.items():
         await db[coll_name].create_indexes(indexes)

@@ -25,7 +25,9 @@ function CreateUser({ open, onClose, onSaved }) {
       <ErrorBox message={error} />
       <Field label={t('Role')}>
         <Select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} options={[
-          { value: 'volunteer', label: t('Volunteer — field user, at most one village') }, { value: 'stakeholder', label: t('Stakeholder — admin, full authority') },
+          { value: 'volunteer', label: t('Tai — field worker (multi-village)') },
+          { value: 'admin', label: t('Admin — field management, village & target assignment') },
+          { value: 'stakeholder', label: t('Stakeholder — complete oversight over admins and tais') },
         ]} />
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -47,23 +49,35 @@ function CreateUser({ open, onClose, onSaved }) {
 
 function EditUser({ user, onClose, onSaved }) {
   const { user: me } = useAuth()
+  const isStakeholder = me?.role === 'stakeholder' || me?.role === 'super_admin'
   const [f, setF] = useState({ name: user.name, phone: user.phone, email: user.email || '', designation: user.designation || '' })
   const [pwd, setPwd] = useState('')
+  const [targetRole, setTargetRole] = useState(user.role)
   const [roleVillage, setRoleVillage] = useState('')
   const { busy, error, run } = useAction()
   const save = () => run(async () => { await api.patch(`/users/${user.id}`, { ...f, email: f.email || null }); onSaved() }).catch(() => {})
   const toggleActive = () => run(async () => { await api.patch(`/users/${user.id}/status`, { is_active: !user.is_active }); invalidateRefData(); onSaved() }).catch(() => {})
   const resetPwd = () => run(async () => { await api.post(`/users/${user.id}/reset-password`, { new_password: pwd }); setPwd(''); onSaved() }).catch(() => {})
   const changeRole = () => run(async () => {
-    const role = user.role === 'volunteer' ? 'stakeholder' : 'volunteer'
-    await api.patch(`/users/${user.id}/role`, { role, village_id: role === 'volunteer' ? roleVillage || null : null })
+    await api.patch(`/users/${user.id}/role`, { role: targetRole, village_id: targetRole === 'volunteer' ? roleVillage || null : null })
     invalidateRefData()
     onSaved()
   }).catch(() => {})
   const self = me?.id === user.id
+  const roleOptions = isStakeholder
+    ? [
+        { value: 'volunteer', label: t('Tai (Volunteer)') },
+        { value: 'admin', label: t('Admin') },
+        { value: 'stakeholder', label: t('Stakeholder') },
+      ]
+    : [
+        { value: 'volunteer', label: t('Tai (Volunteer)') },
+        { value: 'admin', label: t('Admin') },
+      ]
+
   return (
     <Modal open title={user.name} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} onClick={save}>{t('Save profile')}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} onClick={save}>{t('Save profile')}</Button></>}>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Name')}><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
@@ -77,12 +91,24 @@ function EditUser({ user, onClose, onSaved }) {
         <Button size="sm" variant="secondary" disabled={pwd.length < 8} busy={busy} onClick={resetPwd}>{t('Reset')}</Button>
       </div>
       {!self && (
-        <div className="flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
-          {user.role === 'stakeholder' && <Field label={t('Village for volunteer role (optional)')} className="flex-1"><VillageSelect value={roleVillage} onChange={setRoleVillage} placeholder={t('Assign later')} /></Field>}
-          <Button size="sm" variant="secondary" busy={busy} onClick={changeRole}>
-            {user.role === 'volunteer' ? t('Make Stakeholder') : t('Make Volunteer')}
-          </Button>
-          <Button size="sm" variant={user.is_active ? 'danger' : 'primary'} busy={busy} onClick={toggleActive}>{user.is_active ? t('Deactivate') : t('Activate')}</Button>
+        <div className="space-y-3 border-t border-gray-100 pt-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label={t('Change Role')} className="w-48">
+              <Select options={roleOptions} value={targetRole} onChange={(e) => setTargetRole(e.target.value)} />
+            </Field>
+            {targetRole === 'volunteer' && user.role !== 'volunteer' && (
+              <Field label={t('Village for Tai')} className="flex-1">
+                <VillageSelect value={roleVillage} onChange={setRoleVillage} placeholder={t('Assign later')} />
+              </Field>
+            )}
+            <Button size="sm" variant="secondary" busy={busy} disabled={targetRole === user.role} onClick={changeRole}>
+              {t('Update Role')}
+            </Button>
+            <div className="flex-1" />
+            <Button size="sm" variant={user.is_active ? 'danger' : 'primary'} busy={busy} onClick={toggleActive}>
+              {user.is_active ? t('Deactivate') : t('Activate')}
+            </Button>
+          </div>
         </div>
       )}
     </Modal>
@@ -90,6 +116,7 @@ function EditUser({ user, onClose, onSaved }) {
 }
 
 export default function Users() {
+  const { user: me } = useAuth()
   const [f, setF] = useState({ role: '', is_active: '', q: '' })
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
@@ -97,11 +124,44 @@ export default function Users() {
   const { data, error, loading, reload } = useFetch('/users', { ...f, page, page_size: 25 })
   return (
     <div>
-      <PageHeader title={t('Users & roles')} subtitle={t('Exactly two roles: Volunteer (one village) and Stakeholder (full authority)')} actions={<Button icon={Plus} onClick={() => setCreating(true)}>{t('Create user')}</Button>} />
+      <PageHeader title={t('Users & roles')} subtitle={t('Roles: Stakeholder (complete oversight), Admin (management), and Tai (field operations)')} actions={<Button icon={Plus} onClick={() => setCreating(true)}>{t('Create user')}</Button>} />
+      
+      {(me?.role === 'stakeholder' || me?.role === 'super_admin') && (
+        <Card title={t('Stakeholder Oversight Monitor')} className="mb-4 border-purple-300 bg-purple-50/40">
+          <p className="text-xs text-purple-900 mb-3">
+            {t('As Stakeholder, you have full oversight across both Admins and Tais (Volunteers). You can manage roles, view all field operations, and audit system actions.')}
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="rounded-lg bg-white p-3 border border-purple-200">
+              <span className="text-xs text-gray-500 block">{t('Total Users')}</span>
+              <span className="text-xl font-bold text-purple-950">{data?.total || 0}</span>
+            </div>
+            <div className="rounded-lg bg-white p-3 border border-purple-200">
+              <span className="text-xs text-gray-500 block">{t('Stakeholders')}</span>
+              <span className="text-xl font-bold text-purple-700">
+                {(data?.items || []).filter(u => u.role === 'stakeholder' || u.role === 'super_admin').length}
+              </span>
+            </div>
+            <div className="rounded-lg bg-white p-3 border border-purple-200">
+              <span className="text-xs text-gray-500 block">{t('Admins')}</span>
+              <span className="text-xl font-bold text-brand-900">
+                {(data?.items || []).filter(u => u.role === 'admin').length}
+              </span>
+            </div>
+            <div className="rounded-lg bg-white p-3 border border-purple-200">
+              <span className="text-xs text-gray-500 block">{t('Tais (Volunteers)')}</span>
+              <span className="text-xl font-bold text-emerald-800">
+                {(data?.items || []).filter(u => u.role === 'volunteer').length}
+              </span>
+            </div>
+          </div>
+        </Card>
+      )}
+
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-3">
           <Input placeholder={t('Search name, mobile, email')} value={f.q} onChange={(e) => { setF({ ...f, q: e.target.value }); setPage(1) }} />
-          <Select options={['volunteer', 'stakeholder']} placeholder={t('Any role')} value={f.role} onChange={(e) => { setF({ ...f, role: e.target.value }); setPage(1) }} />
+          <Select options={[{ value: 'volunteer', label: t('Tai') }, { value: 'admin', label: t('Admin') }, { value: 'stakeholder', label: t('Stakeholder') }]} placeholder={t('Any role')} value={f.role} onChange={(e) => { setF({ ...f, role: e.target.value }); setPage(1) }} />
           <Select options={[{ value: 'true', label: t('Active') }, { value: 'false', label: t('Inactive') }]} placeholder={t('Active & inactive')} value={f.is_active} onChange={(e) => { setF({ ...f, is_active: e.target.value }); setPage(1) }} />
         </div>
         <ErrorBox message={error} />
@@ -109,7 +169,7 @@ export default function Users() {
           <>
             <Table onRowClick={setEditing} columns={[
               { key: 'name', label: t('Name'), className: 'font-medium' },
-              { key: 'role', label: t('Role'), render: (u) => <Badge tone={u.role === 'stakeholder' ? 'brand' : 'blue'}>{u.role}</Badge> },
+              { key: 'role', label: t('Role'), render: (u) => <Badge tone={u.role === 'stakeholder' || u.role === 'super_admin' ? 'purple' : u.role === 'admin' ? 'brand' : 'blue'}>{u.role === 'volunteer' ? t('Tai') : (u.role === 'stakeholder' || u.role === 'super_admin') ? t('Stakeholder') : t('Admin')}</Badge> },
               { key: 'phone', label: t('Mobile') },
               { key: 'email', label: t('Email') },
               { key: 'is_active', label: t('Status'), render: (u) => (u.is_active ? <Badge tone="green">{t('Active')}</Badge> : <Badge>{t('Inactive')}</Badge>) },

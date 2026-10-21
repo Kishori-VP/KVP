@@ -41,38 +41,88 @@ async def get_current_user(db: Db, token: Annotated[str, Depends(oauth2_scheme)]
     return user
 
 
+ADMIN_ROLES = (
+    Role.ADMIN.value,
+    Role.STAKEHOLDER.value,
+    Role.SUPER_ADMIN.value,
+    "admin",
+    "stakeholder",
+    "super_admin",
+)
+OVERSIGHT_ROLES = (
+    Role.STAKEHOLDER.value,
+    Role.SUPER_ADMIN.value,
+    "stakeholder",
+    "super_admin",
+)
+
 CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
 async def require_stakeholder(user: CurrentUser) -> dict:
-    if user["role"] != Role.STAKEHOLDER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Stakeholder access required")
+    """Allows Admin, Stakeholder, and Super Admin."""
+    if user.get("role") not in ADMIN_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
     return user
 
 
 Stakeholder = Annotated[dict, Depends(require_stakeholder)]
+Admin = Stakeholder
+
+
+async def require_super_admin(user: CurrentUser) -> dict:
+    """Allows top-level oversight: Stakeholder (formerly Super Admin)."""
+    if user.get("role") not in OVERSIGHT_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Stakeholder oversight access required")
+    return user
+
+
+SuperAdmin = Annotated[dict, Depends(require_super_admin)]
+
+
+def user_village_ids(user: dict) -> list[ObjectId]:
+    v_ids = []
+    if user.get("village_ids"):
+        v_ids.extend([v if isinstance(v, ObjectId) else ObjectId(v) for v in user["village_ids"]])
+    elif user.get("village_id"):
+        v = user["village_id"]
+        v_ids.append(v if isinstance(v, ObjectId) else ObjectId(v))
+    return v_ids
+
+
+def can_access_village(user: dict, village_id) -> bool:
+    if user.get("role") in ADMIN_ROLES:
+        return True
+    vid = village_id if isinstance(village_id, ObjectId) else ObjectId(village_id)
+    return vid in user_village_ids(user)
 
 
 def require_permission(resource: str, action: str):
     async def checker(db: Db, user: CurrentUser) -> dict:
-        if user["role"] == Role.STAKEHOLDER:
+        if user.get("role") in ADMIN_ROLES:
             return user
         perms = await get_setting(db, "permissions")
         matrix = full_matrix(perms.get("volunteer", {}))
         if action not in matrix[Role.VOLUNTEER].get(resource, []):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not permitted: {action} {resource}")
-        if not user.get("village_id"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer has no assigned village")
+        v_ids = user_village_ids(user)
+        if not v_ids:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai has no assigned village")
         return user
 
     return checker
 
 
 def village_scope(user: dict, field: str = "village_id") -> dict:
-    """Mongo filter restricting Volunteers to their assigned village. Stakeholders: no filter."""
-    if user["role"] == Role.STAKEHOLDER:
+    """Mongo filter restricting Volunteers (Tais) to their assigned village(s). Admins & Stakeholders: no filter."""
+    if user.get("role") in ADMIN_ROLES:
         return {}
-    return {field: user.get("village_id")}
+    v_ids = user_village_ids(user)
+    if not v_ids:
+        return {field: None}
+    if len(v_ids) == 1:
+        return {field: v_ids[0]}
+    return {field: {"$in": v_ids}}
 
 
 class PageParams(BaseModel):

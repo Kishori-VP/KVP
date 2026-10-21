@@ -50,11 +50,23 @@ def evaluate(target: dict, achieved: int, thresholds: dict, today: date | None =
 async def with_progress(db: AsyncDatabase, targets: list[dict], thresholds: dict | None = None) -> list[dict]:
     thresholds = thresholds or await get_setting(db, "target_thresholds")
     out = []
+    vol_ids = list({t["volunteer_id"] for t in targets if t.get("volunteer_id")})
+    vol_villages = {}
+    if vol_ids:
+        from app.core.deps import user_village_ids
+        async for v in db[c.USERS].find({"_id": {"$in": vol_ids}}, {"village_id": 1, "village_ids": 1}):
+            vids = user_village_ids(v)
+            if vids:
+                vol_villages[v["_id"]] = vids
+
     for t in targets:
         if today_local() < to_date(t["period_start"]) or t.get("status") == "cancelled":
             achieved = 0
         else:
-            achieved = await metrics.compute(db, t["metric"], t["volunteer_id"], t["village_id"],
+            vid = t.get("village_id")
+            if t["volunteer_id"] in vol_villages:
+                vid = vol_villages[t["volunteer_id"]]
+            achieved = await metrics.compute(db, t["metric"], t["volunteer_id"], vid,
                                              to_date(t["period_start"]), to_date(t["period_end"]))
         out.append({**t, "progress": evaluate(t, achieved, thresholds)})
     return out

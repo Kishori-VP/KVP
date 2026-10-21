@@ -20,12 +20,19 @@ from app.utils.dates import day_range
 NOT_REJECTED = {"approval.status": {"$ne": "rejected"}}
 
 
-def _scope(volunteer_id: ObjectId | None, village_id: ObjectId | None, vol_field: str = "volunteer_id") -> dict:
+def _scope(volunteer_id: ObjectId | None, village_id, vol_field: str = "volunteer_id") -> dict:
     q: dict = {}
     if volunteer_id:
         q[vol_field] = volunteer_id
     if village_id:
-        q["village_id"] = village_id
+        if isinstance(village_id, (list, tuple, set)):
+            v_list = list(village_id)
+            if len(v_list) == 1:
+                q["village_id"] = v_list[0]
+            elif len(v_list) > 1:
+                q["village_id"] = {"$in": v_list}
+        else:
+            q["village_id"] = village_id
     return q
 
 

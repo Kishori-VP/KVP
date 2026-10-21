@@ -61,8 +61,10 @@ def test_one_village_per_volunteer(client, admin, mongo):
         "group_ids": [S["g1"]]}).status_code == 422  # groups need a village
     assigned = ok(client.post(f"{API}/volunteers/{later['id']}/assign", headers=admin, json={"village_id": S["v2"]}))
     assert assigned["volunteer"]["village_id"] == S["v2"]
-    assert client.post(f"{API}/volunteers/{later['id']}/assign", headers=admin,
-                       json={"village_id": S["v1"]}).status_code == 409  # already has a village
+    # Multi-village assignment model: assigning another village succeeds
+    assigned2 = ok(client.post(f"{API}/volunteers/{later['id']}/assign", headers=admin, json={"village_id": S["v1"]}))
+    assert S["v1"] in assigned2["volunteer"].get("village_ids", [])
+    assert S["v2"] in assigned2["volunteer"].get("village_ids", [])
     ok(client.patch(f"{API}/users/{later['id']}/status", headers=admin, json={"is_active": False}))
 
     base = {"name": "Pooja Paul", "phone": "9000000011", "password": "volunteer-1", "role": "volunteer"}
@@ -79,7 +81,7 @@ def test_one_village_per_volunteer(client, admin, mongo):
     # database-level guarantee: a second current assignment for the same volunteer is impossible
     from bson import ObjectId
     with pytest.raises(DuplicateKeyError):
-        mongo.volunteer_assignments.insert_one({"volunteer_id": ObjectId(S["vol"]), "village_id": ObjectId(S["v2"]),
+        mongo.volunteer_assignments.insert_one({"volunteer_id": ObjectId(S["vol"]), "village_id": ObjectId(S["v1"]),
                                                 "is_current": True})
     # stakeholders cannot be mapped to a village
     r = client.post(f"{API}/users", headers=admin, json={"name": "X", "phone": "9000000013", "password": "xxxxxxxx",

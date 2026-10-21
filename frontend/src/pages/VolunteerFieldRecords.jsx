@@ -1,7 +1,7 @@
-import { Camera, MapPin, Mic, Plus, Save } from 'lucide-react'
+import { Camera, Eye, MapPin, Mic, Plus, Save } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../lib/auth'
-import { Button, Card, Checkbox, Empty, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
+import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
 import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups } from '../lib/hooks'
@@ -55,13 +55,16 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
   const [gpsError, setGpsError] = useState('')
   const [photos, setPhotos] = useState([])
   const { busy, error, run } = useAction()
-  const captureGps = () => {
-    if (!navigator.geolocation) { setGpsError(t('Location is not supported on this device.')); return }
-    setGpsBusy(true); setGpsError('')
-    navigator.geolocation.getCurrentPosition((position) => {
-      setGps({ lat: position.coords.latitude, lng: position.coords.longitude, accuracy_m: position.coords.accuracy, captured_at: new Date().toISOString() })
-      setGpsBusy(false)
-    }, (err) => { setGpsError(err.message || t('Location permission was not granted.')); setGpsBusy(false) }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 })
+  const captureGps = async () => {
+    setGpsBusy(true)
+    setGpsError('')
+    const res = await getPreciseGpsLocation()
+    if (res.coords) {
+      setGps(res.coords)
+    } else {
+      setGpsError(res.error || t('Could not acquire GPS location.'))
+    }
+    setGpsBusy(false)
   }
   const save = () => run(async () => {
     const result = await submitRecord('/home-visits', { ...form, volunteer_id: user.id, risk_indicators: risks, gps, is_historical: form.visit_date < todayISO() })
@@ -88,6 +91,19 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
     <ErrorBox message={error} />
     <div className="grid gap-3 sm:grid-cols-2">
       <Field label={t('Visit date *')}><Input type="date" value={form.visit_date} onChange={(e) => setForm({ ...form, visit_date: e.target.value })} /></Field>
+      {user?.villages?.length > 1 && (
+        <Field label={t('Village *')}>
+          <select
+            value={form.village_id || user.villages[0].id}
+            onChange={(e) => setForm({ ...form, village_id: e.target.value, girl_ids: [] })}
+            className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-brand-500 focus:outline-none"
+          >
+            {user.villages.map((v) => (
+              <option key={v.id} value={v.id}>{v.name}</option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label={t('Visit status')}><Select options={['completed', 'planned', 'missed']} value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} /></Field>
       <Field label={t('Purpose')}><Select options={['routine', 'follow_up', 'case_follow_up', 'enrolment', 'other']} value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} /></Field>
       <Field label={t('People met')}><div className="flex flex-wrap gap-3">{['girl', 'mother', 'father', 'guardian', 'other_family'].map((person) => <Checkbox key={person} label={t(humanize(person))} checked={form.met_with.includes(person)} onChange={() => toggleMet(person)} />)}</div></Field>
@@ -109,23 +125,110 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
   </Modal>
 }
 
+function ReportViewModal({ report, onClose }) {
+  const activityTypes = useLookups('activity_type')
+  if (!report) return null
+  const actMap = Object.fromEntries(activityTypes.map((a) => [a.code, a.label_mr || a.label]))
+
+  return (
+    <Modal open title={t('Daily Activity Report Details')} onClose={onClose} wide footer={<Button variant="secondary" onClick={onClose}>{t('Close')}</Button>}>
+      <div className="space-y-4 text-sm">
+        <div className="grid gap-3 sm:grid-cols-3 rounded-lg bg-gray-50 p-3">
+          <div><span className="text-xs text-gray-500">{t('Date')}</span><div className="font-medium">{fmtDate(report.report_date)}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Review Status')}</span><div><StatusBadge value={report.approval?.status} /></div></div>
+          <div><span className="text-xs text-gray-500">{t('Girls Present')}</span><div className="font-medium tabular">{report.girls_present ?? 0}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Home Visits')}</span><div className="font-medium tabular">{report.home_visits_count ?? 0}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Groups Met')}</span><div className="font-medium tabular">{report.group_ids?.length || 0}</div></div>
+        </div>
+
+        <div>
+          <span className="text-xs font-semibold uppercase text-gray-500">{t('Activities Done')}</span>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {(report.activities || []).map((code) => (
+              <Badge key={code} variant="brand">{actMap[code] || humanize(code)}</Badge>
+            ))}
+            {!report.activities?.length && <span className="text-gray-400">—</span>}
+          </div>
+        </div>
+
+        {report.topics_discussed && (
+          <div>
+            <span className="text-xs font-semibold uppercase text-gray-500">{t('Topics Discussed')}</span>
+            <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-gray-800">{report.topics_discussed}</p>
+          </div>
+        )}
+
+        {report.other_meetings && (
+          <div>
+            <span className="text-xs font-semibold uppercase text-gray-500">{t('Other Meetings & Info')}</span>
+            <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-gray-800">{report.other_meetings}</p>
+          </div>
+        )}
+
+        {report.approval?.remarks && (
+          <div>
+            <span className="text-xs font-semibold uppercase text-gray-500">{t('Review Remarks')}</span>
+            <p className="mt-1 rounded-lg bg-amber-50 p-2 text-amber-900">{report.approval.remarks}</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
   const activityTypes = useLookups('activity_type')
-  const { data: groups } = useFetch('/groups', { page: 1, page_size: 200 })
-  const [form, setForm] = useState({ report_date: todayISO(), activities: [], group_ids: [], girls_present: 0, home_visits_count: 0, home_visit_girl_ids: [], topics_discussed: '', other_meetings: '', is_historical: false })
+  const assignedVillages = user?.villages || (user?.village ? [user.village] : [])
+  const initialVillageId = user?.village_id || (user?.village_ids && user.village_ids[0]) || (assignedVillages[0]?.id || assignedVillages[0]?._id) || ''
+  const [form, setForm] = useState({
+    village_id: initialVillageId,
+    report_date: todayISO(),
+    activities: [],
+    group_ids: [],
+    girls_present: 0,
+    home_visits_count: 0,
+    home_visit_girl_ids: [],
+    topics_discussed: '',
+    other_meetings: '',
+    is_historical: false,
+  })
+  const { data: groups } = useFetch('/groups', { village_id: form.village_id || undefined, page: 1, page_size: 200 })
   const { busy, error, run } = useAction()
   const toggle = (key, id) => setForm((prev) => ({ ...prev, [key]: prev[key].includes(id) ? prev[key].filter((x) => x !== id) : [...prev[key], id] }))
   const save = () => run(async () => {
-    await submitRecord('/activity-reports', { ...form, volunteer_id: user.id, girls_present: Number(form.girls_present), home_visits_count: Number(form.home_visits_count), topics_discussed: form.topics_discussed || null, other_meetings: form.other_meetings || null })
+    await submitRecord('/activity-reports', {
+      ...form,
+      volunteer_id: user.id,
+      village_id: form.village_id || user?.village_id,
+      girls_present: Number(form.girls_present),
+      home_visits_count: Number(form.home_visits_count),
+      topics_discussed: form.topics_discussed || null,
+      other_meetings: form.other_meetings || null,
+    })
     onSaved()
   }).catch(() => {})
   return <Modal open title={t('Daily activity report')} onClose={onClose} wide footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} icon={Save} disabled={!form.report_date || !form.activities.length} onClick={save}>{t('Submit daily report')}</Button></>}>
     <ErrorBox message={error} />
+    {assignedVillages.length > 1 && (
+      <Field label={t('Select village for this report')}>
+        <select
+          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 outline-none focus:border-brand-500"
+          value={form.village_id}
+          onChange={(e) => setForm({ ...form, village_id: e.target.value, group_ids: [], home_visit_girl_ids: [] })}
+        >
+          {assignedVillages.map((v) => (
+            <option key={v.id || v._id} value={v.id || v._id}>
+              {v.name_mr || v.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+    )}
     <Field label={t('Report date *')}><Input type="date" max={todayISO()} value={form.report_date} onChange={(e) => setForm({ ...form, report_date: e.target.value })} /></Field>
     <Field label={t('Activities completed *')}><div className="flex flex-wrap gap-3">{activityTypes.map((item) => <Checkbox key={item.code} label={item.label_mr || item.label} checked={form.activities.includes(item.code)} onChange={() => toggle('activities', item.code)} />)}</div></Field>
     <Field label={t('Groups met')}><div className="flex flex-wrap gap-3">{(groups?.items || []).map((group) => <Checkbox key={group.id} label={group.name} checked={form.group_ids.includes(group.id)} onChange={() => toggle('group_ids', group.id)} />)}</div></Field>
     <div className="grid gap-3 sm:grid-cols-2"><Field label={t('Girls present')}><Input type="number" min={0} value={form.girls_present} onChange={(e) => setForm({ ...form, girls_present: e.target.value })} /></Field><Field label={t('Home visits completed')}><Input type="number" min={0} value={form.home_visits_count} onChange={(e) => setForm({ ...form, home_visits_count: e.target.value })} /></Field></div>
-    <Field label={t('Girls visited at home')}><GirlMultiPicker villageId={user?.village_id} value={form.home_visit_girl_ids} onChange={(ids) => setForm({ ...form, home_visit_girl_ids: ids })} /></Field>
+    <Field label={t('Girls visited at home')}><GirlMultiPicker villageId={form.village_id || user?.village_id} value={form.home_visit_girl_ids} onChange={(ids) => setForm({ ...form, home_visit_girl_ids: ids })} /></Field>
     <VoiceTextarea label={t('Topics discussed')} value={form.topics_discussed} onChange={(value) => setForm({ ...form, topics_discussed: value })} />
     <Field label={t('Other people met / information')}><Textarea value={form.other_meetings} onChange={(e) => setForm({ ...form, other_meetings: e.target.value })} /></Field>
     {form.report_date < todayISO() && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{t('This report is back-dated and will be marked historical for review.')}</p>}
@@ -231,12 +334,13 @@ export default function VolunteerFieldRecords() {
   }, [])
   const [tab, setTab] = useState('visits')
   const [modal, setModal] = useState(null)
+  const [selectedReport, setSelectedReport] = useState(null)
   const [photoVisit, setPhotoVisit] = useState(null)
   const [status, setStatus] = useState('')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
-  const visitQuery = useFetch('/home-visits', { page: 1, page_size: 100, volunteer_id: user?.id, status, start_date: start, end_date: end })
-  const reportQuery = useFetch('/activity-reports', { page: 1, page_size: 100, volunteer_id: user?.id, start_date: start, end_date: end })
+  const visitQuery = useFetch('/home-visits', { page: 1, page_size: 100, volunteer_id: user?.id, status: status || undefined, start_date: start || undefined, end_date: end || undefined })
+  const reportQuery = useFetch('/activity-reports', { page: 1, page_size: 100, volunteer_id: user?.id, start_date: start || undefined, end_date: end || undefined })
   const active = tab === 'visits' ? visitQuery : reportQuery
   const changeVisitStatus = async (visit, nextStatus) => {
     try { await api.patch(`/home-visits/${visit.id}`, { status: nextStatus }); await visitQuery.reload() } catch (e) { window.alert(e.response?.data?.detail || e.message) }
@@ -259,17 +363,19 @@ export default function VolunteerFieldRecords() {
         { key: 'approval', label: t('Review'), render: (r) => <StatusBadge value={r.approval?.status} /> },
         { key: 'notes', label: t('Notes'), render: (r) => <span className="line-clamp-2">{r.observations || r.notes || '—'}</span> },
         { key: 'actions', label: '', render: (r) => <div className="flex flex-wrap gap-1">{r.status === 'planned' && <><Button size="sm" onClick={() => changeVisitStatus(r, 'completed')}>{t('Complete')}</Button><Button size="sm" variant="secondary" onClick={() => changeVisitStatus(r, 'missed')}>{t('Missed')}</Button></>}<Button size="sm" variant="ghost" icon={Camera} onClick={() => setPhotoVisit(r)}>{t('Attach photos')}</Button></div> },
-      ]} rows={visitQuery.data?.items} empty={t('No home visits in this period.')} /> : <Table columns={[
+      ]} rows={visitQuery.data?.items} empty={t('No home visits in this period.')} /> : <Table onRowClick={(r) => setSelectedReport(r)} columns={[
         { key: 'report_date', label: t('Date'), render: (r) => fmtDate(r.report_date) },
         { key: 'activities', label: t('Activities'), render: (r) => (r.activities || []).map(humanize).join(', ') || '—' },
         { key: 'groups', label: t('Groups met'), render: (r) => r.group_ids?.length || 0 },
         { key: 'girls_present', label: t('Girls present') },
         { key: 'home_visits_count', label: t('Home visits') },
         { key: 'approval', label: t('Review'), render: (r) => <StatusBadge value={r.approval?.status} /> },
+        { key: 'view', label: '', render: (r) => <Button size="sm" variant="ghost" icon={Eye} onClick={() => setSelectedReport(r)}>{t('View')}</Button> },
       ]} rows={reportQuery.data?.items} empty={t('No daily reports in this period.')} />}
     </Card>
     {modal === 'visit' && <VisitEditor user={user} submitRecord={submitRecord} onClose={() => setModal(null)} onSaved={() => { setModal(null); visitQuery.reload() }} />}
     {modal === 'report' && <DailyReportEditor user={user} submitRecord={submitRecord} onClose={() => setModal(null)} onSaved={() => { setModal(null); reportQuery.reload() }} />}
+    {selectedReport && <ReportViewModal report={selectedReport} onClose={() => setSelectedReport(null)} />}
     {photoVisit && <PhotoUploadModal visit={photoVisit} onClose={() => setPhotoVisit(null)} onSaved={() => { setPhotoVisit(null); visitQuery.reload() }} />}
   </div>
 }

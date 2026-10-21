@@ -1,9 +1,11 @@
-
 import { useCallback, useEffect, useState } from 'react'
-import { Download, Edit2, Save, X, RefreshCw } from 'lucide-react'
+import { Camera, Download, Edit2, Eye, MapPin, RefreshCw, Save, X } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import api, { errorMessage } from '../lib/api'
-import { Button, Card, ErrorBox, PageHeader, Spinner } from '../components/ui'
+import { Button, Card, ErrorBox, Modal, PageHeader, Spinner, StatusBadge } from '../components/ui'
+import { t } from '../lib/i18n'
+import NoteCamModal from '../components/NoteCamModal'
+import { useAuth } from '../lib/auth'
 
 const STATUSES = [
   { value: 'present', label: 'Present' },
@@ -19,16 +21,22 @@ function today() {
 }
 
 function makeRow(volunteer, existing) {
+  const villageNames = volunteer.village_names?.length
+    ? volunteer.village_names.join(', ')
+    : (volunteer.village?.name || volunteer.village_name || '')
+
   return {
     volunteer_id: volunteer.id,
-    name: volunteer.name || 'Unnamed volunteer',
-    village_name:
-      volunteer.village?.name ||
-      volunteer.village_name ||
-      '',
+    name: volunteer.name || 'Unnamed Tai',
+    village_name: existing?.village_name || villageNames || 'Not assigned',
+    village_id: existing?.village_id || volunteer.village_id || null,
     status: existing?.status || '',
     check_in: existing?.check_in || '',
     check_out: existing?.check_out || '',
+    check_in_photo: existing?.check_in_photo || null,
+    check_out_photo: existing?.check_out_photo || null,
+    check_in_gps: existing?.check_in_gps || null,
+    check_out_gps: existing?.check_out_gps || null,
     remarks: existing?.remarks || '',
     hasRecord: Boolean(existing),
     editing: !existing,
@@ -36,12 +44,21 @@ function makeRow(volunteer, existing) {
 }
 
 export default function VolunteerAttendance() {
+  const { user } = useAuth()
   const [date, setDate] = useState(today())
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState(null)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+
+  // NoteCam photo preview modal
+  const [previewPhoto, setPreviewPhoto] = useState(null)
+  const [previewTitle, setPreviewTitle] = useState('')
+
+  // Admin NoteCam capture modal
+  const [noteCamOpen, setNoteCamOpen] = useState(false)
+  const [noteCamAction, setNoteCamAction] = useState('CHECK-IN')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,18 +86,12 @@ export default function VolunteerAttendance() {
         : attendanceResponse.data.items || []
 
       const existingByVolunteer = new Map(
-        attendance.map((record) => [
-          String(record.volunteer_id),
-          record,
-        ]),
+        attendance.map((record) => [String(record.volunteer_id), record]),
       )
 
       setRows(
         volunteers.map((volunteer) =>
-          makeRow(
-            volunteer,
-            existingByVolunteer.get(String(volunteer.id)),
-          ),
+          makeRow(volunteer, existingByVolunteer.get(String(volunteer.id))),
         ),
       )
     } catch (err) {
@@ -97,9 +108,7 @@ export default function VolunteerAttendance() {
   function updateRow(volunteerId, field, value) {
     setRows((current) =>
       current.map((row) =>
-        row.volunteer_id === volunteerId
-          ? { ...row, [field]: value }
-          : row,
+        row.volunteer_id === volunteerId ? { ...row, [field]: value } : row,
       ),
     )
   }
@@ -123,6 +132,10 @@ export default function VolunteerAttendance() {
             status: row.status,
             check_in: row.check_in || null,
             check_out: row.check_out || null,
+            village_id: row.village_id || null,
+            village_name: row.village_name || null,
+            check_in_photo: row.check_in_photo || null,
+            check_out_photo: row.check_out_photo || null,
             remarks: row.remarks.trim() || null,
           },
         ],
@@ -163,29 +176,26 @@ export default function VolunteerAttendance() {
       setError('')
       return
     }
-
-    // Reload saved data so unsaved edits are discarded.
     load()
   }
 
   function exportExcel() {
     const workbook = XLSX.utils.book_new()
-
     const data = rows.map((row) => ({
       Date: date,
-      Volunteer: row.name,
+      'Tai Name': row.name,
       Village: row.village_name || 'Not assigned',
-      Status:
-        STATUSES.find((item) => item.value === row.status)?.label ||
-        'Not recorded',
+      Status: STATUSES.find((item) => item.value === row.status)?.label || 'Not recorded',
       'Check-in': row.check_in || '',
       'Check-out': row.check_out || '',
+      'GPS Check-in': row.check_in_gps ? `${row.check_in_gps.lat}, ${row.check_in_gps.lng}` : '',
+      'GPS Check-out': row.check_out_gps ? `${row.check_out_gps.lat}, ${row.check_out_gps.lng}` : '',
+      'NoteCam Stamped Photo': row.check_in_photo ? 'Yes' : 'No',
       Remarks: row.remarks || '',
       Saved: row.hasRecord ? 'Yes' : 'No',
     }))
 
     const worksheet = XLSX.utils.json_to_sheet(data)
-
     worksheet['!cols'] = [
       { wch: 14 },
       { wch: 28 },
@@ -193,31 +203,43 @@ export default function VolunteerAttendance() {
       { wch: 18 },
       { wch: 14 },
       { wch: 14 },
+      { wch: 24 },
+      { wch: 24 },
+      { wch: 20 },
       { wch: 40 },
       { wch: 12 },
     ]
-
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance')
-    XLSX.writeFile(workbook, `KVP-Attendance-${date}.xlsx`)
+    XLSX.writeFile(workbook, `KVP_Tai_Attendance_${date}.xlsx`)
   }
 
   const recordedCount = rows.filter((row) => row.hasRecord).length
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <PageHeader
-        title="Volunteer attendance"
-        subtitle="Record and manage daily attendance for active volunteers."
+        title={t('Tai attendance register')}
+        subtitle={t('Daily check-in and check-out tracking with NoteCam GPS photos.')}
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={exportExcel} disabled={!rows.length}>
-              <Download className="mr-2 h-4 w-4" />
-              Export Excel
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setNoteCamAction('CHECK-IN')
+                setNoteCamOpen(true)
+              }}
+              className="bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-300"
+            >
+              <Camera className="mr-2 h-4 w-4 text-emerald-700" />
+              {t('NoteCam Check-In')}
             </Button>
-
+            <Button variant="secondary" onClick={exportExcel} disabled={loading || rows.length === 0}>
+              <Download className="mr-2 h-4 w-4" />
+              {t('Export to Excel')}
+            </Button>
             <Button variant="secondary" onClick={load} disabled={loading}>
               <RefreshCw className="mr-2 h-4 w-4" />
-              Refresh
+              {t('Refresh')}
             </Button>
           </div>
         }
@@ -226,57 +248,48 @@ export default function VolunteerAttendance() {
       <ErrorBox message={error} />
 
       {message && (
-        <p
-          role="status"
-          className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800"
-        >
+        <p role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
           {message}
         </p>
       )}
 
       <Card
-        title="Daily register"
+        title={t('Daily register')}
         actions={
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-gray-600">Attendance date</span>
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <span className="text-gray-600">{t('Attendance date')}</span>
             <input
               type="date"
               value={date}
               onChange={(event) => setDate(event.target.value)}
-              className="rounded-lg border border-gray-300 px-2 py-1.5"
+              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium shadow-sm focus:border-brand-500 focus:outline-none"
             />
           </label>
         }
       >
-        <div className="mb-4 flex flex-wrap gap-3 text-sm text-gray-600">
-          <span>
-            Volunteers: <strong>{rows.length}</strong>
-          </span>
-          <span>
-            Saved records: <strong>{recordedCount}</strong>
-          </span>
-          <span>
-            Pending records: <strong>{rows.length - recordedCount}</strong>
-          </span>
+        <div className="mb-4 flex flex-wrap gap-4 text-sm text-gray-600">
+          <span>{t('Total Tais')}: <strong>{rows.length}</strong></span>
+          <span>{t('Recorded')}: <strong>{recordedCount}</strong></span>
+          <span>{t('Pending')}: <strong>{rows.length - recordedCount}</strong></span>
         </div>
 
         {loading ? (
           <Spinner />
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-gray-500">
-            No active volunteers found.
+            {t('No active Tais found.')}
           </p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[950px] text-left text-sm">
+            <table className="w-full min-w-[980px] text-left text-sm">
               <thead>
                 <tr className="border-b bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                  <th className="p-3">Volunteer</th>
-                  <th className="p-3">Attendance status</th>
-                  <th className="p-3">Check-in</th>
-                  <th className="p-3">Check-out</th>
-                  <th className="p-3">Remarks</th>
-                  <th className="p-3">Actions</th>
+                  <th className="p-3">{t('Tai')}</th>
+                  <th className="p-3">{t('Attendance status')}</th>
+                  <th className="p-3">{t('Check-in & Photo')}</th>
+                  <th className="p-3">{t('Check-out & Photo')}</th>
+                  <th className="p-3">{t('Remarks')}</th>
+                  <th className="p-3">{t('Actions')}</th>
                 </tr>
               </thead>
 
@@ -285,38 +298,29 @@ export default function VolunteerAttendance() {
                   const rowSaving = savingId === row.volunteer_id
 
                   return (
-                    <tr
-                      key={row.volunteer_id}
-                      className="border-b last:border-0 hover:bg-gray-50/70"
-                    >
+                    <tr key={row.volunteer_id} className="border-b last:border-0 hover:bg-gray-50/70">
                       <td className="p-3 align-top">
-                        <div className="font-medium text-gray-900">
-                          {row.name}
-                        </div>
-                        <div className="mt-1 text-xs text-gray-500">
-                          {row.village_name || 'No village assigned'}
+                        <div className="font-semibold text-gray-900">{row.name}</div>
+                        <div className="mt-1 flex items-center gap-1 text-xs text-gray-600">
+                          <MapPin className="h-3.5 w-3.5 text-brand-700 shrink-0" />
+                          <span>{row.village_name}</span>
                         </div>
                         {row.hasRecord && (
-                          <span className="mt-2 inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
-                            Saved
+                          <span className="mt-1.5 inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                            {t('Saved')}
                           </span>
                         )}
                       </td>
 
                       <td className="p-3 align-top">
                         <fieldset disabled={!row.editing || rowSaving}>
-                          <legend className="sr-only">
-                            Attendance status for {row.name}
-                          </legend>
-
-                          <div className="space-y-2">
+                          <legend className="sr-only">Attendance status for {row.name}</legend>
+                          <div className="space-y-1.5">
                             {STATUSES.map((item) => (
                               <label
                                 key={item.value}
-                                className={`flex items-center gap-2 rounded-md px-2 py-1 ${
-                                  row.editing
-                                    ? 'cursor-pointer hover:bg-gray-100'
-                                    : 'cursor-default'
+                                className={`flex items-center gap-2 rounded-md px-2 py-0.5 ${
+                                  row.editing ? 'cursor-pointer hover:bg-gray-100' : 'cursor-default'
                                 }`}
                               >
                                 <input
@@ -324,23 +328,11 @@ export default function VolunteerAttendance() {
                                   name={`attendance-${row.volunteer_id}`}
                                   value={item.value}
                                   checked={row.status === item.value}
-                                  onChange={() =>
-                                    updateRow(
-                                      row.volunteer_id,
-                                      'status',
-                                      item.value,
-                                    )
-                                  }
-                                  className="h-4 w-4 accent-blue-700"
+                                  onChange={() => updateRow(row.volunteer_id, 'status', item.value)}
+                                  className="h-4 w-4 accent-brand-700"
                                 />
-                                <span
-                                  className={
-                                    row.status === item.value
-                                      ? 'font-medium text-gray-900'
-                                      : 'text-gray-600'
-                                  }
-                                >
-                                  {item.label}
+                                <span className={row.status === item.value ? 'font-medium text-gray-900' : 'text-gray-600'}>
+                                  {t(item.label)}
                                 </span>
                               </label>
                             ))}
@@ -354,15 +346,27 @@ export default function VolunteerAttendance() {
                           aria-label={`Check-in time for ${row.name}`}
                           value={row.check_in}
                           disabled={!row.editing || rowSaving}
-                          onChange={(event) =>
-                            updateRow(
-                              row.volunteer_id,
-                              'check_in',
-                              event.target.value,
-                            )
-                          }
-                          className="w-28 rounded-md border border-gray-300 p-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                          onChange={(event) => updateRow(row.volunteer_id, 'check_in', event.target.value)}
+                          className="w-28 rounded-md border border-gray-300 p-1.5 text-sm disabled:bg-gray-100 disabled:text-gray-500"
                         />
+                        {row.check_in_photo && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewPhoto(row.check_in_photo)
+                              setPreviewTitle(`${row.name} - NoteCam Check-In Photo (${row.check_in})`)
+                            }}
+                            className="mt-2 flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                          >
+                            <Camera className="h-3.5 w-3.5" />
+                            <span>{t('View NoteCam Photo')}</span>
+                          </button>
+                        )}
+                        {row.check_in_gps && (
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            📍 {row.check_in_gps.lat?.toFixed(4)}°, {row.check_in_gps.lng?.toFixed(4)}°
+                          </div>
+                        )}
                       </td>
 
                       <td className="p-3 align-top">
@@ -371,15 +375,27 @@ export default function VolunteerAttendance() {
                           aria-label={`Check-out time for ${row.name}`}
                           value={row.check_out}
                           disabled={!row.editing || rowSaving}
-                          onChange={(event) =>
-                            updateRow(
-                              row.volunteer_id,
-                              'check_out',
-                              event.target.value,
-                            )
-                          }
-                          className="w-28 rounded-md border border-gray-300 p-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                          onChange={(event) => updateRow(row.volunteer_id, 'check_out', event.target.value)}
+                          className="w-28 rounded-md border border-gray-300 p-1.5 text-sm disabled:bg-gray-100 disabled:text-gray-500"
                         />
+                        {row.check_out_photo && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewPhoto(row.check_out_photo)
+                              setPreviewTitle(`${row.name} - NoteCam Check-Out Photo (${row.check_out})`)
+                            }}
+                            className="mt-2 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                          >
+                            <Camera className="h-3.5 w-3.5" />
+                            <span>{t('View NoteCam Photo')}</span>
+                          </button>
+                        )}
+                        {row.check_out_gps && (
+                          <div className="mt-1 text-[11px] text-gray-500">
+                            📍 {row.check_out_gps.lat?.toFixed(4)}°, {row.check_out_gps.lng?.toFixed(4)}°
+                          </div>
+                        )}
                       </td>
 
                       <td className="p-3 align-top">
@@ -387,52 +403,37 @@ export default function VolunteerAttendance() {
                           aria-label={`Remarks for ${row.name}`}
                           value={row.remarks}
                           disabled={!row.editing || rowSaving}
-                          onChange={(event) =>
-                            updateRow(
-                              row.volunteer_id,
-                              'remarks',
-                              event.target.value,
-                            )
-                          }
+                          onChange={(event) => updateRow(row.volunteer_id, 'remarks', event.target.value)}
                           maxLength={1000}
                           rows={2}
-                          placeholder="Optional"
-                          className="w-40 resize-y rounded-md border border-gray-300 p-2 text-sm disabled:bg-gray-100 disabled:text-gray-500"
+                          placeholder={t('Optional')}
+                          className="w-40 resize-y rounded-md border border-gray-300 p-1.5 text-xs disabled:bg-gray-100 disabled:text-gray-500"
                         />
                       </td>
 
                       <td className="p-3 align-top">
                         {row.editing ? (
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              onClick={() => saveRow(row)}
-                              disabled={rowSaving || !row.status}
-                            >
-                              <Save className="mr-2 h-4 w-4" />
-                              {rowSaving ? 'Saving…' : 'Save'}
+                          <div className="flex flex-col gap-1.5">
+                            <Button size="sm" onClick={() => saveRow(row)} disabled={rowSaving || !row.status}>
+                              <Save className="mr-1 h-3.5 w-3.5" />
+                              {rowSaving ? t('Saving…') : t('Save')}
                             </Button>
-
                             {row.hasRecord && (
-                              <Button
-                                variant="secondary"
-                                onClick={() => cancelEdit(row)}
-                                disabled={rowSaving}
-                              >
-                                <X className="mr-2 h-4 w-4" />
-                                Cancel
+                              <Button size="sm" variant="secondary" onClick={() => cancelEdit(row)} disabled={rowSaving}>
+                                <X className="mr-1 h-3.5 w-3.5" />
+                                {t('Cancel')}
                               </Button>
                             )}
                           </div>
                         ) : (
                           <Button
+                            size="sm"
                             variant="secondary"
-                            onClick={() =>
-                              updateRow(row.volunteer_id, 'editing', true)
-                            }
+                            onClick={() => updateRow(row.volunteer_id, 'editing', true)}
                             disabled={savingId !== null}
                           >
-                            <Edit2 className="mr-2 h-4 w-4" />
-                            Edit
+                            <Edit2 className="mr-1.5 h-3.5 w-3.5" />
+                            {t('Edit')}
                           </Button>
                         )}
                       </td>
@@ -444,6 +445,30 @@ export default function VolunteerAttendance() {
           </div>
         )}
       </Card>
+
+      {/* NoteCam Photo Lightbox Preview Modal */}
+      {previewPhoto && (
+        <Modal
+          open={Boolean(previewPhoto)}
+          onClose={() => setPreviewPhoto(null)}
+          title={previewTitle || t('NoteCam Attendance Photo')}
+          footer={<Button onClick={() => setPreviewPhoto(null)}>{t('Close')}</Button>}
+        >
+          <div className="overflow-hidden rounded-xl bg-black">
+            <img src={previewPhoto} alt="NoteCam GPS capture" className="w-full max-h-[75vh] object-contain mx-auto" />
+          </div>
+        </Modal>
+      )}
+
+      {/* Admin NoteCam Attendance Modal */}
+      <NoteCamModal
+        open={noteCamOpen}
+        onClose={() => setNoteCamOpen(false)}
+        action={noteCamAction}
+        user={user}
+        villages={[]}
+        onSuccess={() => load()}
+      />
     </div>
   )
 }

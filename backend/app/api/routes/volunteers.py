@@ -23,7 +23,7 @@ from app.utils.dates import (
     today_local,
     utcnow,
 )
-from app.utils.mongo import ObjectIdStr, get_or_404, oid, serialize
+from app.utils.mongo import ObjectIdStr, get_or_404, oid, oids, serialize
 
 router = APIRouter(prefix="/volunteers", tags=["volunteers"])
 
@@ -46,16 +46,20 @@ async def list_volunteers(
     assigned: bool | None = Query(None, description="true = has a village, false = not yet assigned"),
 ):
     query: dict = {"role": Role.VOLUNTEER.value}
-    if assigned is not None:
-        query["village_id"] = {"$ne": None} if assigned else None
+    if assigned is True:
+        query["$or"] = [{"village_id": {"$ne": None}}, {"village_ids": {"$exists": True, "$not": {"$size": 0}}}]
+    elif assigned is False:
+        query["village_id"] = None
+        query["$or"] = [{"village_ids": None}, {"village_ids": {"$size": 0}}, {"village_ids": {"$exists": False}}]
     if village_id:
-        query["village_id"] = oid(village_id)
+        vid = oid(village_id)
+        query["$or"] = [{"village_id": vid}, {"village_ids": vid}]
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if is_active is not None:
         query["is_active"] = is_active
     vols = await db[c.USERS].find(query).sort("name", 1).to_list()
-    villages = await _names(db, c.VILLAGES, {v.get("village_id") for v in vols})
+    villages = await _names(db, c.VILLAGES, {vid for v in vols for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else []))})
     groups = await _names(db, c.GROUPS, {g for v in vols for g in v.get("group_ids", [])})
     today = today_local()
     month_start, month_end = period_bounds("monthly", today)
@@ -66,7 +70,8 @@ async def list_volunteers(
         last_report = await db[c.ACTIVITY_REPORTS].find_one({"volunteer_id": v["_id"]}, sort=[("report_date", -1)])
         out.append({
             **serialize(v),
-            "village_name": villages.get(v.get("village_id")),
+            "village_name": ", ".join(filter(None, [villages.get(vid) for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else []))])) or None,
+            "village_names": [villages[vid] for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else [])) if vid in villages],
             "groups": [{"id": str(g), "name": groups.get(g)} for g in v.get("group_ids", [])],
             "home_visits_this_month": visits,
             "open_cases": open_cases,
@@ -89,7 +94,7 @@ async def performance(
     if taluka_id:
         vq["taluka_id"] = oid(taluka_id)
     vols = await db[c.USERS].find(vq).sort("name", 1).to_list()
-    villages = await _names(db, c.VILLAGES, {v.get("village_id") for v in vols})
+    villages = await _names(db, c.VILLAGES, {vid for v in vols for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else []))})
     thresholds = await get_setting(db, "target_thresholds")
     rows = []
     for v in vols:
@@ -104,7 +109,8 @@ async def performance(
             "volunteer_id": str(v["_id"]),
             "name": v["name"],
             "village_id": str(v["village_id"]) if v.get("village_id") else None,
-            "village_name": villages.get(v.get("village_id")),
+            "village_name": ", ".join(filter(None, [villages.get(vid) for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else []))])) or None,
+            "village_names": [villages[vid] for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else [])) if vid in villages],
             "activity": summary,
             "targets": [{"id": str(t["_id"]), "title": t["title"], "target_type": t["target_type"],
                          "target_value": t["target_value"], **t["progress"]} for t in enriched],
@@ -134,7 +140,7 @@ async def submission_status(
     expected_days = activity.working_days(start, end, rules["working_days"]) \
         if rules["expected_activity_report"] == "daily" else []
     vols = await db[c.USERS].find({"role": Role.VOLUNTEER.value, "is_active": True, "village_id": {"$ne": None}})         .sort("name", 1).to_list()
-    villages = await _names(db, c.VILLAGES, {v.get("village_id") for v in vols})
+    villages = await _names(db, c.VILLAGES, {vid for v in vols for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else []))})
     s, e = day_range(start, end)
     rows = []
     for v in vols:
@@ -148,7 +154,8 @@ async def submission_status(
             {"responsible_volunteer_id": v["_id"], "status": "scheduled", "end_at": {"$lt": utcnow()}})
         rows.append({
             "volunteer_id": str(v["_id"]), "name": v["name"], "phone": v["phone"],
-            "village_name": villages.get(v.get("village_id")),
+            "village_name": ", ".join(filter(None, [villages.get(vid) for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else []))])) or None,
+            "village_names": [villages[vid] for vid in (v.get("village_ids") or ([v["village_id"]] if v.get("village_id") else [])) if vid in villages],
             "expected": len(due), "submitted": len([d for d in due if d in submitted]),
             "missing_dates": missing, "missing_count": len(missing),
             "submission_rate": round(1 - len(missing) / len(due), 2) if due else None,
@@ -160,21 +167,24 @@ async def submission_status(
 
 
 @router.get("/me/dashboard")
-async def my_dashboard(db: Db, user: CurrentUser):
-    """Volunteer home screen. All returned records are scoped to the signed-in volunteer's village."""
+async def my_dashboard(db: Db, user: CurrentUser, village_id: ObjectIdStr | None = None):
+    """Tai home screen. Scoped to the selected village or all assigned villages."""
     if user.get("role") != Role.VOLUNTEER.value:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer access required")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai access required")
 
-    today = today_local()
-    village_id = user.get("village_id")
-    if not village_id:
-        return {"assigned": False, "user": {"id": str(user["_id"]), "name": user.get("name"), "role": user.get("role")}, "village": None, "summary": {},
+    from app.core.deps import user_village_ids
+    assigned_vids = user_village_ids(user)
+    if not assigned_vids:
+        return {"assigned": False, "user": {"id": str(user["_id"]), "name": user.get("name"), "role": user.get("role")}, "village": None, "villages": [], "summary": {},
                 "targets": [], "upcoming_targets": [], "upcoming_events": [], "overdue_events": [], "upcoming_visits": [],
                 "upcoming_cases": [], "overdue_case_items": [], "open_cases": 0, "overdue_cases": 0,
                 "recent_visits": [], "recent_reports": [], "contacts": {}}
     await require_permission("dashboard", "read")(db, user)
 
-    village = await db[c.VILLAGES].find_one({"_id": village_id})
+    all_assigned_villages = await db[c.VILLAGES].find({"_id": {"$in": assigned_vids}}).sort("name", 1).to_list()
+    active_vid = oid(village_id) if (village_id and oid(village_id) in assigned_vids) else assigned_vids[0]
+    village = await db[c.VILLAGES].find_one({"_id": active_vid})
+    village_id = active_vid
     groups = await db[c.GROUPS].find({"village_id": village_id, "is_active": True}).sort("name", 1).to_list()
     group_ids = [group["_id"] for group in groups]
     group_counts = {row["_id"]: row["count"] async for row in await db[c.GIRLS].aggregate([
@@ -183,6 +193,7 @@ async def my_dashboard(db: Db, user: CurrentUser):
     ])} if group_ids else {}
     for group in groups:
         group["girl_count"] = group_counts.get(group["_id"], 0)
+    today = today_local()
     month_start, _month_end = period_bounds("monthly", today)
     week_start, _week_end = period_bounds("weekly", today)
     summary = await metrics.activity_summary(db, user["_id"], village_id, month_start, today)
@@ -197,11 +208,15 @@ async def my_dashboard(db: Db, user: CurrentUser):
     )
 
     target_docs = await db[c.TARGETS].find({
-        "volunteer_id": user["_id"], "village_id": village_id, "status": "active",
+        "volunteer_id": user["_id"],
+        "$or": [{"village_id": village_id}, {"village_id": {"$in": assigned_vids}}, {"village_id": None}],
+        "status": "active",
         "period_start": {"$lte": to_dt(today)}, "period_end": {"$gte": to_dt(today)},
     }).sort("period_end", 1).to_list()
     upcoming_target_docs = await db[c.TARGETS].find({
-        "volunteer_id": user["_id"], "village_id": village_id, "status": "active",
+        "volunteer_id": user["_id"],
+        "$or": [{"village_id": village_id}, {"village_id": {"$in": assigned_vids}}, {"village_id": None}],
+        "status": "active",
         "period_start": {"$gt": to_dt(today)},
     }).sort("period_start", 1).limit(5).to_list()
     thresholds = await get_setting(db, "target_thresholds")
@@ -252,7 +267,8 @@ async def my_dashboard(db: Db, user: CurrentUser):
 
     return {
         "assigned": True, "user": {"id": str(user["_id"]), "name": user.get("name"), "role": user.get("role"),
-                                   "village_id": str(village_id)}, "village": serialize(village),
+                                   "village_id": str(village_id), "village_ids": [str(v) for v in assigned_vids]},
+        "village": serialize(village), "villages": serialize(all_assigned_villages), "selected_village_id": str(village_id),
         "groups": serialize(groups), "summary": summary,
         "targets": serialize(targets), "upcoming_targets": serialize(upcoming_targets),
         "upcoming_events": serialize(upcoming_events), "overdue_events": serialize(overdue_events),
@@ -483,15 +499,20 @@ async def my_planned_vs_actual(
 
 @router.get("/{volunteer_id}")
 async def get_volunteer(volunteer_id: str, db: Db, _: Stakeholder):
-    """Volunteer master: profile, the single assigned village and its Kishori Groups."""
+    """Volunteer (Tai) master: profile, assigned villages and Kishori Groups."""
     v = await _volunteer(db, volunteer_id)
     out = serialize(v)
-    if v.get("village_id"):
-        out["village"] = serialize(await db[c.VILLAGES].find_one({"_id": v["village_id"]}))
-        groups = await db[c.GROUPS].find({"village_id": v["village_id"], "is_active": True}).sort("name", 1).to_list()
+    from app.core.deps import user_village_ids
+    v_ids = user_village_ids(v)
+    if v_ids:
+        villages = await db[c.VILLAGES].find({"_id": {"$in": v_ids}}).to_list()
+        out["villages"] = serialize(villages)
+        out["village"] = serialize(villages[0])
+        groups = await db[c.GROUPS].find({"village_id": {"$in": v_ids}, "is_active": True}).sort("name", 1).to_list()
         out["village_groups"] = [{**serialize(g), "assigned_to_this_volunteer": g["_id"] in v.get("group_ids", [])}
                                  for g in groups]
     out["current_assignment"] = serialize(await assignments.current_assignment(db, v["_id"]))
+    out["current_assignments"] = serialize(await assignments.current_assignments(db, v["_id"]))
     return out
 
 
@@ -511,8 +532,7 @@ async def assign(volunteer_id: str, body: AssignRequest, db: Db, actor: Stakehol
     v = await _volunteer(db, volunteer_id)
     if not v["is_active"]:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cannot assign an inactive volunteer")
-    if v.get("village_id"):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Volunteer already has a village; use reassign to move them")
+    # Volunteers (Tais) can be assigned to multiple villages concurrently
     village = await assignments.load_active_village(db, body.village_id)
     assignment = await assignments.assign_village(
         db, v, body.village_id, body.group_ids, actor, "Initial assignment", body.effective_date)
@@ -534,6 +554,10 @@ async def reassign(volunteer_id: str, body: ReassignRequest, db: Db, actor: Stak
     new_village = await assignments.load_active_village(db, body.village_id)
     await assignments.validate_groups(db, new_village["_id"], body.group_ids)
 
+    curr = await assignments.current_assignment(db, v["_id"], new_village["_id"])
+    if curr and old_village == new_village["_id"] and set(curr.get("group_ids", [])) == set(oids(body.group_ids)):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Volunteer is already assigned to this village and groups")
+
     target_result = {"action": body.targets.action, "affected": 0}
     if old_village and old_village != new_village["_id"]:
         target_result = await handle_reassignment(
@@ -541,6 +565,8 @@ async def reassign(volunteer_id: str, body: ReassignRequest, db: Db, actor: Stak
             oid(body.targets.transfer_to_volunteer_id) if body.targets.transfer_to_volunteer_id else None,
             actor, body.reason,
         )
+        await assignments.unassign_village(db, v, old_village, actor, body.reason)
+        v = await db[c.USERS].find_one({"_id": v["_id"]})
     assignment = await assignments.assign_village(
         db, v, body.village_id, body.group_ids, actor, body.reason, body.effective_date)
     await notifications.notify(db, v["_id"], "reassigned", f"You have been assigned to {new_village['name']}",
@@ -696,3 +722,12 @@ async def field_coverage(volunteer_id: str, db: Db, _: Stakeholder,
                    "not_met": serialize([g for g in groups if g["_id"] not in met])},
         "visit_locations": serialize(points),
     }
+
+
+@router.post("/{volunteer_id}/unassign/{village_id}")
+async def unassign_volunteer_village(volunteer_id: str, village_id: str, db: Db, actor: Stakeholder, reason: str = "Unassignment"):
+    """Remove one assigned village from a Tai."""
+    v = await _volunteer(db, volunteer_id)
+    await assignments.unassign_village(db, v, village_id, actor, reason)
+    await audit.log(db, actor, "unassign", "user", v["_id"], f"Unassigned {v['name']} from village {village_id}")
+    return serialize(await db[c.USERS].find_one({"_id": v["_id"]}))

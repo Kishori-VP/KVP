@@ -57,8 +57,9 @@ async def _responsible(db, volunteer_id, village_id):
     vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value, "is_active": True})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Responsible volunteer not found or inactive")
-    if vol.get("village_id") != village_id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible volunteer must be assigned to the event's village")
+    from app.core.deps import can_access_village
+    if not can_access_village(vol, village_id):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible Tai must be assigned to the event's village")
     return vol
 
 
