@@ -78,9 +78,14 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)
+if settings.api_v1_prefix != "/v1":
+    app.include_router(api_router, prefix="/v1")
 
 
 @app.get("/")
+@app.get("/api")
+@app.get("/api/")
+@app.get("/api/index.py")
 async def root():
     return {
         "status": "online",
@@ -95,6 +100,8 @@ async def root():
 
 @app.get("/health")
 @app.get("/api/health")
+@app.get("/api/v1/health")
+@app.get("/v1/health")
 async def health():
     db_status = "disconnected"
     db_error = None
@@ -113,3 +120,9 @@ async def health():
         "database_error": db_error,
         "serverless": IS_SERVERLESS,
     }
+
+
+@app.get("/api/openapi.json", include_in_schema=False)
+async def api_openapi():
+    return app.openapi()
+
