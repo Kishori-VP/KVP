@@ -10,6 +10,8 @@ _client: AsyncMongoClient | None = None
 
 async def connect_to_mongo(uri: str | None = None) -> None:
     global _client
+    if _client is not None:
+        return
     _client = AsyncMongoClient(
         uri or settings.mongodb_uri,
         serverSelectionTimeoutMS=5000,
@@ -21,11 +23,20 @@ async def connect_to_mongo(uri: str | None = None) -> None:
 async def close_mongo_connection() -> None:
     global _client
     if _client is not None:
-        await _client.close()
+        try:
+            await _client.close()
+        except Exception:
+            pass
         _client = None
 
 
 def get_database() -> AsyncDatabase:
+    global _client
     if _client is None:
-        raise RuntimeError("MongoDB client is not initialised")
+        _client = AsyncMongoClient(
+            settings.mongodb_uri,
+            serverSelectionTimeoutMS=5000,
+            tz_aware=True,
+            tzinfo=UTC,
+        )
     return _client[settings.mongodb_db_name]

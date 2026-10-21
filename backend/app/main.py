@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,21 +16,40 @@ from app.services.scheduler import scheduler_loop
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("kvp")
 
+IS_SERVERLESS = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await connect_to_mongo()
     try:
-        await ensure_indexes(get_database())
+        await connect_to_mongo()
+        try:
+            await ensure_indexes(get_database())
+        except Exception:
+            log.exception("Could not create indexes (is MongoDB reachable?)")
     except Exception:
-        log.exception("Could not create indexes (is MongoDB reachable?)")
-    settings.upload_dir.mkdir(parents=True, exist_ok=True)
-    settings.reports_dir.mkdir(parents=True, exist_ok=True)
-    if settings.jwt_secret_key == "change-me-in-production" and settings.environment != "development":
-        raise RuntimeError("Set JWT_SECRET_KEY before running outside development")
+        log.exception("Could not connect to MongoDB on startup")
 
-    task = asyncio.create_task(scheduler_loop(get_database)) if settings.scheduler_enabled else None
+    try:
+        settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    try:
+        settings.reports_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    if settings.jwt_secret_key == "change-me-in-production" and settings.environment == "production":
+        log.warning("JWT_SECRET_KEY is using default; set JWT_SECRET_KEY in production environment variables")
+
+    # Background scheduler is disabled on serverless/Vercel functions
+    task = None
+    if settings.scheduler_enabled and not IS_SERVERLESS:
+        task = asyncio.create_task(scheduler_loop(get_database))
+
     yield
+
     if task:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -44,9 +64,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+cors_origins = settings.cors_origin_list
+if not cors_origins or cors_origins == [""]:
+    cors_origins = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
+    allow_origins=cors_origins if cors_origins != ["*"] else ["*"],
+    allow_origin_regex=r"https://.*\.vercel\.app" if cors_origins != ["*"] else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -57,4 +82,34 @@ app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 @app.get("/")
 async def root():
-    return {"message": f"{settings.app_name} API", "docs": "/docs"}
+    return {
+        "status": "online",
+        "message": f"{settings.app_name} API",
+        "docs": "/docs",
+        "health": "/health",
+        "v1": settings.api_v1_prefix,
+        "environment": settings.environment,
+        "serverless": IS_SERVERLESS,
+    }
+
+
+@app.get("/health")
+@app.get("/api/health")
+async def health():
+    db_status = "disconnected"
+    db_error = None
+    try:
+        db = get_database()
+        await db.command("ping")
+        db_status = "connected"
+    except Exception as e:
+        db_status = "disconnected"
+        db_error = str(e)
+
+    return {
+        "status": "ok",
+        "app": settings.app_name,
+        "database": db_status,
+        "database_error": db_error,
+        "serverless": IS_SERVERLESS,
+    }

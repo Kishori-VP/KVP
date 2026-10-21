@@ -5,6 +5,7 @@ Settings are loaded from environment variables and, when available,
 the local .env file. Environment variables take precedence over defaults.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import List
@@ -13,6 +14,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
+IS_VERCEL = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
 
 
 class Settings(BaseSettings):
@@ -48,13 +50,13 @@ class Settings(BaseSettings):
     # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     credentials_encryption_key: str = ""
 
-    # File storage
-    upload_dir: Path = BASE_DIR / "storage" / "uploads"
-    reports_dir: Path = BASE_DIR / "storage" / "reports"
+    # File storage (defaults to /tmp on serverless environments to prevent read-only errors)
+    upload_dir: Path = Path("/tmp/uploads") if IS_VERCEL else BASE_DIR / "storage" / "uploads"
+    reports_dir: Path = Path("/tmp/reports") if IS_VERCEL else BASE_DIR / "storage" / "reports"
     max_upload_mb: int = 15
 
-    # Background jobs: alerts, reminders, and scheduled reports
-    scheduler_enabled: bool = True
+    # Background jobs: alerts, reminders, and scheduled reports (disabled on serverless)
+    scheduler_enabled: bool = not IS_VERCEL
     scheduler_interval_seconds: int = 900
 
     # Web Push notifications
