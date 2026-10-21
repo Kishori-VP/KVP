@@ -315,7 +315,10 @@ export default function Layout() {
           action="CHECK-IN"
           user={user}
           villages={user?.villages || (user?.village ? [user.village] : [])}
-          onSuccess={() => window.location.reload()}
+          onSuccess={() => {
+            setNoteCamOpen(false)
+            window.dispatchEvent(new CustomEvent('kvp:attendance-updated'))
+          }}
         />
       )}
 

@@ -155,6 +155,29 @@ export default function VolunteerDashboard() {
 
   useEffect(() => {
     fetchTodayAttendance()
+
+    const handleUpdate = () => {
+      fetchTodayAttendance()
+      reload()
+    }
+    window.addEventListener('kvp:attendance-updated', handleUpdate)
+
+    // Restore pending NoteCam session if mobile browser was suspended/refreshed
+    try {
+      const saved = sessionStorage.getItem('kvp_notecam_pending')
+      if (saved) {
+        const item = JSON.parse(saved)
+        if (Date.now() - (item.timestamp || 0) < 5 * 60 * 1000) {
+          setNoteCamAction(item.action || 'CHECK-IN')
+          if (item.villageId) setSelectedVillageId(item.villageId)
+          setNoteCamOpen(true)
+        }
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener('kvp:attendance-updated', handleUpdate)
+    }
   }, [])
 
   const openNoteCam = (action) => {

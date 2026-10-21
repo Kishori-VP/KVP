@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { LookupSelect, VolunteerSelect } from '../components/pickers'
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, ProgressBar, Select, Spinner, StatusBadge, Table } from '../components/ui'
 import api from '../lib/api'
@@ -29,7 +29,7 @@ function CreateModal({ open, onClose, onSaved }) {
     <Modal open={open} title={t('Assign targets')} onClose={onClose} wide
       footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} disabled={!f.target_type || (!f.all_active_volunteers && !f.volunteer_ids.length)} onClick={submit}>{t('Assign / Update')}</Button></>}>
       <ErrorBox message={error} />
-      {result && <div className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900">{t('Successfully assigned/updated {n} target(s).', { n: result.created.length })}</div>}
+      {result && <div className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900">{t('Successfully assigned/updated {n} target(s).', { n: result.created?.length || 0 })}</div>}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Target type *')}><LookupSelect type="target_type" value={f.target_type} onChange={(v) => setF({ ...f, target_type: v })} /></Field>
         <Field label={t('Target value *')}><Input type="number" min={1} value={f.target_value} onChange={(e) => setF({ ...f, target_value: e.target.value })} /></Field>
@@ -51,7 +51,7 @@ function CreateModal({ open, onClose, onSaved }) {
       <Field label={t('Tais')} group>
         <Checkbox label={t('All active Tais')} checked={f.all_active_volunteers} onChange={(e) => setF({ ...f, all_active_volunteers: e.target.checked })} />
         {!f.all_active_volunteers && (
-          <div className="mt-2 flex flex-wrap gap-3">{vols.map((v) => <Checkbox key={v.id} label={`${v.name} (${v.village_name || '—'})`} checked={f.volunteer_ids.includes(v.id)} onChange={() => toggle(v.id)} />)}</div>
+          <div className="mt-2 flex flex-wrap gap-3">{(Array.isArray(vols) ? vols : []).map((v) => <Checkbox key={v.id} label={`${v.name} (${v.village_name || '—'})`} checked={f.volunteer_ids.includes(v.id)} onChange={() => toggle(v.id)} />)}</div>
         )}
       </Field>
       <p className="text-xs text-gray-500">{t('Targets apply to the Tai’s assigned villages.')}</p>
@@ -120,7 +120,9 @@ function DefaultTargetsCard({ onApplied }) {
 
   useEffect(() => {
     api.get('/targets/defaults')
-      .then((r) => setDefaults(r.data))
+      .then((r) => {
+        if (r?.data) setDefaults(r.data)
+      })
       .catch(() => {})
   }, [])
 
@@ -130,7 +132,7 @@ function DefaultTargetsCard({ onApplied }) {
     setMsg('')
     try {
       const res = await api.put('/targets/defaults', defaults)
-      setDefaults(res.data)
+      if (res?.data) setDefaults(res.data)
       setMsg(t('Default targets updated successfully.'))
     } catch (e) {
       setErr(t('Failed to save default targets.'))
@@ -150,7 +152,7 @@ function DefaultTargetsCard({ onApplied }) {
         weekly_visits: Number(defaults.weekly_visits),
         monthly_visits: Number(defaults.monthly_visits),
       })
-      setMsg(t('Applied targets: {c} updated for all active Tais.', { c: res.data.created_count }))
+      setMsg(t('Applied targets: {c} updated for all active Tais.', { c: res?.data?.created_count ?? 0 }))
       if (onApplied) onApplied()
     } catch (e) {
       setErr(t('Failed to apply default targets.'))
@@ -229,12 +231,12 @@ export default function Targets() {
               { key: 'progress', label: t('Progress'), render: (tg) => <ProgressBar pct={tg.progress?.progress_pct ?? 0} status={tg.progress?.status} /> },
               { key: 'status', label: t('Status'), render: (tg) => <StatusBadge value={tg.status === 'cancelled' ? 'cancelled' : (tg.progress?.status || 'active')} /> },
               { key: 'rev', label: t('Revisions'), render: (tg) => tg.revisions?.length || '—' },
-            ]} rows={data?.items} empty={t('No targets in this view.')} />
-            <Pagination page={page} pageSize={25} total={data?.total} onPage={setPage} />
+            ]} rows={data?.items || []} empty={t('No targets in this view.')} />
+            <Pagination page={page} pageSize={25} total={data?.total || 0} onPage={setPage} />
           </>
         )}
       </Card>
-      {!isVolunteer && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
+      {!isVolunteer && creating && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
       {selected && (isVolunteer ? <ModalReadOnlyTarget target={selected} onClose={() => setSelected(null)} /> : <DetailModal target={selected} onClose={() => setSelected(null)} onChanged={() => { setSelected(null); reload() }} />)}
     </div>
   )

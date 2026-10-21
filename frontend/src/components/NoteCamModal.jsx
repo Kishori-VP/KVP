@@ -1,6 +1,6 @@
-import { Camera, Check, MapPin, RefreshCw, X, AlertCircle } from 'lucide-react'
+import { Camera, Check, MapPin, RefreshCw, X, AlertCircle, SwitchCamera } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
-import { Button, ErrorBox, Modal, Select, Spinner } from './ui'
+import { Button, ErrorBox, Modal, Spinner } from './ui'
 import api, { errorMessage } from '../lib/api'
 import { getPreciseGpsLocation, stampNoteCamPhoto } from '../lib/notecam'
 import { t } from '../lib/i18n'
@@ -21,7 +21,9 @@ export default function NoteCamModal({
   const [remarks, setRemarks] = useState('')
 
   const [cameraActive, setCameraActive] = useState(false)
+  const [cameraLoading, setCameraLoading] = useState(false)
   const [cameraError, setCameraError] = useState('')
+  const [facingMode, setFacingMode] = useState('environment') // 'environment' (back) or 'user' (front)
   const [capturedPhoto, setCapturedPhoto] = useState(null)
   const [processingPhoto, setProcessingPhoto] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -47,65 +49,140 @@ export default function NoteCamModal({
     setGpsLoading(false)
   }
 
-  // 2. Start Live Camera
-  const startCamera = async () => {
-    setCameraError('')
+  // Helper to attach video stream cleanly
+  const attachStreamToVideo = (el, stream) => {
+    if (!el || !stream) return
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-          audio: false,
-        })
-        streamRef.current = stream
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-          videoRef.current.play()
-        }
-        setCameraActive(true)
-      } else {
-        setCameraError(t('Live camera stream not supported. Please use the camera file upload below.'))
+      el.srcObject = stream
+      el.muted = true
+      el.setAttribute('playsinline', 'true')
+      el.setAttribute('webkit-playsinline', 'true')
+      el.onloadedmetadata = () => {
+        el.play().catch(() => {})
       }
-    } catch (err) {
-      setCameraError(t('Camera permission not granted or camera in use. Use file picker below.'))
-      setCameraActive(false)
+      el.play().catch(() => {})
+    } catch (e) {
+      console.warn('Video attach stream warning:', e)
     }
   }
 
+  // Ref callback for the <video> element
+  const handleVideoRef = (el) => {
+    videoRef.current = el
+    if (el && streamRef.current && el.srcObject !== streamRef.current) {
+      attachStreamToVideo(el, streamRef.current)
+    }
+  }
+
+  // 2. Stop camera tracks
   const stopCamera = () => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop())
+      try {
+        streamRef.current.getTracks().forEach((track) => track.stop())
+      } catch {}
       streamRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null
     }
     setCameraActive(false)
   }
 
+  // 3. Start Live Camera with progressive fallbacks
+  const startCamera = async (facing = facingMode) => {
+    setCameraError('')
+    setCameraLoading(true)
+    stopCamera()
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setCameraError(t('Live camera stream not supported by this browser. Use photo upload below.'))
+      setCameraLoading(false)
+      return
+    }
+
+    const constraintSets = [
+      { video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false },
+      { video: { facingMode: { ideal: facing } }, audio: false },
+      { video: { facingMode: facing }, audio: false },
+      { video: true, audio: false },
+    ]
+
+    let stream = null
+    for (const constraints of constraintSets) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints)
+        if (stream) break
+      } catch (e) {
+        // try next fallback
+      }
+    }
+
+    if (stream) {
+      streamRef.current = stream
+      if (videoRef.current) {
+        attachStreamToVideo(videoRef.current, stream)
+      }
+      setCameraActive(true)
+    } else {
+      setCameraError(t('Camera permission not granted or camera in use. Please enable camera access or choose a photo below.'))
+      setCameraActive(false)
+    }
+    setCameraLoading(false)
+  }
+
+  // Switch between Rear and Front camera
+  const toggleFacingMode = () => {
+    const next = facingMode === 'environment' ? 'user' : 'environment'
+    setFacingMode(next)
+    startCamera(next)
+  }
+
+  // Lifecycle
   useEffect(() => {
     if (open) {
       setCapturedPhoto(null)
       setApiError('')
       fetchGps()
-      startCamera()
+      startCamera(facingMode)
+
+      // Persist session state so if tab is recycled by mobile OS, it can be resumed
+      try {
+        sessionStorage.setItem(
+          'kvp_notecam_pending',
+          JSON.stringify({ action, villageId: activeVillageId, timestamp: Date.now() })
+        )
+      } catch {}
     } else {
       stopCamera()
+      try {
+        sessionStorage.removeItem('kvp_notecam_pending')
+      } catch {}
     }
-    return () => stopCamera()
+    return () => {
+      stopCamera()
+    }
   }, [open])
 
   // Handle snap from live video
   const snapLivePhoto = async () => {
     if (!videoRef.current) return
     setProcessingPhoto(true)
+    setApiError('')
     try {
       const video = videoRef.current
+      const w = video.videoWidth || 640
+      const h = video.videoHeight || 480
       const canvas = document.createElement('canvas')
-      canvas.width = video.videoWidth || 640
-      canvas.height = video.videoHeight || 480
+      canvas.width = w
+      canvas.height = h
       const ctx = canvas.getContext('2d')
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+
+      if (facingMode === 'user') {
+        // Mirror selfie camera horizontally
+        ctx.translate(w, 0)
+        ctx.scale(-1, 1)
+      }
+      ctx.drawImage(video, 0, 0, w, h)
 
       const stamped = await stampNoteCamPhoto({
         source: canvas,
@@ -119,13 +196,14 @@ export default function NoteCamModal({
       setCapturedPhoto(stamped.dataUrl)
       stopCamera()
     } catch (err) {
+      console.error('Snap error:', err)
       setApiError(errorMessage(err) || t('Error stamping NoteCam photo.'))
     } finally {
       setProcessingPhoto(false)
     }
   }
 
-  // Handle file capture (native device camera)
+  // Handle file capture (device gallery / camera upload)
   const handleFileCapture = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -144,16 +222,27 @@ export default function NoteCamModal({
       setCapturedPhoto(stamped.dataUrl)
       stopCamera()
     } catch (err) {
+      console.error('File process error:', err)
       setApiError(errorMessage(err) || t('Failed to process photo.'))
     } finally {
       setProcessingPhoto(false)
+      if (e.target) e.target.value = ''
     }
   }
 
   // Retake
   const retake = () => {
     setCapturedPhoto(null)
-    startCamera()
+    startCamera(facingMode)
+  }
+
+  // Close modal safely
+  const handleClose = () => {
+    stopCamera()
+    try {
+      sessionStorage.removeItem('kvp_notecam_pending')
+    } catch {}
+    onClose()
   }
 
   // Submit Check-In / Check-Out
@@ -185,8 +274,12 @@ export default function NoteCamModal({
       }
 
       const res = await api.post(endpoint, payload)
+      try {
+        sessionStorage.removeItem('kvp_notecam_pending')
+      } catch {}
+
       if (onSuccess) onSuccess(res.data)
-      onClose()
+      handleClose()
     } catch (err) {
       setApiError(errorMessage(err) || t('Failed to record attendance.'))
     } finally {
@@ -199,7 +292,7 @@ export default function NoteCamModal({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={handleClose}
       title={
         <div className="flex items-center gap-2">
           <Camera className="h-5 w-5 text-brand-700" />
@@ -213,18 +306,21 @@ export default function NoteCamModal({
               {t('Retake photo')}
             </Button>
           ) : (
-            <Button
-              variant="secondary"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={processingPhoto}
-            >
-              <Camera className="mr-1.5 h-4 w-4" />
-              {t('Use Phone Camera')}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={processingPhoto}
+              >
+                <Camera className="mr-1.5 h-4 w-4 text-brand-700" />
+                {t('Upload / Gallery')}
+              </Button>
+            </div>
           )}
 
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={onClose} disabled={submitting}>
+            <Button variant="secondary" onClick={handleClose} disabled={submitting}>
               {t('Cancel')}
             </Button>
             {capturedPhoto && (
@@ -301,7 +397,7 @@ export default function NoteCamModal({
           </div>
         )}
 
-        {/* Camera / Stamped Photo Display */}
+        {/* Live NoteCam Viewfinder & Stamped Photo Display */}
         <div className="relative overflow-hidden rounded-xl border border-gray-300 bg-black aspect-[4/3] flex items-center justify-center">
           {capturedPhoto ? (
             <img
@@ -309,55 +405,105 @@ export default function NoteCamModal({
               alt="NoteCam check-in photo"
               className="h-full w-full object-contain"
             />
-          ) : cameraActive ? (
+          ) : (
             <>
+              {/* Always keep video element in DOM so MediaStream attaches immediately */}
               <video
-                ref={videoRef}
+                ref={handleVideoRef}
                 playsInline
                 autoPlay
-                className="h-full w-full object-cover"
+                muted
+                className={`h-full w-full object-cover ${facingMode === 'user' ? '-scale-x-100' : ''}`}
               />
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={snapLivePhoto}
-                  disabled={processingPhoto}
-                  className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-red-600 shadow-xl transition active:scale-95"
-                  aria-label={t('Take Photo')}
-                >
-                  <div className="h-6 w-6 rounded-full bg-white" />
-                </button>
-              </div>
+
+              {/* Camera Loading Overlay */}
+              {cameraLoading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 text-white z-10">
+                  <Spinner size="lg" />
+                  <p className="mt-2 text-xs text-gray-300">{t('Starting camera…')}</p>
+                </div>
+              )}
+
+              {/* Camera Permission / Error Overlay */}
+              {cameraError && !cameraActive && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-900 p-6 text-center text-white z-10 space-y-3">
+                  <Camera className="mx-auto h-12 w-12 text-gray-400" />
+                  <p className="text-xs sm:text-sm text-amber-300 max-w-xs">{cameraError}</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => startCamera(facingMode)}
+                      className="bg-white text-gray-900"
+                    >
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                      {t('Retry Camera')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="primary"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Camera className="mr-1.5 h-3.5 w-3.5" />
+                      {t('Choose Photo')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* Viewfinder Overlays when Camera is Active */}
+              {cameraActive && !cameraLoading && (
+                <>
+                  {/* Top Bar: Front/Back Camera Flip button */}
+                  <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={toggleFacingMode}
+                      className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur hover:bg-black/80 transition active:scale-95 shadow-md"
+                      title={t('Switch front/back camera')}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>{facingMode === 'environment' ? t('Front (Selfie)') : t('Back (Village)')}</span>
+                    </button>
+                  </div>
+
+                  {/* Top Bar: GPS badge on viewfinder */}
+                  <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white backdrop-blur shadow-md">
+                    <MapPin className="h-3 w-3 text-emerald-400" />
+                    <span>{gps ? `${gps.lat.toFixed(4)}°, ${gps.lng.toFixed(4)}°` : t('GPS locating…')}</span>
+                  </div>
+
+                  {/* Center Shutter Button at bottom */}
+                  <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={snapLivePhoto}
+                      disabled={processingPhoto}
+                      className="flex h-16 w-16 items-center justify-center rounded-full border-4 border-white bg-red-600 shadow-2xl transition active:scale-90 hover:bg-red-700"
+                      aria-label={t('Take Photo')}
+                    >
+                      <div className="h-6 w-6 rounded-full bg-white shadow-inner" />
+                    </button>
+                  </div>
+                </>
+              )}
             </>
-          ) : (
-            <div className="p-6 text-center text-white space-y-3">
-              <Camera className="mx-auto h-12 w-12 text-gray-400" />
-              <p className="text-sm text-gray-300">{cameraError || t('Camera feed ready.')}</p>
-              <Button
-                variant="secondary"
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-white text-gray-900"
-              >
-                <Camera className="mr-2 h-4 w-4 text-brand-700" />
-                {t('Open Device Camera')}
-              </Button>
-            </div>
           )}
 
+          {/* Stamping Processing Overlay */}
           {processingPhoto && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 text-white">
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white z-20">
               <Spinner size="lg" />
               <p className="mt-3 text-sm font-medium">{t('Stamping NoteCam GPS data onto photo…')}</p>
             </div>
           )}
         </div>
 
-        {/* Hidden Native File Input */}
+        {/* Hidden File Input for Gallery / Upload (without aggressive capture mode) */}
         <input
           ref={fileInputRef}
           type="file"
           accept="image/*"
-          capture="environment"
           className="hidden"
           onChange={handleFileCapture}
         />

@@ -63,32 +63,80 @@ export function getPreciseGpsLocation() {
 }
 
 /**
- * Loads an image file into an Image object
+ * Safely resolves any image source (Canvas, Video, Image, File, Blob, or URL)
+ * into a drawable canvas source with known natural dimensions.
  */
-function loadImage(source) {
-  return new Promise((resolve, reject) => {
-    if (source instanceof HTMLImageElement) {
-      if (source.complete) resolve(source)
-      else {
-        source.onload = () => resolve(source)
-        source.onerror = reject
+export async function getDrawableSource(source) {
+  if (!source) throw new Error('No image source provided')
+
+  // 1. Direct HTMLCanvasElement
+  if (typeof HTMLCanvasElement !== 'undefined' && source instanceof HTMLCanvasElement) {
+    return {
+      element: source,
+      width: source.width || 640,
+      height: source.height || 480,
+    }
+  }
+
+  // 2. Direct HTMLVideoElement
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
+    return {
+      element: source,
+      width: source.videoWidth || source.width || 640,
+      height: source.videoHeight || source.height || 480,
+    }
+  }
+
+  // 3. Direct HTMLImageElement
+  if (typeof HTMLImageElement !== 'undefined' && source instanceof HTMLImageElement) {
+    if (!source.complete) {
+      await new Promise((resolve, reject) => {
+        source.onload = resolve
+        source.onerror = () => reject(new Error('Image element failed to load'))
+      })
+    }
+    return {
+      element: source,
+      width: source.naturalWidth || source.width || 640,
+      height: source.naturalHeight || source.height || 480,
+    }
+  }
+
+  // 4. File, Blob, or string URL
+  const img = new Image()
+  img.crossOrigin = 'anonymous'
+  let objectUrl = null
+
+  try {
+    await new Promise((resolve, reject) => {
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(new Error('Failed to load image file'))
+
+      if (typeof source === 'string') {
+        img.src = source
+      } else if (source instanceof Blob || source instanceof File) {
+        objectUrl = URL.createObjectURL(source)
+        img.src = objectUrl
+      } else {
+        reject(new Error('Unsupported image source type'))
       }
-      return
-    }
+    })
 
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => resolve(img)
-    img.onerror = reject
-
-    if (typeof source === 'string') {
-      img.src = source
-    } else if (source instanceof Blob || source instanceof File) {
-      img.src = URL.createObjectURL(source)
-    } else {
-      reject(new Error('Invalid image source'))
+    return {
+      element: img,
+      width: img.naturalWidth || img.width || 640,
+      height: img.naturalHeight || img.height || 480,
     }
-  })
+  } finally {
+    if (objectUrl) {
+      // Delay revoke slightly to allow drawImage to complete safely
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(objectUrl)
+        } catch {}
+      }, 2000)
+    }
+  }
 }
 
 /**
@@ -103,12 +151,12 @@ export async function stampNoteCamPhoto({
   gps = null,
   timestamp = null,
 }) {
-  const img = await loadImage(source)
+  const { element: drawable, width: origWidth, height: origHeight } = await getDrawableSource(source)
 
-  // Target maximum resolution for efficient upload and crisp text
-  const maxDimension = 1440
-  let width = img.naturalWidth || img.width
-  let height = img.naturalHeight || img.height
+  // Target maximum resolution for efficient upload and crisp text (prevents memory crashes on mobile)
+  const maxDimension = 1280
+  let width = origWidth
+  let height = origHeight
 
   if (width > maxDimension || height > maxDimension) {
     if (width > height) {
@@ -126,7 +174,7 @@ export async function stampNoteCamPhoto({
   const ctx = canvas.getContext('2d')
 
   // 1. Draw base image
-  ctx.drawImage(img, 0, 0, width, height)
+  ctx.drawImage(drawable, 0, 0, width, height)
 
   // 2. Compute overlay banner dimensions
   const isPortrait = height > width

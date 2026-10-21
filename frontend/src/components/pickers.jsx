@@ -24,8 +24,8 @@ export function TalukaSelect({ value, onChange, placeholder = t('All talukas') }
 
 export function VolunteerSelect({ value, onChange, villageId, placeholder = t('All volunteers') }) {
   const vols = useVolunteers()
-  const opts = vols
-    .filter((v) => !villageId || v.village_id === villageId)
+  const opts = (Array.isArray(vols) ? vols : [])
+    .filter((v) => !villageId || v.village_id === villageId || (Array.isArray(v.village_ids) && v.village_ids.includes(villageId)))
     .map((v) => ({ value: v.id, label: v.village_name ? `${bilingual(v.name, v.name_mr)} (${bilingual(v.village_name, v.village_name_mr)})` : bilingual(v.name, v.name_mr) }))
   return <Select options={opts} placeholder={placeholder} value={value || ''} onChange={(e) => onChange(e.target.value)} />
 }
