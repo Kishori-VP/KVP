@@ -201,7 +201,7 @@ export default function Login() {
 
             <div className="space-y-2 text-xs sm:text-sm">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">
-                Contact Coordinators to register:
+                {t('Contact Coordinators to register:')}
               </div>
               <a
                 href="tel:+919922914102"
@@ -211,7 +211,7 @@ export default function Login() {
                   <Phone className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[11px] text-gray-400">Call Programme Office</div>
+                  <div className="text-[11px] text-gray-400">{t('Call Programme Office')}</div>
                   <div className="font-medium text-gray-900">+91 99229 14102</div>
                 </div>
               </a>
@@ -223,7 +223,7 @@ export default function Login() {
                   <Mail className="h-4 w-4" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[11px] text-gray-400">Email Registration Desk</div>
+                  <div className="text-[11px] text-gray-400">{t('Email Registration Desk')}</div>
                   <div className="truncate font-medium text-gray-900">sedtindia@gmail.com</div>
                 </div>
               </a>

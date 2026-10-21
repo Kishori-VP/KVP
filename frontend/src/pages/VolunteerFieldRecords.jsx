@@ -1,4 +1,4 @@
-import { Camera, Eye, MapPin, Mic, Plus, Save } from 'lucide-react'
+import { Camera, Eye, MapPin, Mic, Plus, Save, Square } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
@@ -21,27 +21,208 @@ function GirlMultiPicker({ villageId, value, onChange }) {
 
 function VoiceTextarea({ label, value, onChange }) {
   const [listening, setListening] = useState(false)
+  const [interimText, setInterimText] = useState('')
   const [voiceError, setVoiceError] = useState('')
+  const [speechLang, setSpeechLang] = useState('mr-IN') // 'mr-IN' (Marathi) or 'en-IN' (English)
+
+  const isListeningRef = useRef(false)
+  const recognitionRef = useRef(null)
+  const baseTextRef = useRef('')
+  const accumulatedRef = useRef('')
+
   const startVoice = () => {
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition
-    if (!Recognition) { setVoiceError(t('Voice input is not supported in this browser.')); return }
-    setVoiceError('')
-    const recognition = new Recognition()
-    recognition.lang = 'mr-IN'
-    recognition.interimResults = false
-    recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || ''
-      if (transcript) onChange([value, transcript].filter(Boolean).join(' '))
+    if (!Recognition) {
+      setVoiceError(t('Voice input is not supported in this browser. Please use Chrome on Android or desktop.'))
+      return
     }
-    recognition.onerror = () => setVoiceError(t('Could not capture speech. Check microphone permission and try again.'))
-    recognition.onend = () => setListening(false)
-    setListening(true)
-    recognition.start()
+
+    setVoiceError('')
+    setInterimText('')
+    baseTextRef.current = value || ''
+    accumulatedRef.current = ''
+    isListeningRef.current = true
+
+    try {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort()
+        } catch {}
+      }
+
+      const recognition = new Recognition()
+      recognition.continuous = true
+      recognition.interimResults = true
+      recognition.lang = speechLang
+      recognitionRef.current = recognition
+
+      recognition.onresult = (event) => {
+        let interim = ''
+        let finalChunk = ''
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const res = event.results[i]
+          const transcript = res[0]?.transcript || ''
+          if (res.isFinal) {
+            finalChunk += (finalChunk ? ' ' : '') + transcript
+          } else {
+            interim += (interim ? ' ' : '') + transcript
+          }
+        }
+
+        if (finalChunk) {
+          const currentAccum = accumulatedRef.current
+            ? `${accumulatedRef.current} ${finalChunk.trim()}`
+            : finalChunk.trim()
+          accumulatedRef.current = currentAccum
+
+          const newFullText = baseTextRef.current
+            ? `${baseTextRef.current.trim()} ${currentAccum}`
+            : currentAccum
+          onChange(newFullText)
+        }
+
+        setInterimText(interim)
+      }
+
+      recognition.onerror = (event) => {
+        if (event.error === 'no-speech') {
+          // Pause in speech - keep listening continuously across pauses
+          return
+        }
+        if (event.error === 'aborted') {
+          return
+        }
+        if (event.error === 'not-allowed') {
+          isListeningRef.current = false
+          setListening(false)
+          setVoiceError(t('Microphone permission denied. Please allow microphone access.'))
+          return
+        }
+        console.warn('Speech recognition notice:', event.error)
+      }
+
+      recognition.onend = () => {
+        // As long as the user hasn't explicitly clicked "Stop", auto-resume listening across pauses
+        if (isListeningRef.current) {
+          try {
+            recognition.start()
+          } catch (e) {
+            // Already started or busy
+          }
+        } else {
+          setListening(false)
+          setInterimText('')
+        }
+      }
+
+      recognition.start()
+      setListening(true)
+    } catch (err) {
+      console.error('Error starting speech recognition:', err)
+      setVoiceError(t('Could not start microphone. Please check permissions.'))
+      isListeningRef.current = false
+      setListening(false)
+    }
   }
-  return <Field label={label}>
-    <Textarea value={value || ''} onChange={(e) => onChange(e.target.value)} />
-    <div className="mt-1 flex items-center gap-2"><Button size="sm" variant="secondary" icon={Mic} onClick={startVoice} disabled={listening}>{listening ? t('Listening…') : t('Speak in Marathi')}</Button>{voiceError && <span className="text-xs text-amber-700">{voiceError}</span>}</div>
-  </Field>
+
+  const stopVoice = () => {
+    isListeningRef.current = false
+    setListening(false)
+    setInterimText('')
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop()
+      } catch {}
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      isListeningRef.current = false
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort()
+        } catch {}
+      }
+    }
+  }, [])
+
+  return (
+    <Field label={label}>
+      <div className="relative">
+        <Textarea
+          value={value || ''}
+          onChange={(e) => {
+            onChange(e.target.value)
+            if (isListeningRef.current) {
+              baseTextRef.current = e.target.value
+              accumulatedRef.current = ''
+            }
+          }}
+          className={listening ? 'border-red-400 ring-1 ring-red-400' : ''}
+        />
+        {listening && interimText && (
+          <div className="mt-1 flex items-center gap-1.5 rounded border border-red-200 bg-red-50/70 p-1.5 text-xs text-red-900">
+            <span className="inline-block h-2 w-2 shrink-0 animate-ping rounded-full bg-red-500" />
+            <span className="truncate italic">"{interimText}"</span>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {listening ? (
+            <Button
+              size="sm"
+              variant="danger"
+              onClick={stopVoice}
+              className="flex items-center gap-1.5 bg-red-600 font-bold text-white shadow hover:bg-red-700 active:scale-95 animate-pulse"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+              <span>{t('Stop Voice Typing')}</span>
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="secondary"
+              icon={Mic}
+              onClick={startVoice}
+              className="border-brand-300 text-brand-800 hover:bg-brand-50"
+            >
+              <span>{speechLang === 'mr-IN' ? t('Start Voice Typing (Marathi)') : t('Start Voice Typing (English)')}</span>
+            </Button>
+          )}
+
+          {/* Language Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = speechLang === 'mr-IN' ? 'en-IN' : 'mr-IN'
+              setSpeechLang(next)
+              if (isListeningRef.current) {
+                stopVoice()
+              }
+            }}
+            className="rounded px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-100 hover:text-brand-700"
+            title={t('Switch voice typing language')}
+          >
+            {speechLang === 'mr-IN' ? 'English (EN)' : 'मराठी (MR)'}
+          </button>
+        </div>
+
+        {listening && (
+          <span className="flex items-center gap-1.5 text-xs font-medium text-red-600">
+            <span className="h-2 w-2 rounded-full bg-red-600 animate-pulse" />
+            {t('Recording… Pauses will not stop typing. Hit Stop when done.')}
+          </span>
+        )}
+
+        {voiceError && <span className="text-xs text-amber-700">{voiceError}</span>}
+      </div>
+    </Field>
+  )
 }
 
 function VisitEditor({ user, onClose, onSaved, submitRecord }) {
@@ -115,7 +296,7 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
     </Card>}
     <Field label={t('Risk indicators')}><div className="flex flex-wrap gap-3">{[['child_marriage_risk', 'Child marriage risk'], ['school_dropout_risk', 'School dropout risk'], ['health_concern', 'Health concern'], ['anaemia_concern', 'Anaemia concern'], ['gender_discrimination', 'Gender discrimination']].map(([key, label]) => <Checkbox key={key} label={t(label)} checked={risks[key]} onChange={(e) => setRisks({ ...risks, [key]: e.target.checked })} />)}</div></Field>
     <VoiceTextarea label={t('Observations')} value={form.observations} onChange={(value) => setForm({ ...form, observations: value })} />
-    <Field label={t('Notes / next steps')}><Textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
+    <VoiceTextarea label={t('Notes / next steps')} value={form.notes} onChange={(value) => setForm({ ...form, notes: value })} />
     <div className="rounded-lg border border-gray-200 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-sm font-medium">{t('Visit location')}</div><div className="text-xs text-gray-500">{gps ? t('GPS captured with ±{n} m accuracy', { n: Math.round(gps.accuracy_m) }) : t('Capture location only for this field activity.')}</div></div><Button size="sm" variant="secondary" icon={MapPin} busy={gpsBusy} onClick={captureGps}>{gps ? t('Refresh location') : t('Capture GPS')}</Button></div>
       {gpsError && <p className="mt-2 text-xs text-amber-700">{gpsError}</p>}
@@ -230,7 +411,7 @@ function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
     <div className="grid gap-3 sm:grid-cols-2"><Field label={t('Girls present')}><Input type="number" min={0} value={form.girls_present} onChange={(e) => setForm({ ...form, girls_present: e.target.value })} /></Field><Field label={t('Home visits completed')}><Input type="number" min={0} value={form.home_visits_count} onChange={(e) => setForm({ ...form, home_visits_count: e.target.value })} /></Field></div>
     <Field label={t('Girls visited at home')}><GirlMultiPicker villageId={form.village_id || user?.village_id} value={form.home_visit_girl_ids} onChange={(ids) => setForm({ ...form, home_visit_girl_ids: ids })} /></Field>
     <VoiceTextarea label={t('Topics discussed')} value={form.topics_discussed} onChange={(value) => setForm({ ...form, topics_discussed: value })} />
-    <Field label={t('Other people met / information')}><Textarea value={form.other_meetings} onChange={(e) => setForm({ ...form, other_meetings: e.target.value })} /></Field>
+    <VoiceTextarea label={t('Other people met / information')} value={form.other_meetings} onChange={(value) => setForm({ ...form, other_meetings: value })} />
     {form.report_date < todayISO() && <p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-800">{t('This report is back-dated and will be marked historical for review.')}</p>}
   </Modal>
 }

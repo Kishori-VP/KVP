@@ -216,7 +216,7 @@ export default function EventDetail() {
         subtitle={`${lookupLabel(types, ev.event_type)} · ${ev.village?.name} · ${fmtDateTime(ev.start_at)}`}
         actions={<>
           {!isVolunteer && <>
-            <Button variant="secondary" size="sm" icon={Download} onClick={() => download(`/events/${id}/export`, { format: 'pdf' })}>PDF</Button>
+            <Button variant="secondary" size="sm" icon={Download} onClick={() => download(`/events/${id}/export`, { format: 'pdf' })}>{t('PDF')}</Button>
             <Button variant="secondary" size="sm" icon={Download} onClick={() => download(`/events/${id}/export`, { format: 'xlsx' })}>{t('Excel')}</Button>
             {ev.display_status === 'upcoming' || ev.display_status === 'today' ? <Button variant="secondary" size="sm" icon={Send} busy={busy} onClick={notify}>{t('SMS participants')}</Button> : null}
             {ev.status === 'scheduled' && <Button variant="danger" size="sm" onClick={() => setCancel(true)}>{t('Cancel event')}</Button>}

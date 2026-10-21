@@ -68,7 +68,7 @@ export default function VolunteerReports() {
     </Card></div>
     <ErrorBox message={report.error} />
     {report.loading && !data ? <Spinner /> : data?.assigned === false ? <Card><p className="text-sm text-gray-600">{t('No village is assigned to your account yet.')}</p></Card> : <>
-      <div id="volunteer-report-print" className="space-y-4 bg-white"><h1 className="mb-3 text-xl font-bold">KVP Volunteer Activity Report</h1><p className="mb-4 text-sm">Period: {startDate} to {endDate}</p><div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{metrics.map(([key, label]) => <div key={key} className="rounded-xl border border-black/10 bg-white p-4"><div className="text-xs text-gray-500">{t(label)}</div><div className="mt-1 text-2xl font-semibold text-gray-900">{summary[key] || 0}</div></div>)}</div>
+      <div id="volunteer-report-print" className="space-y-4 bg-white"><h1 className="mb-3 text-xl font-bold">{t('KVP Volunteer Activity Report')}</h1><p className="mb-4 text-sm">{t('Period')}: {startDate} – {endDate}</p><div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{metrics.map(([key, label]) => <div key={key} className="rounded-xl border border-black/10 bg-white p-4"><div className="text-xs text-gray-500">{t(label)}</div><div className="mt-1 text-2xl font-semibold text-gray-900">{summary[key] || 0}</div></div>)}</div>
       <Card title={t('Target progress')}>
         <Table columns={[
           { key: 'title', label: t('Target'), className: 'font-medium' },

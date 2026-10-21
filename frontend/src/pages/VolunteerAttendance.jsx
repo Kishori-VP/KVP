@@ -112,7 +112,7 @@ export default function VolunteerAttendance() {
 
   async function saveRow(row) {
     if (!row.status) {
-      setError(`Select an attendance status for ${row.name} before saving.`)
+      setError(t('Select an attendance status before saving.'))
       return
     }
 
@@ -146,7 +146,7 @@ export default function VolunteerAttendance() {
         ),
       )
 
-      setMessage(`Attendance saved for ${row.name}.`)
+      setMessage(t('Attendance saved successfully.'))
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -351,7 +351,7 @@ export default function VolunteerAttendance() {
                             type="button"
                             onClick={() => {
                               setPreviewPhoto(row.check_in_photo)
-                              setPreviewTitle(`${row.name} - NoteCam Check-In Photo (${row.check_in})`)
+                              setPreviewTitle(`${row.name} - ${t('NoteCam Check-In Photo')} (${row.check_in})`)
                             }}
                             className="mt-2 flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
                           >
@@ -380,7 +380,7 @@ export default function VolunteerAttendance() {
                             type="button"
                             onClick={() => {
                               setPreviewPhoto(row.check_out_photo)
-                              setPreviewTitle(`${row.name} - NoteCam Check-Out Photo (${row.check_out})`)
+                              setPreviewTitle(`${row.name} - ${t('NoteCam Check-Out Photo')} (${row.check_out})`)
                             }}
                             className="mt-2 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
                           >
