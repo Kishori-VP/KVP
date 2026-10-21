@@ -1,6 +1,7 @@
 import {
   CalendarDays,
   Camera,
+  CheckCircle2,
   ClipboardList,
   Home,
   Menu,
@@ -10,7 +11,12 @@ import { NavLink } from 'react-router-dom'
 import { t } from '../lib/i18n'
 import { cx } from './ui'
 
-export default function MobileBottomNav({ onOpenCheckIn, onOpenMenu }) {
+export default function MobileBottomNav({
+  onOpenCheckIn,
+  onOpenMenu,
+  checkedIn = false,
+  checkedOut = false,
+}) {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 flex h-16 items-center justify-around border-t border-gray-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur shadow-lg lg:hidden">
       {/* 1. Dashboard */}
@@ -42,15 +48,38 @@ export default function MobileBottomNav({ onOpenCheckIn, onOpenMenu }) {
         <span>{t('Visits')}</span>
       </NavLink>
 
-      {/* 3. Center Action: NoteCam Check-In / Out */}
-      <button
-        type="button"
-        onClick={onOpenCheckIn}
-        className="-mt-5 flex h-13 w-13 flex-col items-center justify-center rounded-full border-4 border-white bg-brand-gradient text-white shadow-xl transition active:scale-90"
-        title={t('NoteCam Attendance')}
-      >
-        <Camera className="h-6 w-6" />
-      </button>
+      {/* 3. Center Action: NoteCam Check-In / Out / Completed */}
+      {checkedOut ? (
+        <button
+          type="button"
+          disabled
+          className="-mt-5 flex h-13 w-13 flex-col items-center justify-center rounded-full border-4 border-white bg-emerald-600 text-white shadow-md cursor-default opacity-90"
+          title={t('Attendance already completed for today. Daily attendance is taken only once.')}
+          aria-label={t('Attendance completed for today')}
+        >
+          <CheckCircle2 className="h-6 w-6" />
+        </button>
+      ) : checkedIn ? (
+        <button
+          type="button"
+          onClick={onOpenCheckIn}
+          className="-mt-5 flex h-13 w-13 flex-col items-center justify-center rounded-full border-4 border-white bg-amber-600 text-white shadow-xl transition active:scale-90"
+          title={t('NoteCam Check-Out')}
+          aria-label={t('NoteCam Check-Out')}
+        >
+          <Camera className="h-6 w-6" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpenCheckIn}
+          className="-mt-5 flex h-13 w-13 flex-col items-center justify-center rounded-full border-4 border-white bg-brand-gradient text-white shadow-xl transition active:scale-90"
+          title={t('NoteCam Check-In')}
+          aria-label={t('NoteCam Check-In')}
+        >
+          <Camera className="h-6 w-6" />
+        </button>
+      )}
 
       {/* 4. Girls */}
       <NavLink

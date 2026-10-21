@@ -168,9 +168,14 @@ export default function VolunteerDashboard() {
       if (saved) {
         const item = JSON.parse(saved)
         if (Date.now() - (item.timestamp || 0) < 5 * 60 * 1000) {
-          setNoteCamAction(item.action || 'CHECK-IN')
-          if (item.villageId) setSelectedVillageId(item.villageId)
-          setNoteCamOpen(true)
+          // If already checked out, do not restore check-in modal
+          if (item.action === 'CHECK-IN' && todayAttendance?.checked_out) {
+            sessionStorage.removeItem('kvp_notecam_pending')
+          } else {
+            setNoteCamAction(item.action || 'CHECK-IN')
+            if (item.villageId) setSelectedVillageId(item.villageId)
+            setNoteCamOpen(true)
+          }
         }
       }
     } catch {}
@@ -178,9 +183,10 @@ export default function VolunteerDashboard() {
     return () => {
       window.removeEventListener('kvp:attendance-updated', handleUpdate)
     }
-  }, [])
+  }, [todayAttendance?.checked_out])
 
   const openNoteCam = (action) => {
+    if (todayAttendance?.checked_out) return // Strictly block opening checkin/out once checked out
     setNoteCamAction(action)
     setNoteCamOpen(true)
   }

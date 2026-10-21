@@ -90,6 +90,21 @@ async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
     """Self-service check-in with NoteCam photo and GPS capture."""
     today = body.attendance_date or today_local()
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+
+    # Attendance can only be taken once per day
+    existing = await db[c.VOLUNTEER_ATTENDANCE].find_one({"volunteer_id": user["_id"], "attendance_date": when})
+    if existing:
+        if existing.get("check_out"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"You have already checked out today at {existing.get('check_out')}. Daily attendance is taken only once.",
+            )
+        if existing.get("check_in"):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                f"You have already checked in today at {existing.get('check_in')}.",
+            )
+
     now = utcnow()
     now_in_ist = datetime.now(local_tz())
     check_in_str = body.check_in_time or now_in_ist.strftime("%I:%M %p")
@@ -138,6 +153,15 @@ async def check_out(body: CheckOutRequest, db: Db, user: CurrentUser):
     """Self-service check-out with NoteCam photo and GPS capture."""
     today = body.attendance_date or today_local()
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+
+    # Prevent duplicate checkout
+    existing = await db[c.VOLUNTEER_ATTENDANCE].find_one({"volunteer_id": user["_id"], "attendance_date": when})
+    if existing and existing.get("check_out"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"You have already checked out today at {existing.get('check_out')}. Daily attendance is taken only once.",
+        )
+
     now = utcnow()
     now_in_ist = datetime.now(local_tz())
     check_out_str = body.check_out_time or now_in_ist.strftime("%I:%M %p")

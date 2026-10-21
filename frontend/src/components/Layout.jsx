@@ -187,8 +187,21 @@ export default function Layout() {
 
   const [open, setOpen] = useState(false)
   const [noteCamOpen, setNoteCamOpen] = useState(false)
+  const [noteCamAction, setNoteCamAction] = useState('CHECK-IN')
   const location = useLocation()
   const { data: unreadData, reload } = useFetch('/notifications/unread-count')
+  const { data: todayAtt, reload: reloadTodayAtt } = useFetch(user?.role === 'volunteer' ? '/attendance/today' : null)
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      reloadTodayAtt?.()
+    }
+    window.addEventListener('kvp:attendance-updated', handleUpdate)
+    return () => window.removeEventListener('kvp:attendance-updated', handleUpdate)
+  }, [reloadTodayAtt])
+
+  const isCheckedIn = Boolean(todayAtt?.checked_in)
+  const isCheckedOut = Boolean(todayAtt?.checked_out)
 
   useEffect(() => {
     reload()
@@ -304,7 +317,13 @@ export default function Layout() {
       {user?.role === 'volunteer' && (
         <MobileBottomNav
           onOpenMenu={() => setOpen(true)}
-          onOpenCheckIn={() => setNoteCamOpen(true)}
+          onOpenCheckIn={() => {
+            if (isCheckedOut) return
+            setNoteCamAction(isCheckedIn ? 'CHECK-OUT' : 'CHECK-IN')
+            setNoteCamOpen(true)
+          }}
+          checkedIn={isCheckedIn}
+          checkedOut={isCheckedOut}
         />
       )}
 
@@ -312,11 +331,12 @@ export default function Layout() {
         <NoteCamModal
           open={noteCamOpen}
           onClose={() => setNoteCamOpen(false)}
-          action="CHECK-IN"
+          action={noteCamAction}
           user={user}
           villages={user?.villages || (user?.village ? [user.village] : [])}
           onSuccess={() => {
             setNoteCamOpen(false)
+            reloadTodayAtt?.()
             window.dispatchEvent(new CustomEvent('kvp:attendance-updated'))
           }}
         />

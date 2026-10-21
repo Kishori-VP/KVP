@@ -1,4 +1,4 @@
-import { Camera, Check, MapPin, RefreshCw, X, AlertCircle, SwitchCamera } from 'lucide-react'
+import { Camera, Check, MapPin, RefreshCw, X, AlertCircle, SwitchCamera, CheckCircle2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Button, ErrorBox, Modal, Spinner } from './ui'
 import api, { errorMessage } from '../lib/api'
@@ -28,6 +28,7 @@ export default function NoteCamModal({
   const [capturedPhoto, setCapturedPhoto] = useState(null)
   const [processingPhoto, setProcessingPhoto] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [alreadyCompleted, setAlreadyCompleted] = useState(false)
   const [apiError, setApiError] = useState('')
 
   const videoRef = useRef(null)
@@ -143,6 +144,21 @@ export default function NoteCamModal({
     if (open) {
       setCapturedPhoto(null)
       setApiError('')
+      setAlreadyCompleted(false)
+
+      // Guard: if already checked out today, check-in is not permitted
+      if (user?.role === 'volunteer') {
+        api.get('/attendance/today')
+          .then((res) => {
+            if (res.data?.checked_out && action === 'CHECK-IN') {
+              setAlreadyCompleted(true)
+              setApiError(t('You have already checked out today. Daily attendance is taken only once.'))
+              stopCamera()
+            }
+          })
+          .catch(() => {})
+      }
+
       fetchGps()
       startCamera(facingMode)
 
@@ -155,6 +171,7 @@ export default function NoteCamModal({
       } catch {}
     } else {
       stopCamera()
+      setAlreadyCompleted(false)
       try {
         sessionStorage.removeItem('kvp_notecam_pending')
       } catch {}
@@ -162,7 +179,7 @@ export default function NoteCamModal({
     return () => {
       stopCamera()
     }
-  }, [open])
+  }, [open, action])
 
   // Handle snap from live video
   const snapLivePhoto = async () => {
@@ -248,6 +265,10 @@ export default function NoteCamModal({
 
   // Submit Check-In / Check-Out
   const handleSubmit = async () => {
+    if (alreadyCompleted && action === 'CHECK-IN') {
+      setApiError(t('Attendance already completed for today. Daily attendance is taken only once.'))
+      return
+    }
     if (!capturedPhoto) {
       setApiError(t('Please take a NoteCam photo before submitting.'))
       return
@@ -302,7 +323,9 @@ export default function NoteCamModal({
       }
       footer={
         <div className="flex w-full flex-wrap items-center justify-between gap-2">
-          {capturedPhoto ? (
+          {alreadyCompleted ? (
+            <div className="text-xs font-semibold text-emerald-800">{t('Attendance taken for today.')}</div>
+          ) : capturedPhoto ? (
             <Button variant="secondary" onClick={retake} disabled={submitting}>
               {t('Retake photo')}
             </Button>
@@ -322,9 +345,9 @@ export default function NoteCamModal({
 
           <div className="flex gap-2">
             <Button variant="secondary" onClick={handleClose} disabled={submitting}>
-              {t('Cancel')}
+              {alreadyCompleted ? t('Close') : t('Cancel')}
             </Button>
-            {capturedPhoto && (
+            {!alreadyCompleted && capturedPhoto && (
               <Button
                 busy={submitting}
                 onClick={handleSubmit}
@@ -400,7 +423,15 @@ export default function NoteCamModal({
 
         {/* Live NoteCam Viewfinder & Stamped Photo Display */}
         <div className="relative overflow-hidden rounded-xl border border-gray-300 bg-black aspect-[4/3] flex items-center justify-center">
-          {capturedPhoto ? (
+          {alreadyCompleted ? (
+            <div className="p-6 text-center text-white space-y-3">
+              <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-400" />
+              <h4 className="text-base font-bold text-white">{t('Day Attendance Completed')}</h4>
+              <p className="text-xs text-gray-300 max-w-xs mx-auto">
+                {t('You have already checked out today. Daily attendance is taken only once.')}
+              </p>
+            </div>
+          ) : capturedPhoto ? (
             <img
               src={capturedPhoto}
               alt="NoteCam check-in photo"
