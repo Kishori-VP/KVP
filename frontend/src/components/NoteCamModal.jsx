@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button, ErrorBox, Modal, Spinner } from './ui'
 import api, { errorMessage } from '../lib/api'
 import { getPreciseGpsLocation, stampNoteCamPhoto } from '../lib/notecam'
+import { todayISO } from '../lib/format'
 import { t } from '../lib/i18n'
 
 export default function NoteCamModal({
@@ -257,7 +258,7 @@ export default function NoteCamModal({
     try {
       const endpoint = action === 'CHECK-IN' ? '/attendance/check-in' : '/attendance/check-out'
       const payload = {
-        attendance_date: new Date().toISOString().slice(0, 10),
+        attendance_date: todayISO(),
         village_id: activeVillageId || null,
         village_name: villageName || null,
         gps: gps

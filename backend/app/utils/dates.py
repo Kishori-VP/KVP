@@ -25,8 +25,26 @@ def local_tz() -> ZoneInfo:
     return ZoneInfo(settings.timezone)
 
 
+def now_ist() -> datetime:
+    """Current datetime in Indian Standard Time (Asia/Kolkata)."""
+    return datetime.now(local_tz())
+
+
+def today_ist() -> date:
+    """Current calendar date in Indian Standard Time (Asia/Kolkata)."""
+    return now_ist().date()
+
+
 def today_local() -> date:
-    return datetime.now(local_tz()).date()
+    """Today evaluated in the programme timezone (Asia/Kolkata / IST)."""
+    return today_ist()
+
+
+def ist_day_bounds(start: date, end: date) -> tuple[datetime, datetime]:
+    """Inclusive calendar date range in IST -> [start 00:00 IST, end+1 00:00 IST) UTC datetimes."""
+    s = datetime.combine(start, time.min, tzinfo=local_tz()).astimezone(UTC)
+    e = datetime.combine(end + timedelta(days=1), time.min, tzinfo=local_tz()).astimezone(UTC)
+    return s, e
 
 
 def to_dt(d: date | datetime | None) -> datetime | None:

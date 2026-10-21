@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.master import GeoPoint
+from app.utils.dates import today_local
 from app.utils.mongo import ObjectIdStr
 
 EnrollmentStatus = Literal["active", "inactive", "migrated", "married", "exited"]
@@ -58,7 +59,7 @@ class GirlCreate(GirlBase):
 
     @model_validator(mode="after")
     def dob_not_future(self):
-        if self.dob and self.dob > date.today():
+        if self.dob and self.dob > today_local():
             raise ValueError("Date of birth cannot be in the future")
         return self
 
@@ -94,7 +95,7 @@ class HealthRecordCreate(BaseModel):
 
     @model_validator(mode="after")
     def not_future(self):
-        if self.recorded_on > date.today():
+        if self.recorded_on > today_local():
             raise ValueError("recorded_on cannot be in the future")
         return self
 

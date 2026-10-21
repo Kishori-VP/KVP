@@ -10,7 +10,7 @@ from app.core.deps import CurrentUser, Db, Stakeholder
 from app.core.permissions import Role
 from app.db import collections as c
 from app.services import audit
-from app.utils.dates import today_local, utcnow
+from app.utils.dates import local_tz, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, oid, serialize
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
@@ -91,7 +91,8 @@ async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
     today = body.attendance_date or today_local()
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
     now = utcnow()
-    check_in_str = body.check_in_time or now.strftime("%I:%M %p")
+    now_in_ist = datetime.now(local_tz())
+    check_in_str = body.check_in_time or now_in_ist.strftime("%I:%M %p")
 
     # Determine village
     vid = oid(body.village_id) if body.village_id else (user.get("village_id") or (user.get("village_ids")[0] if user.get("village_ids") else None))
@@ -138,7 +139,8 @@ async def check_out(body: CheckOutRequest, db: Db, user: CurrentUser):
     today = body.attendance_date or today_local()
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
     now = utcnow()
-    check_out_str = body.check_out_time or now.strftime("%I:%M %p")
+    now_in_ist = datetime.now(local_tz())
+    check_out_str = body.check_out_time or now_in_ist.strftime("%I:%M %p")
 
     gps_dict = body.gps.model_dump() if body.gps else None
     v_name = body.village_name

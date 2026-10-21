@@ -243,14 +243,16 @@ export async function stampNoteCamPhoto({
   ctx.fillStyle = '#38bdf8' // sky blue
   ctx.fillText(gpsText, paddingX, cursorY)
 
-  // Line 4: Formatted Date & Time (IST)
+  // Line 4: Formatted Date & Time strictly in IST
   cursorY += Math.round(baseFontSize * 1.35)
   const now = timestamp ? new Date(timestamp) : new Date()
   const timeFormatted = now.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
     day: '2-digit',
     month: 'short',
     year: 'numeric',
   }) + ' · ' + now.toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',

@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import api, { errorMessage } from '../lib/api'
 import { Button, Card, ErrorBox, Modal, PageHeader, Spinner, StatusBadge } from '../components/ui'
 import { t } from '../lib/i18n'
+import { todayISO } from '../lib/format'
 import NoteCamModal from '../components/NoteCamModal'
 import { useAuth } from '../lib/auth'
 
@@ -14,11 +15,7 @@ const STATUSES = [
   { value: 'leave', label: 'Leave' },
 ]
 
-function today() {
-  const now = new Date()
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000)
-  return local.toISOString().slice(0, 10)
-}
+const today = () => todayISO()
 
 function makeRow(volunteer, existing) {
   const villageNames = volunteer.village_names?.length
