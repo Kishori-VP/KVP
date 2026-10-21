@@ -3,13 +3,10 @@
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
   "rewrites": [
-    { "source": "/api", "destination": "/api/index.py" },
-    { "source": "/api/", "destination": "/api/index.py" },
-    { "source": "/api/(.*)", "destination": "/api/index.py" },
-    { "source": "/health", "destination": "/api/index.py" },
-    { "source": "/docs", "destination": "/api/index.py" },
-    { "source": "/redoc", "destination": "/api/index.py" },
-    { "source": "/openapi.json", "destination": "/api/index.py" },
+    { "source": "/api/(.*)", "destination": "https://kvp-seven.vercel.app/api/$1" },
+    { "source": "/health", "destination": "https://kvp-seven.vercel.app/health" },
+    { "source": "/docs", "destination": "https://kvp-seven.vercel.app/docs" },
+    { "source": "/openapi.json", "destination": "https://kvp-seven.vercel.app/openapi.json" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
