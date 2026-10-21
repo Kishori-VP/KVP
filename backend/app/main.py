@@ -77,6 +77,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+class VercelPathNormalizer:
+    def __init__(self, asgi_app):
+        self.asgi_app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = dict(scope.get("headers", []))
+            raw_matched = (
+                headers.get(b"x-matched-path", b"")
+                or headers.get(b"x-forwarded-uri", b"")
+                or headers.get(b"x-original-uri", b"")
+            ).decode("utf-8", "ignore")
+
+            path = scope.get("path", "")
+            matched = raw_matched.split("?")[0].strip()
+
+            if matched and not matched.endswith(".py"):
+                scope["path"] = matched
+            elif path.startswith("/api/index.py"):
+                sub = path[len("/api/index.py"):]
+                scope["path"] = sub if sub.startswith("/") else ("/" + sub)
+            elif path.startswith("/api/index"):
+                sub = path[len("/api/index"):]
+                scope["path"] = sub if sub.startswith("/") else ("/" + sub)
+
+            if not scope.get("path"):
+                scope["path"] = "/"
+
+        await self.asgi_app(scope, receive, send)
+
+
+app.add_middleware(VercelPathNormalizer)
+
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 if settings.api_v1_prefix != "/v1":
     app.include_router(api_router, prefix="/v1")
