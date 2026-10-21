@@ -1,9 +1,10 @@
-import { ArrowLeft, MapPin, Shuffle } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, MapPin, Shuffle } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { TrendChart } from '../components/charts'
 import { GroupMultiSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, ProgressBar, Select, Spinner, StatTile, StatusBadge, Table, Tabs } from '../components/ui'
+import HandoverModal from '../components/HandoverModal'
 import api from '../lib/api'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
@@ -172,6 +173,7 @@ export default function VolunteerDetail() {
           : <>
               <Button variant="secondary" icon={MapPin} onClick={() => setModal('assign')}>{t('Assign another village')}</Button>
               <Button variant="secondary" onClick={() => setModal('groups')}>{t('Groups')}</Button>
+              <Button variant="secondary" icon={ArrowRightLeft} onClick={() => setModal('handover')}>{t('Handover village')}</Button>
               <Button icon={Shuffle} onClick={() => setModal('reassign')}>{t('Reassign village')}</Button>
             </>} />
       {unassigned && (
@@ -200,6 +202,7 @@ export default function VolunteerDetail() {
       <ReassignModal key={`r${modal}`} open={modal === 'reassign'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
       <AssignModal key={`a${modal}`} open={modal === 'assign'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
       <GroupsModal key={`g${modal}`} open={modal === 'groups'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload() }} />
+      <HandoverModal key={`h${modal}`} open={modal === 'handover'} sourceVolunteer={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
     </div>
   )
 }

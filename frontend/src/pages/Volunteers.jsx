@@ -1,8 +1,9 @@
-import { Plus } from 'lucide-react'
+import { ArrowRightLeft, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GroupMultiSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, ProgressBar, Select, Spinner, Table, Tabs } from '../components/ui'
+import HandoverModal from '../components/HandoverModal'
 import api from '../lib/api'
 import { fmtDate } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
@@ -42,6 +43,7 @@ function Roster() {
   const nav = useNavigate()
   const [assigned, setAssigned] = useState('')
   const [adding, setAdding] = useState(false)
+  const [handingOver, setHandingOver] = useState(null)
   const { data, error, reload } = useFetch('/volunteers', { assigned })
   if (error) return <ErrorBox message={error} />
   if (!data) return <Spinner />
@@ -49,11 +51,11 @@ function Roster() {
     <Card padded={false} title={t('{n} Tai(s)', { n: data.length })} actions={<>
       <Select options={[{ value: 'true', label: t('Assigned to a village') }, { value: 'false', label: t('Not yet assigned') }]} placeholder={t('All Tais')}
         value={assigned} onChange={(e) => setAssigned(e.target.value)} />
+      <Button size="sm" variant="secondary" icon={ArrowRightLeft} onClick={() => setHandingOver(true)}>{t('Handover village')}</Button>
       <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>{t('Add Tai')}</Button>
     </>}>
       <Table onRowClick={(r) => nav(`/volunteers/${r.id}`)} columns={[
         { key: 'name', label: t('Tai'), className: 'font-medium' },
-        { key: 'phone', label: t('Mobile') },
         { key: 'phone', label: t('Mobile') },
         { key: 'village_name', label: t('Village'), render: (r) => r.village_name || <Badge tone="yellow">{t('Not assigned')}</Badge> },
         { key: 'groups', label: t('Groups'), render: (r) => r.groups.map((g) => g.name).join(', ') || '—' },
@@ -63,6 +65,14 @@ function Roster() {
         { key: 'is_active', label: '', render: (r) => (!r.is_active ? <Badge>{t('Inactive')}</Badge> : null) },
       ]} rows={data} empty={t('No volunteers yet. Use “Add volunteer” — the village can be assigned later.')} />
       {adding && <AddTai onClose={() => setAdding(false)} onSaved={(v) => { setAdding(false); reload(); nav(`/volunteers/${v.id}`) }} />}
+      {handingOver && (
+        <HandoverModal
+          open={Boolean(handingOver)}
+          sourceVolunteer={typeof handingOver === 'object' ? handingOver : null}
+          onClose={() => setHandingOver(null)}
+          onDone={() => { setHandingOver(null); reload() }}
+        />
+      )}
     </Card>
   )
 }

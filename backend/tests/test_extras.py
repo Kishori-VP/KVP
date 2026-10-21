@@ -156,3 +156,47 @@ def test_village_locations(client, admin):
         "items": [{"village_id": "0" * 24, "lat": 1, "lng": 1}]}).status_code == 404
     mapped = ok(client.get(f"{API}/dashboard/villages", headers=admin))
     assert "Isaad" not in mapped["unmapped"]
+
+
+def test_village_handover(client, admin):
+    # 1. Create a second volunteer (Tai B)
+    tai_b = ok(client.post(f"{API}/users", headers=admin, json={
+        "name": "Tai B", "phone": "9833333333", "password": "volunteer-taib", "role": "volunteer"
+    }), 201)
+
+    # Get Tai A (Isaad volunteer)
+    vols = ok(client.get(f"{API}/volunteers", headers=admin))
+    tai_a = next(v for v in vols if v["phone"] == "9822222222")
+
+    # 2. Hand over Isaad village from Tai A to Tai B
+    res = ok(client.post(f"{API}/volunteers/handover", headers=admin, json={
+        "from_volunteer_id": tai_a["id"],
+        "to_volunteer_id": tai_b["id"],
+        "village_id": X["village"],
+        "transfer_groups": True,
+        "transfer_cases": True,
+        "reason": "Reallocation of village responsibility"
+    }))
+
+    assert res["success"] is True
+    assert res["to_volunteer"]["id"] == tai_b["id"]
+    assert res["groups_transferred"] >= 1
+
+    # 3. Check Tai B now has village Isaad
+    v_b = ok(client.get(f"{API}/volunteers/{tai_b['id']}", headers=admin))
+    assert v_b["village_id"] == X["village"]
+
+    # 4. Check Tai A no longer has village Isaad
+    v_a = ok(client.get(f"{API}/volunteers/{tai_a['id']}", headers=admin))
+    assert X["village"] not in (v_a.get("village_ids") or [])
+    assert v_a.get("village_id") != X["village"]
+
+    # 5. Check duplicate handover fails
+    bad = client.post(f"{API}/volunteers/handover", headers=admin, json={
+        "from_volunteer_id": tai_a["id"],
+        "to_volunteer_id": tai_b["id"],
+        "village_id": X["village"],
+        "reason": "Duplicate"
+    })
+    assert bad.status_code == 422
+

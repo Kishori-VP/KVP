@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.core.deps import CurrentUser, Db, Stakeholder, require_permission
 from app.core.permissions import Role
 from app.db import collections as c
-from app.schemas.users import AssignRequest, GroupAssignment, ReassignRequest
+from app.schemas.users import AssignRequest, GroupAssignment, HandoverRequest, ReassignRequest
 from app.services import activity, assignments, audit, metrics, notifications
 from app.services.app_settings import get_setting
 from app.services.beneficiaries import OPEN_CASE_STATUSES
@@ -731,3 +731,79 @@ async def unassign_volunteer_village(volunteer_id: str, village_id: str, db: Db,
     await assignments.unassign_village(db, v, village_id, actor, reason)
     await audit.log(db, actor, "unassign", "user", v["_id"], f"Unassigned {v['name']} from village {village_id}")
     return serialize(await db[c.USERS].find_one({"_id": v["_id"]}))
+
+
+@router.post("/handover")
+async def handover_village(body: HandoverRequest, db: Db, actor: Stakeholder):
+    """Hand over a village from one Tai to another Tai."""
+    from_vol = await _volunteer(db, body.from_volunteer_id)
+    to_vol = await _volunteer(db, body.to_volunteer_id)
+
+    res = await assignments.handover_village(
+        db,
+        from_vol,
+        to_vol,
+        body.village_id,
+        actor,
+        body.reason,
+        transfer_groups=body.transfer_groups,
+        transfer_cases=body.transfer_cases,
+        transfer_targets=body.transfer_targets,
+        effective_date=body.effective_date,
+    )
+
+    village = res["village"]
+    await notifications.notify(
+        db,
+        from_vol["_id"],
+        "village_handover",
+        f"Village {village['name']} has been handed over to {to_vol['name']}",
+        body.reason,
+        entity_type="village",
+        entity_id=village["_id"],
+    )
+    await notifications.notify(
+        db,
+        to_vol["_id"],
+        "village_handover",
+        f"Village {village['name']} has been handed over to you from {from_vol['name']}",
+        body.reason,
+        entity_type="village",
+        entity_id=village["_id"],
+    )
+    await audit.log(
+        db,
+        actor,
+        "handover",
+        "village",
+        village["_id"],
+        f"Handed over {village['name']} from {from_vol['name']} to {to_vol['name']}",
+        {
+            "from_volunteer_id": from_vol["_id"],
+            "to_volunteer_id": to_vol["_id"],
+            "groups_transferred": len(res["group_ids"]),
+            "cases_transferred": res["cases_transferred"],
+            "targets_transferred": res["targets_transferred"],
+            "reason": body.reason,
+        },
+    )
+
+    return {
+        "success": True,
+        "message": f"Village {village['name']} handed over from {from_vol['name']} to {to_vol['name']}.",
+        "from_volunteer": serialize(await db[c.USERS].find_one({"_id": from_vol["_id"]})),
+        "to_volunteer": serialize(await db[c.USERS].find_one({"_id": to_vol["_id"]})),
+        "assignment": serialize(res["assignment"]),
+        "groups_transferred": len(res["group_ids"]),
+        "cases_transferred": res["cases_transferred"],
+        "targets_transferred": res["targets_transferred"],
+    }
+
+
+@router.post("/{volunteer_id}/handover")
+async def handover_volunteer_village(volunteer_id: str, body: HandoverRequest, db: Db, actor: Stakeholder):
+    """Convenience alias for handover initiated from a specific volunteer's detail screen."""
+    if str(body.from_volunteer_id) != volunteer_id:
+        body.from_volunteer_id = volunteer_id
+    return await handover_village(body, db, actor)
+

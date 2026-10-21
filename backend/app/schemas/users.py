@@ -132,3 +132,15 @@ class GroupAssignment(BaseModel):
 class MultiAssignRequest(BaseModel):
     village_ids: list[ObjectIdStr] = Field(min_length=1)
     effective_date: date | None = None
+
+
+class HandoverRequest(BaseModel):
+    from_volunteer_id: ObjectIdStr
+    to_volunteer_id: ObjectIdStr
+    village_id: ObjectIdStr
+    transfer_groups: bool = True
+    transfer_cases: bool = True
+    transfer_targets: bool = False
+    effective_date: date | None = None
+    reason: str = Field(default="Village handover", min_length=3)
+
