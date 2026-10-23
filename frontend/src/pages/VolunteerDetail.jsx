@@ -167,7 +167,7 @@ export default function VolunteerDetail() {
     <div className="space-y-4">
       <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Tais')}</Link>
       <PageHeader title={v.name}
-        subtitle={<>{v.phone}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
+        subtitle={<>{v.phone || t('No mobile yet')}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
         actions={unassigned
           ? <Button icon={MapPin} onClick={() => setModal('assign')}>{t('Assign village')}</Button>
           : <>

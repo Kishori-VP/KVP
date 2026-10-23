@@ -34,7 +34,7 @@ class ContactDetails(BaseModel):
 class UserCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     email: EmailStr | None = None
-    phone: str = Field(pattern=PHONE_PATTERN)
+    phone: str | None = Field(None, pattern=PHONE_PATTERN, description="Login mobile; volunteers can get one later")
     password: str = Field(min_length=8)
     role: Role
     village_id: ObjectIdStr | None = Field(None, description="Single village (kept for older clients; see village_ids)")
@@ -47,7 +47,7 @@ class UserCreate(BaseModel):
     designation: str | None = None
     is_active: bool = True
 
-    @field_validator("email", mode="before")
+    @field_validator("email", "phone", mode="before")
     @classmethod
     def empty_email_to_none(cls, v):
         return v or None
@@ -63,6 +63,8 @@ class UserCreate(BaseModel):
             raise ValueError("Groups can only be assigned together with a village")
         if self.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and (self.village_ids or self.group_ids):
             raise ValueError("Admins and Super Admins are not mapped to a village")
+        if self.role != Role.VOLUNTEER and not self.phone:
+            raise ValueError("A mobile number is required to log in")
         return self
 
 
@@ -74,6 +76,11 @@ class UserUpdate(BaseModel):
     phone: str | None = Field(None, pattern=PHONE_PATTERN)
     contact: ContactDetails | None = None
     designation: str | None = None
+
+    @field_validator("email", "phone", mode="before")
+    @classmethod
+    def blank_to_none(cls, v):
+        return v or None
 
 
 class RoleChange(BaseModel):

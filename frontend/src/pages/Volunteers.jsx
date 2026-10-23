@@ -14,7 +14,7 @@ function AddTai({ onClose, onSaved }) {
   const { busy, error, run } = useAction()
   const save = () => run(async () => {
     const r = await api.post('/users', {
-      role: 'volunteer', name: f.name, phone: f.phone, email: f.email || null, password: f.password,
+      role: 'volunteer', name: f.name, phone: f.phone || null, email: f.email || null, password: f.password,
       designation: f.designation || null, village_id: f.village_id || null, group_ids: f.village_id ? f.group_ids : [],
     })
     invalidateRefData()
@@ -22,11 +22,11 @@ function AddTai({ onClose, onSaved }) {
   }).catch(() => {})
   return (
     <Modal open title={t('Add Tai')} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.phone || !f.password} onClick={save}>{t('Add Tai')}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.password} onClick={save}>{t('Add Tai')}</Button></>}>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Name *')}><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-        <Field label={t('Mobile * (used to log in)')}><Input value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+        <Field label={t('Mobile (used to log in; can be added later)')}><Input value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
         <Field label={t('Email')}><Input type="email" value={f.email || ''} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         <Field label={t('Designation')}><Input placeholder={t('e.g. Field worker')} value={f.designation || ''} onChange={(e) => setF({ ...f, designation: e.target.value })} /></Field>
         <Field label={t('Initial password * (min 8)')} className="sm:col-span-2"><Input type="password" value={f.password || ''} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>

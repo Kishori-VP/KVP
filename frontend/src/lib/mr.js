@@ -1615,4 +1615,6 @@ export default {
   "Check-in photo": "चेक-इन फोटो",
   "Check-out photo": "चेक-आऊट फोटो",
   "Attendance photo": "उपस्थिती फोटो",
+  "Mobile (used to log in; can be added later)": "मोबाईल (लॉगिनसाठी; नंतरही जोडता येईल)",
+  "No mobile yet": "मोबाईल अजून नाही",
 };

@@ -13,7 +13,7 @@ function CreateUser({ open, onClose, onSaved }) {
   const { busy, error, run } = useAction()
   const submit = () => run(async () => {
     await api.post('/users', {
-      name: f.name, phone: f.phone, email: f.email || null, password: f.password, role: f.role, designation: f.designation || null,
+      name: f.name, phone: f.phone || null, email: f.email || null, password: f.password, role: f.role, designation: f.designation || null,
       village_id: f.role === 'volunteer' ? f.village_id || null : null, group_ids: f.role === 'volunteer' ? f.group_ids : [],
     })
     invalidateRefData()

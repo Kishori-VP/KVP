@@ -6,7 +6,8 @@ from app.db import collections as c
 INDEXES: dict[str, list[IndexModel]] = {
     c.USERS: [
         IndexModel("email", unique=True, partialFilterExpression={"email": {"$type": "string"}}),
-        IndexModel("phone", unique=True),
+        # Volunteers may be created before their mobile number is known.
+        IndexModel("phone", unique=True, partialFilterExpression={"phone": {"$type": "string"}}, name="phone_unique_when_set"),
         IndexModel([("role", ASCENDING), ("is_active", ASCENDING)]),
         IndexModel("village_id"),
         IndexModel("village_ids"),
@@ -118,6 +119,7 @@ INDEXES: dict[str, list[IndexModel]] = {
 
 # Indexes from earlier versions whose rules no longer apply.
 OBSOLETE: dict[str, list[str]] = {
+    c.USERS: ["phone_1"],
     c.VOLUNTEER_ASSIGNMENTS: ["one_current_assignment_per_volunteer"],
     c.ACTIVITY_REPORTS: ["volunteer_id_1_report_date_1"],
 }
