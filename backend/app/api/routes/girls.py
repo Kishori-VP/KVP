@@ -28,6 +28,7 @@ from app.services.lookups import ensure_code
 from app.services.validation import validate_entity
 from app.utils.dates import to_date, to_dt, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, serialize
+from app.utils.survey_i18n import survey_in_english
 from app.utils.translit import to_latin
 
 router = APIRouter(prefix="/girls", tags=["girls"])
@@ -236,14 +237,21 @@ async def list_girls(
     docs = await cursor.skip((pg.page - 1) * pg.page_size).limit(pg.page_size).to_list()
     villages = await _names(db, c.VILLAGES, {d.get("village_id") for d in docs})
     groups = await _names(db, c.GROUPS, {d.get("group_id") for d in docs})
-    items = [{**girl_out(d), "village_name": villages.get(d.get("village_id")), "group_name": groups.get(d.get("group_id"))}
-             for d in docs]
+    items = []
+    for d in docs:
+        caste = (d.get("custom_fields") or {}).get("caste")
+        items.append({**girl_out(d), "village": villages.get(d.get("village_id")), "group": groups.get(d.get("group_id")),
+                      "caste_en": to_latin(caste) if caste else None})
     return {"items": items, "total": total, "page": pg.page, "page_size": pg.page_size, "age_bands": list(AGE_BANDS)}
 
 
 async def _names(db, coll: str, ids: set) -> dict:
+    """Names of villages/groups in both languages, keyed by id."""
     ids = [i for i in ids if i]
-    return {d["_id"]: d["name"] for d in await db[coll].find({"_id": {"$in": ids}}, {"name": 1}).to_list()} if ids else {}
+    if not ids:
+        return {}
+    docs = await db[coll].find({"_id": {"$in": ids}}, {"name": 1, "name_mr": 1, "name_en": 1}).to_list()
+    return {d["_id"]: serialize(d) for d in docs}
 
 
 @router.get("/{girl_id}")
@@ -255,6 +263,11 @@ async def get_girl(girl_id: str, db: Db, user: Annotated[dict, Depends(require_p
         if girl.get("group_id") else None
     out["village"] = serialize(village)
     out["group"] = serialize(group)
+    survey = (girl.get("custom_fields") or {}).get("baseline_survey")
+    if survey:
+        out["baseline_survey_en"] = survey_in_english(survey)
+    caste = (girl.get("custom_fields") or {}).get("caste")
+    out["caste_en"] = to_latin(caste) if caste else None
     out["participation"] = await _participation_counts(db, girl["_id"])
     case_query = {"girl_id": girl["_id"]}
     if user["role"] == Role.VOLUNTEER:

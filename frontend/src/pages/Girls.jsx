@@ -8,7 +8,7 @@ import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
 import { useAuth } from '../lib/auth'
-import { locale, localName, t } from '../lib/i18n'
+import { casteLabel, categoryLabel, locale, localName, t } from '../lib/i18n'
 
 /** File picker with a thumbnail preview, used for each side of the Aadhaar card. */
 function AadhaarPicker({ label, file, onChange }) {
@@ -165,6 +165,14 @@ export function GirlForm({ initial, onSaved, onCancel }) {
   )
 }
 
+/** Drop columns that have no value on any row of the page; a column's `value` also serves as its cell text. */
+function visibleColumns(rows, columns) {
+  const filled = (v) => v !== undefined && v !== null && v !== '' && v !== false && v !== 0
+  return columns
+    .filter((col) => col.always || (rows || []).some((r) => filled(col.value(r))))
+    .map((col) => (!col.value ? col : { ...col, render: (r) => (filled(col.value(r)) ? (col.render ? col.render(r) : col.value(r)) : '—') }))
+}
+
 export default function Girls() {
   const nav = useNavigate()
   const { user } = useAuth()
@@ -199,23 +207,23 @@ export default function Girls() {
             <div className="px-3 pt-2 text-xs text-gray-500">{t('{n} girls', { n: data?.total?.toLocaleString(locale()) })}</div>
             <Table
               onRowClick={(r) => nav(`/girls/${r.id}`)}
-              columns={[
-                { key: 'girl_code', label: t('Girl ID'), className: 'whitespace-nowrap font-medium' },
-                { key: 'name', label: t('Name'), render: (r) => localName(r) || <span className="text-gray-400">{t('Not recorded')}</span> },
-                { key: 'current_age', label: t('Age') },
-                { key: 'dob', label: t('Date of birth'), className: 'whitespace-nowrap', render: (r) => fmtDate(r.dob) },
-                { key: 'standard', label: t('Class'), render: (r) => r.standard || '—' },
-                { key: 'village_name', label: t('Village'), render: (r) => r.village_name || '—' },
-                { key: 'group_name', label: t('Group'), render: (r) => r.group_name || '—' },
-                { key: 'phone', label: t('Mobile'), className: 'whitespace-nowrap', render: (r) => r.phone || r.household?.phone || '—' },
-                { key: 'category', label: t('Category'), render: (r) => r.household?.social_category || '—' },
-                { key: 'caste', label: t('Caste'), render: (r) => r.custom_fields?.caste || '—' },
-                { key: 'school_status', label: t('School'), render: (r) => humanize(r.school_status) },
-                { key: 'case', label: t('Cases'), render: (r) => (r.case_summary?.open ? <Badge tone="orange">{t('{n} open', { n: r.case_summary.open })}</Badge> : '—') },
-                { key: 'anaemia', label: t('Anaemia'), render: (r) => <StatusBadge value={r.health_summary?.anaemia_status} /> },
-                { key: 'last_participation_at', label: t('Last participation'), render: (r) => fmtDate(r.last_participation_at) },
-                { key: 'flags', label: '', render: (r) => (r.flags?.needs_review ? <Badge tone="red">{t('Review')}</Badge> : r.flags?.profile_incomplete ? <Badge>{t('Incomplete')}</Badge> : null) },
-              ]}
+              columns={visibleColumns(data?.items, [
+                { key: 'girl_code', label: t('Girl ID'), className: 'whitespace-nowrap font-medium', always: true },
+                { key: 'name', label: t('Name'), always: true, render: (r) => localName(r) || <span className="text-gray-400">{t('Not recorded')}</span> },
+                { key: 'current_age', label: t('Age'), value: (r) => r.current_age },
+                { key: 'dob', label: t('Date of birth'), className: 'whitespace-nowrap', value: (r) => r.dob, render: (r) => fmtDate(r.dob) },
+                { key: 'standard', label: t('Class'), value: (r) => r.standard },
+                { key: 'village', label: t('Village'), value: (r) => localName(r.village) },
+                { key: 'group', label: t('Group'), value: (r) => localName(r.group) },
+                { key: 'phone', label: t('Mobile'), className: 'whitespace-nowrap', value: (r) => r.phone || r.household?.phone },
+                { key: 'category', label: t('Category'), value: (r) => categoryLabel(r.household?.social_category) },
+                { key: 'caste', label: t('Caste'), value: (r) => casteLabel(r) },
+                { key: 'school_status', label: t('School'), value: (r) => r.school_status && t(humanize(r.school_status)) },
+                { key: 'case', label: t('Cases'), value: (r) => r.case_summary?.open, render: (r) => <Badge tone="orange">{t('{n} open', { n: r.case_summary.open })}</Badge> },
+                { key: 'anaemia', label: t('Anaemia'), value: (r) => r.health_summary?.anaemia_status, render: (r) => <StatusBadge value={r.health_summary.anaemia_status} /> },
+                { key: 'last_participation_at', label: t('Last participation'), value: (r) => r.last_participation_at, render: (r) => fmtDate(r.last_participation_at) },
+                { key: 'flags', label: '', value: (r) => r.flags?.needs_review || r.flags?.profile_incomplete, render: (r) => (r.flags?.needs_review ? <Badge tone="red">{t('Review')}</Badge> : r.flags?.profile_incomplete ? <Badge>{t('Incomplete')}</Badge> : null) },
+              ])}
               rows={data?.items}
             />
             <Pagination page={page} pageSize={25} total={data?.total} onPage={setPage} />

@@ -8,7 +8,7 @@ import { fmtDate, fmtDateTime, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups } from '../lib/hooks'
 import { GirlForm } from './Girls'
 import { AADHAAR_SIDES, uploadAadhaar } from '../lib/aadhaar'
-import { localName, t } from '../lib/i18n'
+import { casteLabel, categoryLabel, getLang, localName, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
 export function CaseCreateModal({ open, onClose, girl, onCreated }) {
@@ -170,6 +170,9 @@ function AadhaarCard({ girl }) {
   )
 }
 
+/** Rows of a definition list that have a value. */
+const filled = (items) => items.filter(([, v]) => v !== undefined && v !== null && v !== '' && v !== '—')
+
 /** Answers from the baseline survey (Master Data form), shown question by question. */
 function BaselineSurvey({ survey }) {
   const [open, setOpen] = useState(false)
@@ -274,22 +277,22 @@ export default function GirlDetail() {
       {tab === 'profile' && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card title={t('Profile')}>
-            <DefinitionList items={[
+            <DefinitionList items={filled([
               ['Age', g.current_age ?? '—'], ['Date of birth', fmtDate(g.dob)], ['Birth year', g.dob ? null : g.birth_year],
               ['Mobile', g.phone], ['Village', g.village && localName(g.village)], ['Group', g.group && localName(g.group)],
-              ['School status', humanize(g.school_status)],
+              ['School status', g.school_status && t(humanize(g.school_status))],
               ['School', g.school_name], ['Standard', g.standard], ['Survey date', fmtDate(g.survey_date)],
-              ['Enrolled on', fmtDate(g.enrollment?.enrolled_on)], ['Source', humanize(g.source)],
-            ]} />
+              ['Enrolled on', fmtDate(g.enrollment?.enrolled_on)], ['Source', g.source && t(humanize(g.source))],
+            ])} />
           </Card>
           <Card title={t('Household')}>
-            <DefinitionList items={[
+            <DefinitionList items={filled([
               ['Father', h.father_name], ['Mother', h.mother_name], ['Head', h.head_name], ['Mobile', h.phone],
               ['Members', h.members_count], ['Economic status', h.economic_status?.toUpperCase()], ['Address', h.address],
-              ['Category', h.social_category], ['Caste', g.custom_fields?.caste],
-            ]} />
+              ['Category', categoryLabel(h.social_category) || null], ['Caste', casteLabel(g) || null],
+            ])} />
           </Card>
-          {g.custom_fields?.baseline_survey && <BaselineSurvey survey={g.custom_fields.baseline_survey} />}
+          {g.custom_fields?.baseline_survey && <BaselineSurvey survey={getLang() === 'mr' ? g.custom_fields.baseline_survey : g.baseline_survey_en || g.custom_fields.baseline_survey} />}
           <Card title={t('Participation summary')}>
             <DefinitionList items={[
               ['Events attended', g.participation?.events_attended], ['Attendance rate', g.participation?.attendance_rate != null ? `${Math.round(g.participation.attendance_rate * 100)}%` : '—'],

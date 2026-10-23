@@ -51,6 +51,23 @@ export function localName(obj) {
   return current === 'mr' ? obj.name_mr || obj.name || obj.name_en || '' : obj.name_en || obj.name || obj.name_mr || ''
 }
 
+const CATEGORY = {
+  en: { OPEN: 'Open', OBC: 'OBC', SC: 'SC', ST: 'ST', NT: 'NT' },
+  mr: { OPEN: 'खुला', OBC: 'इतर मागास वर्ग', SC: 'अनुसूचित जाती', ST: 'अनुसूचित जमाती', NT: 'भटक्या जमाती' },
+}
+
+/** Social category (प्रवर्ग) in the current language. */
+export function categoryLabel(code) {
+  if (!code) return ''
+  return CATEGORY[current]?.[code.toUpperCase()] || code
+}
+
+/** Caste in the current language: as entered (Marathi), or its English spelling. */
+export function casteLabel(girl) {
+  const caste = girl?.custom_fields?.caste
+  return current === 'mr' ? caste || '' : girl?.caste_en || caste || ''
+}
+
 /** Locale for Intl formatting (Latin digits are kept for readability of figures). */
 export function locale() {
   return current === 'mr' ? 'mr-IN-u-nu-latn' : 'en-IN'
