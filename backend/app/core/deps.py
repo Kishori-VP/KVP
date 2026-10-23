@@ -106,14 +106,14 @@ def require_permission(resource: str, action: str):
         if action not in matrix[Role.VOLUNTEER].get(resource, []):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not permitted: {action} {resource}")
         if not user_village_ids(user):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai has no assigned village")
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer has no assigned village")
         return user
 
     return checker
 
 
 def village_scope(user: dict, field: str = "village_id") -> dict:
-    """Mongo filter restricting Volunteers (Tais) to their assigned villages. Admins & Stakeholders: no filter."""
+    """Mongo filter restricting Volunteers to their assigned villages. Admins & Stakeholders: no filter."""
     if user.get("role") in ADMIN_ROLES:
         return {}
     return {field: {"$in": user_village_ids(user)}}

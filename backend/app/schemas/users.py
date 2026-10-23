@@ -34,7 +34,7 @@ class ContactDetails(BaseModel):
 class UserCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     email: EmailStr | None = None
-    phone: str | None = Field(None, pattern=PHONE_PATTERN, description="Login mobile; volunteers can get one later")
+    phone: str | None = Field(None, pattern=PHONE_PATTERN, description="Login mobile; can be added later")
     password: str = Field(min_length=8)
     role: Role
     village_id: ObjectIdStr | None = Field(None, description="Single village (kept for older clients; see village_ids)")
@@ -63,8 +63,6 @@ class UserCreate(BaseModel):
             raise ValueError("Groups can only be assigned together with a village")
         if self.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and (self.village_ids or self.group_ids):
             raise ValueError("Admins and Super Admins are not mapped to a village")
-        if self.role != Role.VOLUNTEER and not self.phone:
-            raise ValueError("A mobile number is required to log in")
         return self
 
 

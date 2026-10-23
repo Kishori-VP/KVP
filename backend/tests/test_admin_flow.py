@@ -467,13 +467,12 @@ def test_multi_village_volunteer(client, admin):
 
 
 def test_volunteer_without_mobile(client, admin):
-    # A Tai can be created before her mobile number is known, and given one later.
+    # A volunteer can be created before her mobile number is known, and given one later.
     v = ok(client.post(f"{API}/users", headers=admin, json={"name": "No Phone Tai", "password": "Secret123", "role": "volunteer",
                                                              "village_ids": [S["v1"]]}), 201)
     assert v["phone"] is None
     ok(client.post(f"{API}/users", headers=admin, json={"name": "Second No Phone", "password": "Secret123", "role": "volunteer"}), 201)
-    assert client.post(f"{API}/users", headers=admin, json={"name": "No Phone Admin", "password": "Secret123",
-                                                            "role": "stakeholder"}).status_code == 422
+    ok(client.post(f"{API}/users", headers=admin, json={"name": "No Phone Admin", "password": "Secret123", "role": "super_admin"}), 201)
     assert ok(client.patch(f"{API}/users/{v['id']}", headers=admin, json={"phone": "9000000777"}))["phone"] == "9000000777"
 
 

@@ -205,7 +205,7 @@ export default function VolunteerDashboard() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PageHeader
           title={t('My field dashboard')}
-          subtitle={t('Tai field activities, visits, follow-ups and targets.')}
+          subtitle={t('Volunteer field activities, visits, follow-ups and targets.')}
         />
         <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => { reload(); fetchTodayAttendance() }}>
           {t('Refresh')}

@@ -66,7 +66,7 @@ class AttendanceBatch(BaseModel):
 
 @router.get("/today")
 async def get_my_today_attendance(db: Db, user: CurrentUser):
-    """Get the current user's (Tai or Admin) attendance status for today."""
+    """Get the current user's (Volunteer or Admin) attendance status for today."""
     today = today_local()
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
     record = await db[c.VOLUNTEER_ATTENDANCE].find_one({"volunteer_id": user["_id"], "attendance_date": when})

@@ -139,13 +139,13 @@ function VillagesCard({ taluka }) {
 function TargetsCard({ taluka }) {
   const { data } = useFetch('/dashboard/targets', { taluka_id: taluka || undefined })
   return (
-    <Card title={t('Tai target achievement (current active targets)')} actions={<Link to="/targets" className="text-xs text-brand-700 hover:underline">{t('Manage targets →')}</Link>}>
+    <Card title={t('Volunteer target achievement (current active targets)')} actions={<Link to="/targets" className="text-xs text-brand-700 hover:underline">{t('Manage targets →')}</Link>}>
       {!data ? <Spinner /> : (
         <Table
           empty={t('No active targets running. Set targets under Targets.')}
           rowKey={(r) => r.volunteer_id}
           columns={[
-            { key: 'name', label: t('Tai'), render: (r) => <Link className="font-medium text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
+            { key: 'name', label: t('Volunteer'), render: (r) => <Link className="font-medium text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
             { key: 'targets', label: t('Active targets'), render: (r) => (
               <div className="flex flex-wrap gap-1.5">
                 {(r.targets || []).map((tg) => (

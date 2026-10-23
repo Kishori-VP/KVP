@@ -204,7 +204,7 @@ export default function NoteCamModal({
 
       const stamped = await stampNoteCamPhoto({
         source: canvas,
-        userName: user?.name || 'Tai',
+        userName: user?.name || 'Volunteer',
         role: user?.role || 'volunteer',
         action: action === 'CHECK-IN' ? 'CHECK-IN' : 'CHECK-OUT',
         villageName,
@@ -230,7 +230,7 @@ export default function NoteCamModal({
     try {
       const stamped = await stampNoteCamPhoto({
         source: file,
-        userName: user?.name || 'Tai',
+        userName: user?.name || 'Volunteer',
         role: user?.role || 'volunteer',
         action: action === 'CHECK-IN' ? 'CHECK-IN' : 'CHECK-OUT',
         villageName,
@@ -401,7 +401,7 @@ export default function NoteCamModal({
           </Button>
         </div>
 
-        {/* Village Context Selector (for multi-village Tais) */}
+        {/* Village Context Selector (for multi-village Volunteers) */}
         {villages.length > 1 && (
           <div>
             <label className="mb-1 block text-xs font-semibold text-gray-700">

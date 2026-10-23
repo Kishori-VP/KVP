@@ -224,7 +224,7 @@ export async function stampNoteCamPhoto({
   // Line 2: Person & Village
   cursorY += Math.round(titleFontSize * 1.45)
   ctx.font = `600 ${baseFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
-  const roleDisplay = role === 'volunteer' ? 'Tai' : (role === 'stakeholder' || role === 'super_admin') ? 'Stakeholder' : 'Admin'
+  const roleDisplay = role === 'volunteer' ? 'Volunteer' : (role === 'stakeholder' || role === 'super_admin') ? 'Stakeholder' : 'Admin'
   const userText = `👤 ${userName} (${roleDisplay})`
   const villageText = villageName ? `   📍 Village: ${villageName}` : '   📍 Village: Field'
   ctx.fillStyle = '#f1f5f9'

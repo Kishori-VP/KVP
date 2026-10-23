@@ -52,10 +52,10 @@ const NAV = [
   {
     section: 'Team',
     items: [
-      { to: '/volunteers', label: 'Tais', icon: UserCog },
+      { to: '/volunteers', label: 'Volunteers', icon: UserCog },
       { to: '/targets', label: 'Targets', icon: Target },
       { to: '/users', label: 'Users', icon: Users },
-      { to: '/attendance', label: 'Tai attendance', icon: ClipboardCheck },
+      { to: '/attendance', label: 'Volunteer attendance', icon: ClipboardCheck },
     ],
   },
   {
@@ -183,7 +183,7 @@ export default function Layout() {
   const navItems = user?.role === 'volunteer' ? VOLUNTEER_NAV : NAV
   const roleLabel =
     user?.role === 'volunteer'
-      ? 'Tai workspace'
+      ? 'Volunteer workspace'
       : (user?.role === 'stakeholder' || user?.role === 'super_admin')
       ? 'Stakeholder portal'
       : 'Admin portal'
@@ -294,7 +294,7 @@ export default function Layout() {
                 {user?.name}
               </div>
               <div className="mt-1 text-xs text-white/75">
-                {user?.role === 'volunteer' ? t('Tai') : (user?.role === 'stakeholder' || user?.role === 'super_admin') ? t('Stakeholder') : t('Admin')}
+                {user?.role === 'volunteer' ? t('Volunteer') : (user?.role === 'stakeholder' || user?.role === 'super_admin') ? t('Stakeholder') : t('Admin')}
               </div>
             </div>
 

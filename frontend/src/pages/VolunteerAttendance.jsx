@@ -23,7 +23,7 @@ function makeRow(volunteer, existing) {
 
   return {
     volunteer_id: volunteer.id,
-    name: volunteer.name || 'Unnamed Tai',
+    name: volunteer.name || 'Unnamed Volunteer',
     village_name: existing?.village_name || villageNames || 'Not assigned',
     village_id: existing?.village_id || volunteer.village_id || null,
     status: existing?.status || '',
@@ -176,7 +176,7 @@ export default function VolunteerAttendance() {
     const workbook = XLSX.utils.book_new()
     const data = rows.map((row) => ({
       Date: date,
-      'Tai Name': row.name,
+      'Volunteer Name': row.name,
       Village: row.village_name || 'Not assigned',
       Status: STATUSES.find((item) => item.value === row.status)?.label || 'Not recorded',
       'Check-in': row.check_in || '',
@@ -211,7 +211,7 @@ export default function VolunteerAttendance() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={t('Tai attendance register')}
+        title={t('Volunteer attendance register')}
         subtitle={t('Daily check-in and check-out tracking with GPS photos.')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -250,7 +250,7 @@ export default function VolunteerAttendance() {
         }
       >
         <div className="mb-4 flex flex-wrap gap-4 text-sm text-gray-600">
-          <span>{t('Total Tais')}: <strong>{rows.length}</strong></span>
+          <span>{t('Total Volunteers')}: <strong>{rows.length}</strong></span>
           <span>{t('Recorded')}: <strong>{recordedCount}</strong></span>
           <span>{t('Pending')}: <strong>{rows.length - recordedCount}</strong></span>
         </div>
@@ -259,14 +259,14 @@ export default function VolunteerAttendance() {
           <Spinner />
         ) : rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-gray-500">
-            {t('No active Tais found.')}
+            {t('No active Volunteers found.')}
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[980px] text-left text-sm">
               <thead>
                 <tr className="border-b bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-                  <th className="p-3">{t('Tai')}</th>
+                  <th className="p-3">{t('Volunteer')}</th>
                   <th className="p-3">{t('Attendance status')}</th>
                   <th className="p-3">{t('Check-in & Photo')}</th>
                   <th className="p-3">{t('Check-out & Photo')}</th>

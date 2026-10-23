@@ -30,7 +30,7 @@ async def _volunteer(db, volunteer_id, user: dict) -> dict:
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Volunteer not found")
     if not user_village_ids(vol):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Tai has no assigned village")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer has no assigned village")
     if user["role"] == Role.VOLUNTEER and vol["_id"] != user["_id"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteers can only record their own activity")
     return vol

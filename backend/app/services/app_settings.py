@@ -77,7 +77,7 @@ DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "allowed_external_emails": [],
     },
     "tai_targets": {
-        # Default visits target for 1 Tai: 20 per week, 400 per month (admin editable)
+        # Default visits target for 1 Volunteer: 20 per week, 400 per month (admin editable)
         "weekly_visits": 20,
         "monthly_visits": 400,
         "auto_assign": True,

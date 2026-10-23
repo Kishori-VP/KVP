@@ -15,9 +15,9 @@ from typing import Dict, List
 class Role(str, Enum):
     """Application roles."""
 
-    STAKEHOLDER = "stakeholder"  # Top-level monitor (oversight over Admin and Tai)
+    STAKEHOLDER = "stakeholder"  # Top-level monitor (oversight over Admin and Volunteer)
     ADMIN = "admin"              # Administrator / Program Coordinator
-    VOLUNTEER = "volunteer"      # Tai (field worker)
+    VOLUNTEER = "volunteer"      # Volunteer (field worker)
     SUPER_ADMIN = "super_admin"  # Alias for Stakeholder
 
 

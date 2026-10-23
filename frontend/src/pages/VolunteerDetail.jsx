@@ -54,7 +54,7 @@ function AssignModal({ open, onClose, vol, onDone }) {
     <Modal open={open} title={t('Assign a village to {name}', { name: vol.name })} onClose={onClose}
       footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.village_id} onClick={submit}>{t('Assign')}</Button></>}>
       <ErrorBox message={error} />
-      <p className="text-sm text-gray-600">{t('Assign another village to this Tai. A Tai can be assigned to multiple villages concurrently.')}</p>
+      <p className="text-sm text-gray-600">{t('Assign another village to this Volunteer. A Volunteer can be assigned to multiple villages concurrently.')}</p>
       <Field label={t('Village *')}><VillageSelect value={f.village_id} onChange={(v) => setF({ ...f, village_id: v, group_ids: [] })} placeholder={t('Select village')} /></Field>
       <Field label={t('Kishori Groups')} group><GroupMultiSelect villageId={f.village_id} value={f.group_ids} onChange={(v) => setF({ ...f, group_ids: v })} /></Field>
       <Field label={t('Start date')}><Input type="date" value={f.effective_date} onChange={(e) => setF({ ...f, effective_date: e.target.value })} /></Field>
@@ -165,7 +165,7 @@ export default function VolunteerDetail() {
   const unassigned = !v.village_id
   return (
     <div className="space-y-4">
-      <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Tais')}</Link>
+      <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Volunteers')}</Link>
       <PageHeader title={v.name}
         subtitle={<>{v.phone || t('No mobile yet')}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
         actions={unassigned

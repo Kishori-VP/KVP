@@ -114,7 +114,7 @@ function ActivityReportModal({ open, onClose, onSaved }) {
       footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.volunteer_id || !f.activities.length} onClick={submit}>{t('Save report')}</Button></>}>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={t('Tai *')}><VolunteerSelect value={f.volunteer_id} onChange={(v) => setF({ ...f, volunteer_id: v, village_id: '', group_ids: [], home_visit_girl_ids: [] })} placeholder={t('Select…')} /></Field>
+        <Field label={t('Volunteer *')}><VolunteerSelect value={f.volunteer_id} onChange={(v) => setF({ ...f, volunteer_id: v, village_id: '', group_ids: [], home_visit_girl_ids: [] })} placeholder={t('Select…')} /></Field>
         {assignedVillages.length > 1 && (
           <Field label={t('Village *')}>
             <select className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm" value={volVillageId} onChange={(e) => setF({ ...f, village_id: e.target.value, group_ids: [], home_visit_girl_ids: [] })}>
@@ -189,7 +189,7 @@ function ReportDetailModal({ report, onClose, onUpdated }) {
       <div className="space-y-4 text-sm">
         <div className="grid gap-3 sm:grid-cols-3 rounded-lg bg-gray-50 p-3">
           <div><span className="text-xs text-gray-500">{t('Date')}</span><div className="font-medium">{fmtDate(report.report_date)}</div></div>
-          <div><span className="text-xs text-gray-500">{t('Tai')}</span><div className="font-medium">{vol?.name || '—'}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Volunteer')}</span><div className="font-medium">{vol?.name || '—'}</div></div>
           <div><span className="text-xs text-gray-500">{t('Village')}</span><div className="font-medium">{vil?.name || vol?.village_name || '—'}</div></div>
           <div><span className="text-xs text-gray-500">{t('Approval Status')}</span><div><StatusBadge value={report.approval?.status} /></div></div>
           <div><span className="text-xs text-gray-500">{t('Girls Present')}</span><div className="font-medium tabular">{report.girls_present ?? 0}</div></div>

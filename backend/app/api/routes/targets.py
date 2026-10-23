@@ -163,7 +163,7 @@ class ApplyDefaultsRequest(BaseModel):
 
 @router.get("/defaults")
 async def get_target_defaults(db: Db, _: Stakeholder):
-    """Retrieve default weekly and monthly visit targets for Tais."""
+    """Retrieve default weekly and monthly visit targets for Volunteers."""
     from app.services.app_settings import get_setting
     setting = await get_setting(db, "tai_targets")
     return {
@@ -174,7 +174,7 @@ async def get_target_defaults(db: Db, _: Stakeholder):
 
 @router.put("/defaults")
 async def update_target_defaults(body: TaiTargetDefaults, db: Db, actor: Stakeholder):
-    """Update default weekly and monthly visit targets for Tais (Admin configurable)."""
+    """Update default weekly and monthly visit targets for Volunteers (Admin configurable)."""
     now = utcnow()
     doc = {
         "key": "tai_targets",
@@ -183,12 +183,12 @@ async def update_target_defaults(body: TaiTargetDefaults, db: Db, actor: Stakeho
         "updated_by": actor["_id"],
     }
     await db[c.APP_SETTINGS].update_one({"key": "tai_targets"}, {"$set": doc}, upsert=True)
-    await audit.log(db, actor, "update", "app_setting", None, "Updated default Tai targets", body.model_dump())
+    await audit.log(db, actor, "update", "app_setting", None, "Updated default Volunteer targets", body.model_dump())
     return body.model_dump()
 
 @router.post("/apply-defaults")
 async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stakeholder):
-    """Apply default weekly (20) and monthly (400) visit targets to active Tais."""
+    """Apply default weekly (20) and monthly (400) visit targets to active Volunteers."""
     from app.services.app_settings import get_setting
     setting = await get_setting(db, "tai_targets")
     weekly_visits = body.weekly_visits if body.weekly_visits is not None else setting.get("weekly_visits", 20)
@@ -258,7 +258,7 @@ async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stake
                 "target_type": "home_visits",
                 "metric": "home_visits",
                 "title": title,
-                "notes": f"Default {period_type} target for Tai (editable by Admin)",
+                "notes": f"Default {period_type} target for Volunteer (editable by Admin)",
                 "period_type": period_type,
                 "period_start": to_dt(start),
                 "period_end": to_dt(end),

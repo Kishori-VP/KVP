@@ -1,4 +1,4 @@
-"""Volunteer (Tai) <-> village assignment.
+"""Volunteer <-> village assignment.
 
 Rules enforced here:
 - A Volunteer can work in several villages at once; each village is one current
@@ -171,7 +171,7 @@ async def set_groups(db: AsyncDatabase, volunteer: dict, group_ids: list, villag
     if village_id:
         current = [a for a in current if a["village_id"] == oid(village_id)]
     if not current:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Tai has no assigned village")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer has no assigned village")
     groups = await validate_groups(db, [a["village_id"] for a in current], group_ids)
     group_village = {g["_id"]: g["village_id"] async for g in db[c.GROUPS].find({"_id": {"$in": groups}}, {"village_id": 1})}
     now = utcnow()
@@ -204,7 +204,7 @@ async def handover_village(
     transfer_targets: bool = False,
     effective_date: date | None = None,
 ) -> dict:
-    """Hand over a village from one Tai to another Tai.
+    """Hand over a village from one Volunteer to another Volunteer.
 
     - Unassigns the village from the source volunteer (saving assignment history).
     - Assigns the village to the target volunteer.
@@ -214,7 +214,7 @@ async def handover_village(
     """
     vid = oid(village_id)
     if from_volunteer["_id"] == to_volunteer["_id"]:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source and target Tais must be different")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source and target Volunteers must be different")
     if not to_volunteer.get("is_active"):
         raise HTTPException(status.HTTP_409_CONFLICT, "Cannot hand over village to an inactive volunteer")
     if not from_volunteer.get("is_active"):
@@ -222,7 +222,7 @@ async def handover_village(
 
     village = await load_active_village(db, vid)
 
-    # Verify source Tai is assigned to this village
+    # Verify source Volunteer is assigned to this village
     from_village_ids = [v for v in (from_volunteer.get("village_ids") or [])]
     if from_volunteer.get("village_id") and from_volunteer["village_id"] not in from_village_ids:
         from_village_ids.append(from_volunteer["village_id"])
@@ -233,14 +233,14 @@ async def handover_village(
         "is_current": True,
     })
     if not has_assignment:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source Tai is not currently assigned to this village")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source Volunteer is not currently assigned to this village")
 
-    # Verify target Tai is not already assigned to this village
+    # Verify target Volunteer is not already assigned to this village
     to_village_ids = [v for v in (to_volunteer.get("village_ids") or [])]
     if to_volunteer.get("village_id") and to_volunteer["village_id"] not in to_village_ids:
         to_village_ids.append(to_volunteer["village_id"])
     if vid in to_village_ids:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Target Tai is already assigned to this village")
+        raise HTTPException(status.HTTP_409_CONFLICT, "Target Volunteer is already assigned to this village")
 
     # Determine groups of this village to transfer
     group_ids = []
@@ -256,7 +256,7 @@ async def handover_village(
 
     # 1. Unassign from source volunteer
     await unassign_village(
-        db, from_volunteer, vid, actor, f"Handed over to {to_volunteer.get('name', 'another Tai')}: {reason}"
+        db, from_volunteer, vid, actor, f"Handed over to {to_volunteer.get('name', 'another Volunteer')}: {reason}"
     )
 
     # Refresh to_volunteer document before assigning
@@ -269,7 +269,7 @@ async def handover_village(
         vid,
         group_ids,
         actor,
-        f"Handed over from {from_volunteer.get('name', 'another Tai')}: {reason}",
+        f"Handed over from {from_volunteer.get('name', 'another Volunteer')}: {reason}",
         start_date=effective_date,
     )
 

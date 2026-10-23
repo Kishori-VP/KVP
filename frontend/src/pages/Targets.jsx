@@ -48,13 +48,13 @@ function CreateModal({ open, onClose, onSaved }) {
         <Field label={t('Title (optional)')}><Input value={f.title || ''} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
         <Field label={t('Notes')}><Input value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
       </div>
-      <Field label={t('Tais')} group>
-        <Checkbox label={t('All active Tais')} checked={f.all_active_volunteers} onChange={(e) => setF({ ...f, all_active_volunteers: e.target.checked })} />
+      <Field label={t('Volunteers')} group>
+        <Checkbox label={t('All active Volunteers')} checked={f.all_active_volunteers} onChange={(e) => setF({ ...f, all_active_volunteers: e.target.checked })} />
         {!f.all_active_volunteers && (
           <div className="mt-2 flex flex-wrap gap-3">{(Array.isArray(vols) ? vols : []).map((v) => <Checkbox key={v.id} label={`${v.name} (${v.village_name || '—'})`} checked={f.volunteer_ids.includes(v.id)} onChange={() => toggle(v.id)} />)}</div>
         )}
       </Field>
-      <p className="text-xs text-gray-500">{t('Targets apply to the Tai’s assigned villages.')}</p>
+      <p className="text-xs text-gray-500">{t('Targets apply to the Volunteer’s assigned villages.')}</p>
     </Modal>
   )
 }
@@ -142,7 +142,7 @@ function DefaultTargetsCard({ onApplied }) {
   }
 
   const applyToAll = async () => {
-    if (!window.confirm(t('Apply default weekly ({w}) and monthly ({m}) visit targets to all active Tais?', { w: defaults.weekly_visits, m: defaults.monthly_visits }))) return
+    if (!window.confirm(t('Apply default weekly ({w}) and monthly ({m}) visit targets to all active Volunteers?', { w: defaults.weekly_visits, m: defaults.monthly_visits }))) return
     setApplying(true)
     setErr('')
     setMsg('')
@@ -152,7 +152,7 @@ function DefaultTargetsCard({ onApplied }) {
         weekly_visits: Number(defaults.weekly_visits),
         monthly_visits: Number(defaults.monthly_visits),
       })
-      setMsg(t('Applied targets: {c} updated for all active Tais.', { c: res?.data?.created_count ?? 0 }))
+      setMsg(t('Applied targets: {c} updated for all active Volunteers.', { c: res?.data?.created_count ?? 0 }))
       if (onApplied) onApplied()
     } catch (e) {
       setErr(t('Failed to apply default targets.'))
@@ -162,12 +162,12 @@ function DefaultTargetsCard({ onApplied }) {
   }
 
   return (
-    <Card title={t('Default Tai Targets (Admin Configurable)')} className="mb-4 border-brand-200 bg-brand-50/30">
+    <Card title={t('Default Volunteer Targets (Admin Configurable)')} className="mb-4 border-brand-200 bg-brand-50/30">
       {err && <p className="mb-2 text-xs text-red-600">{err}</p>}
       {msg && <p className="mb-2 text-xs font-semibold text-emerald-700">{msg}</p>}
       <div className="grid gap-3 sm:grid-cols-4 items-end">
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">{t('Weekly Visits Target (per Tai)')}</label>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">{t('Weekly Visits Target (per Volunteer)')}</label>
           <Input
             type="number"
             min={1}
@@ -177,7 +177,7 @@ function DefaultTargetsCard({ onApplied }) {
           />
         </div>
         <div>
-          <label className="block text-xs font-semibold text-gray-700 mb-1">{t('Monthly Visits Target (per Tai)')}</label>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">{t('Monthly Visits Target (per Volunteer)')}</label>
           <Input
             type="number"
             min={1}
@@ -191,7 +191,7 @@ function DefaultTargetsCard({ onApplied }) {
             {t('Save Defaults')}
           </Button>
           <Button size="sm" busy={applying} onClick={applyToAll} className="bg-emerald-700 hover:bg-emerald-800 text-white">
-            {t('Apply Defaults to All Tais')}
+            {t('Apply Defaults to All Volunteers')}
           </Button>
         </div>
       </div>
@@ -224,7 +224,7 @@ export default function Targets() {
         {loading && !data ? <Spinner /> : (
           <>
             <Table onRowClick={setSelected} columns={[
-              ...(!isVolunteer ? [{ key: 'volunteer_name', label: t('Tai'), className: 'font-medium' }] : []),
+              ...(!isVolunteer ? [{ key: 'volunteer_name', label: t('Volunteer'), className: 'font-medium' }] : []),
               { key: 'title', label: t('Target') },
               { key: 'period', label: t('Period'), render: (tg) => `${fmtDate(tg.period_start)} – ${fmtDate(tg.period_end)}` },
               { key: 'value', label: t('Done / target'), render: (tg) => `${tg.progress?.achieved ?? 0} / ${tg.target_value}` },

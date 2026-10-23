@@ -74,7 +74,7 @@ export default function HandoverModal({
     }
   }, [fromVolId])
 
-  // Filter eligible target Tais (exclude source and any volunteer already in selectedVid)
+  // Filter eligible target Volunteers (exclude source and any volunteer already in selectedVid)
   const targetTaiOptions = activeVolunteers
     .filter((v) => {
       if (String(v.id) === String(fromVolId)) return false
@@ -146,10 +146,10 @@ export default function HandoverModal({
       <ErrorBox message={error} />
 
       <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3 text-xs sm:text-sm text-blue-900 space-y-1">
-        <p className="font-semibold">{t('Village Handover Between Tais')}</p>
+        <p className="font-semibold">{t('Village Handover Between Volunteers')}</p>
         <p className="text-xs text-blue-800">
           {t(
-            'Transfer village responsibility from one Tai to another. The source Tai’s assignment for this village will be closed in history, and a new assignment will be started for the target Tai.'
+            'Transfer village responsibility from one Volunteer to another. The source Volunteer’s assignment for this village will be closed in history, and a new assignment will be started for the target Volunteer.'
           )}
         </p>
       </div>
@@ -159,8 +159,8 @@ export default function HandoverModal({
       ) : (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
-            {/* Source Tai */}
-            <Field label={t('From Tai (Handing over) *')}>
+            {/* Source Volunteer */}
+            <Field label={t('From Volunteer (Handing over) *')}>
               {sourceVolunteer ? (
                 <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800">
                   {bilingual(sourceVolunteer.name, sourceVolunteer.name_mr)}
@@ -168,7 +168,7 @@ export default function HandoverModal({
               ) : (
                 <Select
                   options={fromTaiOptions}
-                  placeholder={t('Select source Tai')}
+                  placeholder={t('Select source Volunteer')}
                   value={fromVolId}
                   onChange={(e) => setFromVolId(e.target.value)}
                 />
@@ -193,11 +193,11 @@ export default function HandoverModal({
             </Field>
           </div>
 
-          {/* Target Tai */}
-          <Field label={t('To Tai (Recipient) *')} hint={t('Select the Tai taking over responsibility for this village.')}>
+          {/* Target Volunteer */}
+          <Field label={t('To Volunteer (Recipient) *')} hint={t('Select the Volunteer taking over responsibility for this village.')}>
             <Select
               options={targetTaiOptions}
-              placeholder={t('Select recipient Tai')}
+              placeholder={t('Select recipient Volunteer')}
               value={toVolId}
               disabled={!selectedVid}
               onChange={(e) => setToVolId(e.target.value)}
@@ -213,13 +213,13 @@ export default function HandoverModal({
             <Checkbox
               checked={transferGroups}
               onChange={(e) => setTransferGroups(e.target.checked)}
-              label={t('Transfer Kishori Groups of this village to new Tai')}
+              label={t('Transfer Kishori Groups of this village to new Volunteer')}
             />
 
             <Checkbox
               checked={transferCases}
               onChange={(e) => setTransferCases(e.target.checked)}
-              label={t('Transfer open beneficiary cases in this village to new Tai')}
+              label={t('Transfer open beneficiary cases in this village to new Volunteer')}
             />
           </div>
 

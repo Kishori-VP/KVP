@@ -58,7 +58,7 @@ async def _responsible(db, volunteer_id, village_id):
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Responsible volunteer not found or inactive")
     if not can_access_village(vol, village_id):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible Tai must be assigned to the event's village")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible Volunteer must be assigned to the event's village")
     return vol
 
 

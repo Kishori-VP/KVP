@@ -183,9 +183,9 @@ async def submission_status(
 
 @router.get("/me/dashboard")
 async def my_dashboard(db: Db, user: CurrentUser, village_id: ObjectIdStr | None = None):
-    """Tai home screen. Scoped to the selected village or all assigned villages."""
+    """Volunteer home screen. Scoped to the selected village or all assigned villages."""
     if user.get("role") != Role.VOLUNTEER.value:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai access required")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer access required")
 
     today = today_local()
     assigned_vids = user_village_ids(user)
@@ -552,7 +552,7 @@ async def assign(volunteer_id: str, body: AssignRequest, db: Db, actor: Stakehol
     v = await _volunteer(db, volunteer_id)
     if not v["is_active"]:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cannot assign an inactive volunteer")
-    # Volunteers (Tais) can be assigned to multiple villages concurrently
+    # Volunteers can be assigned to multiple villages concurrently
     village = await assignments.load_active_village(db, body.village_id)
     before = user_village_ids(v)
     assignment = await assignments.assign_village(
@@ -772,7 +772,7 @@ async def field_coverage(volunteer_id: str, db: Db, _: Stakeholder,
 
 @router.post("/{volunteer_id}/unassign/{village_id}")
 async def unassign_volunteer_village(volunteer_id: str, village_id: str, db: Db, actor: Stakeholder, reason: str = "Unassignment"):
-    """Remove one assigned village from a Tai."""
+    """Remove one assigned village from a Volunteer."""
     v = await _volunteer(db, volunteer_id)
     await assignments.unassign_village(db, v, village_id, actor, reason)
     await audit.log(db, actor, "unassign", "user", v["_id"], f"Unassigned {v['name']} from village {village_id}")
@@ -781,7 +781,7 @@ async def unassign_volunteer_village(volunteer_id: str, village_id: str, db: Db,
 
 @router.post("/handover")
 async def handover_village(body: HandoverRequest, db: Db, actor: Stakeholder):
-    """Hand over a village from one Tai to another Tai."""
+    """Hand over a village from one Volunteer to another Volunteer."""
     from_vol = await _volunteer(db, body.from_volunteer_id)
     to_vol = await _volunteer(db, body.to_volunteer_id)
 
