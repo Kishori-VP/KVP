@@ -40,6 +40,7 @@ class GirlBase(BaseModel):
     age: int | None = Field(None, ge=5, le=30, description="Use when date of birth is unknown")
     village_id: ObjectIdStr | None = None
     group_id: ObjectIdStr | None = None
+    bal_panchayat_id: ObjectIdStr | None = Field(None, description="Bal Panchayat group, alongside her Kishori group")
     school_status: str | None = Field(None, description="school_status lookup code")
     school_name: str | None = None
     standard: str | None = Field(None, description="Class / standard")

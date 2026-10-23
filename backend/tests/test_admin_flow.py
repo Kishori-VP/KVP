@@ -475,3 +475,24 @@ def test_volunteer_without_mobile(client, admin):
     assert client.post(f"{API}/users", headers=admin, json={"name": "No Phone Admin", "password": "Secret123",
                                                             "role": "stakeholder"}).status_code == 422
     assert ok(client.patch(f"{API}/users/{v['id']}", headers=admin, json={"phone": "9000000777"}))["phone"] == "9000000777"
+
+
+def test_bal_panchayat_children(client, admin, mongo):
+    from bson import ObjectId
+    bp = mongo.groups.find_one({"name": "स्वराज गट"})
+    girl = mongo.girls.find_one({"_id": ObjectId(S["girl"])})
+    mongo.groups.update_one({"_id": bp["_id"]}, {"$set": {"members": [
+        {"name": girl["name"], "standard": "7", "phone": None, "girl_id": girl["_id"]},
+        {"name": "राहुल संजय पवार", "standard": "6", "phone": "9000000888", "girl_id": None},
+    ]}})
+    # A girl keeps her Kishori group and also belongs to a Bal Panchayat.
+    g = ok(client.patch(f"{API}/girls/{S['girl']}", headers=S["vol_headers"], json={"bal_panchayat_id": str(bp["_id"])}))
+    assert g["bal_panchayat_id"] == str(bp["_id"]) and g["group_id"] == S["g1"]
+    assert client.patch(f"{API}/girls/{S['girl']}", headers=S["vol_headers"], json={"bal_panchayat_id": S["g1"]}).status_code == 422
+    kids = ok(client.get(f"{API}/children", headers=admin))
+    assert kids["total"] == 2 and {k["group"]["id"] for k in kids["items"]} == {str(bp["_id"])}
+    assert ok(client.get(f"{API}/children", headers=admin, params={"registered": "false"}))["items"][0]["name"] == "राहुल संजय पवार"
+    assert ok(client.get(f"{API}/children", headers=admin, params={"q": "राहुल"}))["total"] == 1
+    detail = ok(client.get(f"{API}/groups/{bp['_id']}", headers=admin))
+    assert detail["member_count"] == 2 and S["girl"] in [x["id"] for x in detail["girls"]]
+    assert ok(client.get(f"{API}/girls", headers=admin, params={"group_id": str(bp["_id"])}))["total"] == 1

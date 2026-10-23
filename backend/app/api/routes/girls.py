@@ -57,6 +57,13 @@ async def _resolve_refs(db, data: dict, user: dict) -> dict:
         if data.get("village_id") and data["village_id"] not in group_villages(group):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Group does not belong to the girl's village")
         data["group_id"] = group["_id"]
+    if data.get("bal_panchayat_id"):
+        bp = await get_or_404(db[c.GROUPS], data["bal_panchayat_id"], "Bal Panchayat")
+        if bp.get("group_type") != "bal_panchayat":
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "This group is not a Bal Panchayat")
+        if data.get("village_id") and data["village_id"] not in group_villages(bp):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Bal Panchayat does not belong to the girl's village")
+        data["bal_panchayat_id"] = bp["_id"]
     if data.get("school_status"):
         await ensure_code(db, "school_status", data["school_status"], "school_status")
     for key in ("dob",):
@@ -191,8 +198,8 @@ async def list_girls(
     narrow_to_village(query, user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
-    if group_id:
-        query["group_id"] = oid(group_id)
+    if group_id:  # a Kishori group, or a Bal Panchayat she belongs to
+        query.setdefault("$and", []).append({"$or": [{"group_id": oid(group_id)}, {"bal_panchayat_id": oid(group_id)}]})
     elif no_group:
         query["group_id"] = None
     if school_status:
@@ -236,11 +243,12 @@ async def list_girls(
         cursor = db[c.GIRLS].find(query, projection).sort([("girl_seq", 1), ("girl_code", 1)])
     docs = await cursor.skip((pg.page - 1) * pg.page_size).limit(pg.page_size).to_list()
     villages = await _names(db, c.VILLAGES, {d.get("village_id") for d in docs})
-    groups = await _names(db, c.GROUPS, {d.get("group_id") for d in docs})
+    groups = await _names(db, c.GROUPS, {g for d in docs for g in (d.get("group_id"), d.get("bal_panchayat_id"))})
     items = []
     for d in docs:
         caste = (d.get("custom_fields") or {}).get("caste")
         items.append({**girl_out(d), "village": villages.get(d.get("village_id")), "group": groups.get(d.get("group_id")),
+                      "bal_panchayat": groups.get(d.get("bal_panchayat_id")),
                       "caste_en": to_latin(caste) if caste else None})
     return {"items": items, "total": total, "page": pg.page, "page_size": pg.page_size, "age_bands": list(AGE_BANDS)}
 
@@ -263,6 +271,8 @@ async def get_girl(girl_id: str, db: Db, user: Annotated[dict, Depends(require_p
         if girl.get("group_id") else None
     out["village"] = serialize(village)
     out["group"] = serialize(group)
+    bp = await db[c.GROUPS].find_one({"_id": girl["bal_panchayat_id"]}, {"name": 1, "name_en": 1})         if girl.get("bal_panchayat_id") else None
+    out["bal_panchayat"] = serialize(bp)
     survey = (girl.get("custom_fields") or {}).get("baseline_survey")
     if survey:
         out["baseline_survey_en"] = survey_in_english(survey)
@@ -330,6 +340,8 @@ async def update_girl(girl_id: str, body: GirlUpdate, db: Db, user: Annotated[di
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders can move a girl to another village")
     if "village_id" in updates and "group_id" not in updates and before.get("group_id"):
         updates["group_id"] = None  # old group belongs to the old village
+    if "village_id" in updates and "bal_panchayat_id" not in updates and before.get("bal_panchayat_id"):
+        updates["bal_panchayat_id"] = None
     merged_village = updates.get("village_id") or before.get("village_id")
     data = await _resolve_refs(db, {**updates, "village_id": merged_village}, user)
     if "village_id" not in updates:

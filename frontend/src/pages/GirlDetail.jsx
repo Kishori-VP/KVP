@@ -279,7 +279,7 @@ export default function GirlDetail() {
           <Card title={t('Profile')}>
             <DefinitionList items={filled([
               ['Age', g.current_age ?? '—'], ['Date of birth', fmtDate(g.dob)], ['Birth year', g.dob ? null : g.birth_year],
-              ['Mobile', g.phone], ['Village', g.village && localName(g.village)], ['Group', g.group && localName(g.group)],
+              ['Mobile', g.phone], ['Village', g.village && localName(g.village)], ['Group', g.group && localName(g.group)], ['Bal Panchayat', g.bal_panchayat && localName(g.bal_panchayat)],
               ['School status', g.school_status && t(humanize(g.school_status))],
               ['School', g.school_name], ['Standard', g.standard], ['Survey date', fmtDate(g.survey_date)],
               ['Enrolled on', fmtDate(g.enrollment?.enrolled_on)], ['Source', g.source && t(humanize(g.source))],

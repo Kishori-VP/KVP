@@ -1,4 +1,5 @@
 import {
+  Baby,
   BarChart3,
   Bell,
   CalendarDays,
@@ -42,6 +43,7 @@ const NAV = [
     section: 'Programme',
     items: [
       { to: '/girls', label: 'Girls', icon: Users },
+      { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },
       { to: '/cases', label: 'Cases', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },
       { to: '/field', label: 'Field records', icon: ClipboardList },
@@ -94,6 +96,7 @@ const VOLUNTEER_NAV = [
     section: 'Village',
     items: [
       { to: '/girls', label: 'Girls', icon: Users },
+      { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },
       { to: '/groups', label: 'Groups', icon: Users },
       { to: '/cases', label: 'Follow-ups', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },

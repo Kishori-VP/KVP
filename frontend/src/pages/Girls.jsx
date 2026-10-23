@@ -215,6 +215,7 @@ export default function Girls() {
                 { key: 'standard', label: t('Class'), value: (r) => r.standard },
                 { key: 'village', label: t('Village'), value: (r) => localName(r.village) },
                 { key: 'group', label: t('Group'), value: (r) => localName(r.group) },
+                { key: 'bal_panchayat', label: t('Bal Panchayat'), value: (r) => localName(r.bal_panchayat) },
                 { key: 'phone', label: t('Mobile'), className: 'whitespace-nowrap', value: (r) => r.phone || r.household?.phone },
                 { key: 'category', label: t('Category'), value: (r) => categoryLabel(r.household?.social_category) },
                 { key: 'caste', label: t('Caste'), value: (r) => casteLabel(r) },

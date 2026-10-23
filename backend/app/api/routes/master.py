@@ -203,12 +203,21 @@ async def get_village(village_id: str, db: Db, user: CurrentUser):
             {"$group": {"_id": "$group_id", "n": {"$sum": 1}}},
         ])
     }
+    bp_counts = {
+        d["_id"]: d["n"]
+        async for d in await db[c.GIRLS].aggregate([
+            {"$match": {"village_id": vid, "is_deleted": {"$ne": True}, "bal_panchayat_id": {"$ne": None}}},
+            {"$group": {"_id": "$bal_panchayat_id", "n": {"$sum": 1}}},
+        ])
+    }
     return {
         **serialize(village),
         "taluka": serialize(taluka),
         "girl_count": sum(girl_counts.values()),
         "girls_without_group": girl_counts.get(None, 0),
-        "groups": [{**serialize(g), "girl_count": girl_counts.get(g["_id"], 0)} for g in groups],
+        "groups": [{**serialize({k: v for k, v in g.items() if k != "members"}),
+                    "girl_count": girl_counts.get(g["_id"], 0) + bp_counts.get(g["_id"], 0),
+                    "member_count": len(g.get("members", []))} for g in groups],
         "volunteers": serialize(volunteers),
         "contacts": serialize(contacts),
         "missing_mandatory_contacts": [cat for cat in MANDATORY_CONTACT_CATEGORIES if cat not in present],
@@ -304,13 +313,56 @@ async def list_groups(
     return await paginate(db[c.GROUPS], query, pg.page, pg.page_size, sort=[("village_id", 1), ("name", 1)])
 
 
+@router.get("/children")
+async def list_children(
+    db: Db,
+    user: CurrentUser,
+    pg: Pagination,
+    village_id: ObjectIdStr | None = None,
+    group_id: ObjectIdStr | None = None,
+    q: str | None = None,
+    registered: bool | None = Query(None, description="true: linked to a registered girl; false: not registered"),
+):
+    """Every child in a Bal Panchayat, boys included (members are kept on the group)."""
+    match: dict = {**group_scope(user, village_id), "group_type": "bal_panchayat"}
+    if group_id:
+        match["_id"] = oid(group_id)
+    child: dict = {}
+    if q:
+        child["members.name"] = {"$regex": re.escape(q.strip()), "$options": "i"}
+    if registered is not None:
+        child["members.girl_id"] = {"$ne": None} if registered else None
+    rows = await (await db[c.GROUPS].aggregate([
+        {"$match": match},
+        {"$unwind": "$members"},
+        {"$match": child},
+        {"$sort": {"village_id": 1, "name": 1, "members.name": 1}},
+        {"$facet": {
+            "total": [{"$count": "n"}],
+            "items": [{"$skip": (pg.page - 1) * pg.page_size}, {"$limit": pg.page_size},
+                      {"$project": {"member": "$members", "group_id": "$_id", "group_name": "$name",
+                                    "group_name_en": "$name_en", "village_id": 1}}],
+        }},
+    ])).to_list()
+    data = rows[0] if rows else {"total": [], "items": []}
+    villages = {v["_id"]: v for v in await db[c.VILLAGES].find(
+        {"_id": {"$in": list({r["village_id"] for r in data["items"]})}}, {"name": 1, "name_mr": 1}).to_list()}
+    items = [{**serialize(r["member"]), "name_en": to_latin(r["member"].get("name")),
+              "group": {"id": str(r["group_id"]), "name": r["group_name"], "name_en": r.get("group_name_en")},
+              "village": serialize(villages.get(r["village_id"]))} for r in data["items"]]
+    return {"items": items, "total": data["total"][0]["n"] if data["total"] else 0, "page": pg.page, "page_size": pg.page_size}
+
+
 @router.get("/groups/{group_id}")
 async def get_group(group_id: str, db: Db, user: CurrentUser):
     group = await get_or_404(db[c.GROUPS], group_id, "Group", group_scope(user))
     girls = await db[c.GIRLS].find(
-        {"group_id": group["_id"], "is_deleted": {"$ne": True}}, {"girl_code": 1, "name": 1, "dob": 1, "age": 1}
+        {"$or": [{"group_id": group["_id"]}, {"bal_panchayat_id": group["_id"]}], "is_deleted": {"$ne": True}},
+        {"girl_code": 1, "name": 1, "name_en": 1, "name_mr": 1, "dob": 1, "age": 1},
     ).sort("girl_code", 1).to_list()
-    return {**serialize(group), "girls": serialize(girls), "girl_count": len(girls)}
+    # Bal Panchayat lists include boys, who are not registered beneficiaries; every child is kept as a member.
+    members = group.get("members", [])
+    return {**serialize(group), "girls": serialize(girls), "girl_count": len(girls), "member_count": len(members)}
 
 
 @router.patch("/groups/{group_id}")

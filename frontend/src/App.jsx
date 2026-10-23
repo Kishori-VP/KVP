@@ -58,6 +58,7 @@ const Events = lazy(() => import('./pages/Events'))
 const FieldRecords = lazy(() => import('./pages/FieldRecords'))
 const GirlDetail = lazy(() => import('./pages/GirlDetail'))
 const Girls = lazy(() => import('./pages/Girls'))
+const Children = lazy(() => import('./pages/Children'))
 const MasterData = lazy(() => import('./pages/MasterData'))
 const Messages = lazy(() => import('./pages/Messages'))
 const Notifications = lazy(() => import('./pages/Notifications'))
@@ -118,6 +119,7 @@ export default function App() {
           >
             <Route index element={<RoleHome />} />
             <Route path="girls" element={<Girls />} />
+            <Route path="children" element={<Children />} />
             <Route path="girls/:id" element={<GirlDetail />} />
             <Route path="cases" element={<Cases />} />
             <Route path="cases/:id" element={<CaseDetail />} />
@@ -132,7 +134,7 @@ export default function App() {
             <Route path="villages" element={<StakeholderOnly><Villages /></StakeholderOnly>} />
             <Route path="villages/:id" element={<StakeholderOnly><VillageDetail /></StakeholderOnly>} />
             <Route path="groups" element={<VolunteerOnly><VolunteerGroups /></VolunteerOnly>} />
-            <Route path="groups/:id" element={<VolunteerOnly><VolunteerGroupDetail /></VolunteerOnly>} />
+            <Route path="groups/:id" element={<VolunteerGroupDetail />} />
             <Route path="contacts" element={<RoleSwitch stakeholder={<Contacts />} volunteer={<VolunteerContacts />} />} />
             <Route path="reports" element={<RoleSwitch stakeholder={<Reports />} volunteer={<VolunteerReports />} />} />
             <Route path="notifications" element={<Notifications />} />

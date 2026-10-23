@@ -35,9 +35,10 @@ export default function VillageDetail() {
         </Card>
         <Card title={t('Groups')}>
           <Table columns={[
-            { key: 'name', label: t('Group') },
+            { key: 'name', label: t('Group'), render: (g) => <Link className="text-brand-700 hover:underline" to={`/groups/${g.id}`}>{localName(g)}</Link> },
             { key: 'group_type', label: t('Type'), render: (g) => (g.group_type === 'kishori' ? t('Kishori') : t('Bal Panchayat')) },
             { key: 'girl_count', label: t('Girls'), className: 'tabular text-right' },
+            { key: 'member_count', label: t('Members'), className: 'tabular text-right', render: (g) => g.member_count || '—' },
           ]} rows={v.groups} />
         </Card>
         <Card title={t('Key contacts')}>
