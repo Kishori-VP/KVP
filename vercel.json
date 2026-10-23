@@ -2,7 +2,13 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
   "outputDirectory": "frontend/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://kvp-seven.vercel.app/api/$1" },
+    { "source": "/health", "destination": "https://kvp-seven.vercel.app/health" },
+    { "source": "/docs", "destination": "https://kvp-seven.vercel.app/docs" },
+    { "source": "/openapi.json", "destination": "https://kvp-seven.vercel.app/openapi.json" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/assets/(.*)",

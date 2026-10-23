@@ -5,7 +5,7 @@ from fastapi import APIRouter
 
 from app.core.deps import Db, Pagination, Stakeholder
 from app.db import collections as c
-from app.utils.dates import day_range
+from app.utils.dates import ist_day_bounds
 from app.utils.mongo import ObjectIdStr, oid, paginate
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
@@ -34,6 +34,6 @@ async def list_audit_logs(
     if action:
         query["action"] = action
     if start_date or end_date:
-        start, end = day_range(start_date or date(2000, 1, 1), end_date or date(2100, 1, 1))
+        start, end = ist_day_bounds(start_date or date(2000, 1, 1), end_date or date(2100, 1, 1))
         query["at"] = {"$gte": start, "$lt": end}
     return await paginate(db[c.AUDIT_LOGS], query, pg.page, pg.page_size, sort=[("at", -1)])

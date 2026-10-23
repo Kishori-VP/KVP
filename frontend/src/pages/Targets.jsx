@@ -1,5 +1,5 @@
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { LookupSelect, VolunteerSelect } from '../components/pickers'
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, ProgressBar, Select, Spinner, StatusBadge, Table } from '../components/ui'
 import api from '../lib/api'
@@ -10,7 +10,7 @@ import { useAuth } from '../lib/auth'
 
 function CreateModal({ open, onClose, onSaved }) {
   const vols = useVolunteers()
-  const [f, setF] = useState({ volunteer_ids: [], all_active_volunteers: false, period_type: 'monthly', reference_date: todayISO(), periods: 1, target_value: 10 })
+  const [f, setF] = useState({ volunteer_ids: [], all_active_volunteers: true, target_type: 'home_visits', period_type: 'weekly', reference_date: todayISO(), periods: 1, target_value: 20 })
   const [result, setResult] = useState(null)
   const { busy, error, run } = useAction()
   const toggle = (id) => setF({ ...f, volunteer_ids: f.volunteer_ids.includes(id) ? f.volunteer_ids.filter((x) => x !== id) : [...f.volunteer_ids, id] })
@@ -23,12 +23,13 @@ function CreateModal({ open, onClose, onSaved }) {
     })
     setResult(r.data)
     onSaved()
+    setTimeout(() => onClose(), 800)
   }).catch(() => {})
   return (
     <Modal open={open} title={t('Assign targets')} onClose={onClose} wide
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} disabled={!f.target_type || (!f.all_active_volunteers && !f.volunteer_ids.length)} onClick={submit}>{t('Assign')}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} disabled={!f.target_type || (!f.all_active_volunteers && !f.volunteer_ids.length)} onClick={submit}>{t('Assign / Update')}</Button></>}>
       <ErrorBox message={error} />
-      {result && <div className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900">{t('Created {n} target(s).', { n: result.created.length })}{result.skipped.length > 0 && ` ${t('Skipped {n} (an overlapping target of this type already exists).', { n: result.skipped.length })}`}</div>}
+      {result && <div className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900">{t('Successfully assigned/updated {n} target(s).', { n: result.created?.length || 0 })}</div>}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Target type *')}><LookupSelect type="target_type" value={f.target_type} onChange={(v) => setF({ ...f, target_type: v })} /></Field>
         <Field label={t('Target value *')}><Input type="number" min={1} value={f.target_value} onChange={(e) => setF({ ...f, target_value: e.target.value })} /></Field>
@@ -47,19 +48,19 @@ function CreateModal({ open, onClose, onSaved }) {
         <Field label={t('Title (optional)')}><Input value={f.title || ''} onChange={(e) => setF({ ...f, title: e.target.value })} /></Field>
         <Field label={t('Notes')}><Input value={f.notes || ''} onChange={(e) => setF({ ...f, notes: e.target.value })} /></Field>
       </div>
-      <Field label={t('Volunteers')} group>
-        <Checkbox label={t('All active volunteers')} checked={f.all_active_volunteers} onChange={(e) => setF({ ...f, all_active_volunteers: e.target.checked })} />
+      <Field label={t('Tais')} group>
+        <Checkbox label={t('All active Tais')} checked={f.all_active_volunteers} onChange={(e) => setF({ ...f, all_active_volunteers: e.target.checked })} />
         {!f.all_active_volunteers && (
-          <div className="mt-2 flex flex-wrap gap-3">{vols.map((v) => <Checkbox key={v.id} label={`${v.name} (${v.village_name || '—'})`} checked={f.volunteer_ids.includes(v.id)} onChange={() => toggle(v.id)} />)}</div>
+          <div className="mt-2 flex flex-wrap gap-3">{(Array.isArray(vols) ? vols : []).map((v) => <Checkbox key={v.id} label={`${v.name} (${v.village_name || '—'})`} checked={f.volunteer_ids.includes(v.id)} onChange={() => toggle(v.id)} />)}</div>
         )}
       </Field>
-      <p className="text-xs text-gray-500">{t('Each volunteer has one village, so the target applies to their assigned village.')}</p>
+      <p className="text-xs text-gray-500">{t('Targets apply to the Tai’s assigned villages.')}</p>
     </Modal>
   )
 }
 
 function DetailModal({ target, onClose, onChanged }) {
-  const [rev, setRev] = useState({ target_value: target.target_value, period_end: target.period_end.slice(0, 10), reason: '' })
+  const [rev, setRev] = useState({ target_value: target.target_value, period_end: (target.period_end || '').slice(0, 10), reason: '' })
   const [cancelReason, setCancelReason] = useState('')
   const { busy, error, run } = useAction()
   const revise = () => run(async () => {
@@ -67,7 +68,7 @@ function DetailModal({ target, onClose, onChanged }) {
     onChanged()
   }).catch(() => {})
   const cancel = () => run(async () => { await api.post(`/targets/${target.id}/cancel`, { reason: cancelReason }); onChanged() }).catch(() => {})
-  const p = target.progress
+  const p = target.progress || {}
   return (
     <Modal open title={target.title} onClose={onClose} wide>
       <ErrorBox message={error} />
@@ -105,8 +106,97 @@ function ModalReadOnlyTarget({ target, onClose }) {
     <ProgressBar pct={target.progress?.progress_pct} />
     <div className="mt-2 text-sm">{target.progress?.achieved || 0} / {target.target_value} · <StatusBadge value={target.progress?.status} /></div>
     {target.notes && <p className="mt-3 text-sm text-gray-600">{target.notes}</p>}
-    <p className="mt-3 text-xs text-gray-500">{t('Targets can only be created or revised by a Stakeholder.')}</p>
+    <p className="mt-3 text-xs text-gray-500">{t('Targets can only be created or revised by an Admin or Stakeholder.')}</p>
   </Modal>
+}
+
+
+function DefaultTargetsCard({ onApplied }) {
+  const [defaults, setDefaults] = useState({ weekly_visits: 20, monthly_visits: 400 })
+  const [saving, setSaving] = useState(false)
+  const [applying, setApplying] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    api.get('/targets/defaults')
+      .then((r) => {
+        if (r?.data) setDefaults(r.data)
+      })
+      .catch(() => {})
+  }, [])
+
+  const saveDefaults = async () => {
+    setSaving(true)
+    setErr('')
+    setMsg('')
+    try {
+      const res = await api.put('/targets/defaults', defaults)
+      if (res?.data) setDefaults(res.data)
+      setMsg(t('Default targets updated successfully.'))
+    } catch (e) {
+      setErr(t('Failed to save default targets.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const applyToAll = async () => {
+    if (!window.confirm(t('Apply default weekly ({w}) and monthly ({m}) visit targets to all active Tais?', { w: defaults.weekly_visits, m: defaults.monthly_visits }))) return
+    setApplying(true)
+    setErr('')
+    setMsg('')
+    try {
+      const res = await api.post('/targets/apply-defaults', {
+        all_active: true,
+        weekly_visits: Number(defaults.weekly_visits),
+        monthly_visits: Number(defaults.monthly_visits),
+      })
+      setMsg(t('Applied targets: {c} updated for all active Tais.', { c: res?.data?.created_count ?? 0 }))
+      if (onApplied) onApplied()
+    } catch (e) {
+      setErr(t('Failed to apply default targets.'))
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  return (
+    <Card title={t('Default Tai Targets (Admin Configurable)')} className="mb-4 border-brand-200 bg-brand-50/30">
+      {err && <p className="mb-2 text-xs text-red-600">{err}</p>}
+      {msg && <p className="mb-2 text-xs font-semibold text-emerald-700">{msg}</p>}
+      <div className="grid gap-3 sm:grid-cols-4 items-end">
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">{t('Weekly Visits Target (per Tai)')}</label>
+          <Input
+            type="number"
+            min={1}
+            max={500}
+            value={defaults.weekly_visits}
+            onChange={(e) => setDefaults({ ...defaults, weekly_visits: Number(e.target.value) })}
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-700 mb-1">{t('Monthly Visits Target (per Tai)')}</label>
+          <Input
+            type="number"
+            min={1}
+            max={2000}
+            value={defaults.monthly_visits}
+            onChange={(e) => setDefaults({ ...defaults, monthly_visits: Number(e.target.value) })}
+          />
+        </div>
+        <div className="flex gap-2 sm:col-span-2">
+          <Button size="sm" variant="secondary" busy={saving} onClick={saveDefaults}>
+            {t('Save Defaults')}
+          </Button>
+          <Button size="sm" busy={applying} onClick={applyToAll} className="bg-emerald-700 hover:bg-emerald-800 text-white">
+            {t('Apply Defaults to All Tais')}
+          </Button>
+        </div>
+      </div>
+    </Card>
+  )
 }
 
 export default function Targets() {
@@ -121,6 +211,7 @@ export default function Targets() {
   return (
     <div>
       <PageHeader title={t(isVolunteer ? 'My targets' : 'Targets')} subtitle={t('Live progress against assigned jobs and targets')} actions={!isVolunteer && <Button icon={Plus} onClick={() => setCreating(true)}>{t('Assign targets')}</Button>} />
+      {!isVolunteer && <DefaultTargetsCard onApplied={reload} />}
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-4">
           <Select options={['current', 'upcoming', 'past', 'all']} value={f.when} onChange={(e) => set('when', e.target.value)} />
@@ -133,19 +224,19 @@ export default function Targets() {
         {loading && !data ? <Spinner /> : (
           <>
             <Table onRowClick={setSelected} columns={[
-              ...(!isVolunteer ? [{ key: 'volunteer_name', label: t('Volunteer'), className: 'font-medium' }] : []),
+              ...(!isVolunteer ? [{ key: 'volunteer_name', label: t('Tai'), className: 'font-medium' }] : []),
               { key: 'title', label: t('Target') },
               { key: 'period', label: t('Period'), render: (tg) => `${fmtDate(tg.period_start)} – ${fmtDate(tg.period_end)}` },
-              { key: 'value', label: t('Done / target'), render: (tg) => `${tg.progress.achieved} / ${tg.target_value}` },
-              { key: 'progress', label: t('Progress'), render: (tg) => <ProgressBar pct={tg.progress.progress_pct} status={tg.progress.status} /> },
-              { key: 'status', label: t('Status'), render: (tg) => <StatusBadge value={tg.status === 'cancelled' ? 'cancelled' : tg.progress.status} /> },
-              { key: 'rev', label: t('Revisions'), render: (tg) => tg.revisions.length || '—' },
-            ]} rows={data?.items} empty={t('No targets in this view.')} />
-            <Pagination page={page} pageSize={25} total={data?.total} onPage={setPage} />
+              { key: 'value', label: t('Done / target'), render: (tg) => `${tg.progress?.achieved ?? 0} / ${tg.target_value}` },
+              { key: 'progress', label: t('Progress'), render: (tg) => <ProgressBar pct={tg.progress?.progress_pct ?? 0} status={tg.progress?.status} /> },
+              { key: 'status', label: t('Status'), render: (tg) => <StatusBadge value={tg.status === 'cancelled' ? 'cancelled' : (tg.progress?.status || 'active')} /> },
+              { key: 'rev', label: t('Revisions'), render: (tg) => tg.revisions?.length || '—' },
+            ]} rows={data?.items || []} empty={t('No targets in this view.')} />
+            <Pagination page={page} pageSize={25} total={data?.total || 0} onPage={setPage} />
           </>
         )}
       </Card>
-      {!isVolunteer && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
+      {!isVolunteer && creating && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
       {selected && (isVolunteer ? <ModalReadOnlyTarget target={selected} onClose={() => setSelected(null)} /> : <DetailModal target={selected} onClose={() => setSelected(null)} onChanged={() => { setSelected(null); reload() }} />)}
     </div>
   )

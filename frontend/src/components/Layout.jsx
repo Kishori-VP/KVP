@@ -28,6 +28,8 @@ import { useFetch } from '../lib/hooks'
 import { LANGUAGES, t, useLang } from '../lib/i18n'
 import { Spinner, cx } from './ui'
 import AdminAssistant from '../pages/AdminAssistant'
+import MobileBottomNav from './MobileBottomNav'
+import NoteCamModal from './NoteCamModal'
 
 const NAV = [
   {
@@ -48,10 +50,10 @@ const NAV = [
   {
     section: 'Team',
     items: [
-      { to: '/volunteers', label: 'Volunteers', icon: UserCog },
+      { to: '/volunteers', label: 'Tais', icon: UserCog },
       { to: '/targets', label: 'Targets', icon: Target },
       { to: '/users', label: 'Users', icon: Users },
-      { to: '/attendance', label: 'Volunteer attendance', icon: ClipboardCheck },
+      { to: '/attendance', label: 'Tai attendance', icon: ClipboardCheck },
     ],
   },
   {
@@ -177,11 +179,29 @@ export default function Layout() {
   const { lang, setLang } = useLang()
   const navItems = user?.role === 'volunteer' ? VOLUNTEER_NAV : NAV
   const roleLabel =
-    user?.role === 'volunteer' ? 'Volunteer workspace' : 'Stakeholder portal'
+    user?.role === 'volunteer'
+      ? 'Tai workspace'
+      : (user?.role === 'stakeholder' || user?.role === 'super_admin')
+      ? 'Stakeholder portal'
+      : 'Admin portal'
 
   const [open, setOpen] = useState(false)
+  const [noteCamOpen, setNoteCamOpen] = useState(false)
+  const [noteCamAction, setNoteCamAction] = useState('CHECK-IN')
   const location = useLocation()
   const { data: unreadData, reload } = useFetch('/notifications/unread-count')
+  const { data: todayAtt, reload: reloadTodayAtt } = useFetch(user?.role === 'volunteer' ? '/attendance/today' : null)
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      reloadTodayAtt?.()
+    }
+    window.addEventListener('kvp:attendance-updated', handleUpdate)
+    return () => window.removeEventListener('kvp:attendance-updated', handleUpdate)
+  }, [reloadTodayAtt])
+
+  const isCheckedIn = Boolean(todayAtt?.checked_in)
+  const isCheckedOut = Boolean(todayAtt?.checked_out)
 
   useEffect(() => {
     reload()
@@ -271,7 +291,7 @@ export default function Layout() {
                 {user?.name}
               </div>
               <div className="mt-1 text-xs text-white/75">
-                {t(humanize(user?.role))}
+                {user?.role === 'volunteer' ? t('Tai') : (user?.role === 'stakeholder' || user?.role === 'super_admin') ? t('Stakeholder') : t('Admin')}
               </div>
             </div>
 
@@ -294,7 +314,35 @@ export default function Layout() {
         </main>
       </div>
 
-      {user?.role === 'stakeholder' && <AdminAssistant />}
+      {user?.role === 'volunteer' && (
+        <MobileBottomNav
+          onOpenMenu={() => setOpen(true)}
+          onOpenCheckIn={() => {
+            if (isCheckedOut) return
+            setNoteCamAction(isCheckedIn ? 'CHECK-OUT' : 'CHECK-IN')
+            setNoteCamOpen(true)
+          }}
+          checkedIn={isCheckedIn}
+          checkedOut={isCheckedOut}
+        />
+      )}
+
+      {user?.role === 'volunteer' && (
+        <NoteCamModal
+          open={noteCamOpen}
+          onClose={() => setNoteCamOpen(false)}
+          action={noteCamAction}
+          user={user}
+          villages={user?.villages || (user?.village ? [user.village] : [])}
+          onSuccess={() => {
+            setNoteCamOpen(false)
+            reloadTodayAtt?.()
+            window.dispatchEvent(new CustomEvent('kvp:attendance-updated'))
+          }}
+        />
+      )}
+
+      {(user?.role === 'admin' || user?.role === 'stakeholder' || user?.role === 'super_admin') && <AdminAssistant />}
     </div>
   )
 }

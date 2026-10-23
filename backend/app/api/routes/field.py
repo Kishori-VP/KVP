@@ -6,12 +6,12 @@ dashboards and reports, plus planning (upcoming visits) and approvals.
 """
 
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import Db, Pagination, Stakeholder, ADMIN_ROLES, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import ActivityReportCreate, ApprovalDecision, HomeVisitCreate, HomeVisitUpdate
@@ -29,8 +29,8 @@ async def _volunteer(db, volunteer_id, user: dict) -> dict:
     vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Volunteer not found")
-    if not vol.get("village_id"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer has no assigned village")
+    if not user_village_ids(vol):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Tai has no assigned village")
     if user["role"] == Role.VOLUNTEER and vol["_id"] != user["_id"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteers can only record their own activity")
     return vol
@@ -97,10 +97,10 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
         "source": "app",
         "location_flag": None if body.gps else ("missing_gps" if body.status == "completed" else None),
         "media_ids": [],
-        # Stakeholder entries and live captures are auto-approved; back-dated volunteer entries need review.
-        "approval": {"status": "approved" if user["role"] == Role.STAKEHOLDER or not is_historical else "pending",
-                     "by": user["_id"] if user["role"] == Role.STAKEHOLDER else None,
-                     "at": now if user["role"] == Role.STAKEHOLDER else None, "remarks": None},
+        # Admin/Stakeholder entries and live captures are auto-approved; back-dated volunteer entries need review.
+        "approval": {"status": "approved" if user["role"] in ADMIN_ROLES or not is_historical else "pending",
+                     "by": user["_id"] if user["role"] in ADMIN_ROLES else None,
+                     "at": now if user["role"] in ADMIN_ROLES else None, "remarks": None},
         "created_by": user["_id"],
         "created_at": now,
         "updated_at": now,
@@ -244,9 +244,9 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
         "home_visit_girl_ids": girl_ids,
         "is_historical": is_historical,
         "source": "app",
-        "approval": {"status": "approved" if user["role"] == Role.STAKEHOLDER else "pending",
-                     "by": user["_id"] if user["role"] == Role.STAKEHOLDER else None,
-                     "at": now if user["role"] == Role.STAKEHOLDER else None, "remarks": None},
+        "approval": {"status": "approved" if user["role"] in ADMIN_ROLES else "pending",
+                     "by": user["_id"] if user["role"] in ADMIN_ROLES else None,
+                     "at": now if user["role"] in ADMIN_ROLES else None, "remarks": None},
         "submitted_by": user["_id"],
         "submitted_at": now,
     }
@@ -290,3 +290,21 @@ async def list_activity_reports(
 @router.post("/activity-reports/{report_id}/approval")
 async def approve_activity_report(report_id: str, body: ApprovalDecision, db: Db, actor: Stakeholder):
     return await _decide(db, c.ACTIVITY_REPORTS, "activity_report", report_id, body, actor)
+
+
+@router.get("/activity-reports/{report_id}")
+async def get_activity_report(report_id: str, db: Db,
+                              user: Annotated[dict, Depends(require_permission("activity_reports", "read"))]):
+    doc = await get_or_404(db[c.ACTIVITY_REPORTS], report_id, "Activity report")
+    if user["role"] == Role.VOLUNTEER.value and doc.get("volunteer_id") != user["_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
+    return serialize(doc)
+
+
+@router.delete("/activity-reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_activity_report(report_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by coordinator", min_length=3)):
+    report = await get_or_404(db[c.ACTIVITY_REPORTS], report_id, "Activity report")
+    await db[c.ACTIVITY_REPORTS].delete_one({"_id": report["_id"]})
+    await audit.log(db, actor, "delete", "activity_report", report["_id"], "Deleted activity report",
+                    meta={"reason": reason, "record": serialize(report)})
+

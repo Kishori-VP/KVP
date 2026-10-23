@@ -42,6 +42,10 @@ async def create_user(body: UserCreate, db: Db, actor: Stakeholder):
         "updated_at": now,
         "last_login_at": None,
     }
+    from app.core.deps import OVERSIGHT_ROLES
+    if body.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and actor.get("role") not in OVERSIGHT_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Stakeholder can create another Stakeholder")
+
     if body.role == Role.VOLUNTEER and body.village_ids:
         # Validate before inserting so a bad village/group never leaves an orphan user.
         villages = [await assignments.load_active_village(db, vid) for vid in body.village_ids]
@@ -129,7 +133,12 @@ async def change_role(user_id: str, body: RoleChange, db: Db, actor: Stakeholder
     if user["role"] == body.role:
         raise HTTPException(status.HTTP_409_CONFLICT, f"User is already a {body.role.value}")
     # SEDT rule: an administrative Stakeholder account must not be converted into a field Volunteer.
-    if user["role"] == Role.STAKEHOLDER and body.role == Role.VOLUNTEER:
+    from app.core.deps import OVERSIGHT_ROLES
+    if user.get("role") in OVERSIGHT_ROLES and actor.get("role") not in OVERSIGHT_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Stakeholder can modify a Stakeholder account")
+    if body.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and actor.get("role") not in OVERSIGHT_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Stakeholder can promote a user to Stakeholder")
+    if user["role"] in (Role.STAKEHOLDER, Role.SUPER_ADMIN, Role.ADMIN) and body.role == Role.VOLUNTEER and actor.get("role") not in OVERSIGHT_ROLES:
         raise HTTPException(status.HTTP_409_CONFLICT, "Stakeholder/Admin accounts cannot be converted to Volunteers. Create a separate Volunteer account.")
     if user["_id"] == actor["_id"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own role")
@@ -140,7 +149,7 @@ async def change_role(user_id: str, body: RoleChange, db: Db, actor: Stakeholder
             await assignments.assign_village(db, user, body.village_id, [], actor, reason)
     else:
         await assignments.end_assignment(db, user, actor, reason)
-        await db[c.USERS].update_one({"_id": user["_id"]}, {"$set": {"role": Role.STAKEHOLDER.value}})
+        await db[c.USERS].update_one({"_id": user["_id"]}, {"$set": {"role": body.role.value}})
     await audit.log(
         db, actor, "update", "user", user["_id"], f"Role changed to {body.role.value}",
         {"role": {"from": user["role"], "to": body.role.value}},

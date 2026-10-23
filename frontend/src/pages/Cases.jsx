@@ -22,8 +22,8 @@ export default function Cases() {
           <Select options={['open', 'in_progress', 'escalated', 'resolved', 'closed']} placeholder={t('Any status')} value={f.status} onChange={(e) => set('status', e.target.value)} />
           <Select options={['critical', 'high', 'medium', 'low']} placeholder={t('Any severity')} value={f.severity} onChange={(e) => set('severity', e.target.value)} />
           <LookupSelect type="case_category" value={f.category} onChange={(v) => set('category', v)} placeholder={t('Any category')} />
-          {user?.role === 'stakeholder' && <VillageSelect value={f.village_id} onChange={(v) => set('village_id', v)} />}
-          {user?.role === 'stakeholder' && <VolunteerSelect value={f.assigned_to} onChange={(v) => set('assigned_to', v)} placeholder={t('Any assignee')} />}
+          {user?.role !== 'volunteer' && <VillageSelect value={f.village_id} onChange={(v) => set('village_id', v)} />}
+          {user?.role !== 'volunteer' && <VolunteerSelect value={f.assigned_to} onChange={(v) => set('assigned_to', v)} placeholder={t('Any assignee')} />}
           <div className="flex flex-wrap gap-4 sm:col-span-2 lg:col-span-5">
             <Checkbox label={t('Open only')} checked={f.open_only} onChange={(e) => set('open_only', e.target.checked)} />
             <Checkbox label={t('Overdue')} checked={f.overdue} onChange={(e) => set('overdue', e.target.checked)} />

@@ -41,7 +41,7 @@ const EMPTY = { q: '', taluka_id: '', village_id: '', group_id: '', school_statu
 
 export function GirlForm({ initial, onSaved, onCancel }) {
   const { user } = useAuth()
-  const [f, setF] = useState(initial || { household: {}, village_id: user?.role === 'volunteer' ? user.village_id : '' })
+  const [f, setF] = useState(initial || { household: {}, village_id: user?.role === 'volunteer' ? (user.village_id || user?.villages?.[0]?.id || '') : '' })
   const [error, setError] = useState(null)
   const [dupes, setDupes] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -106,7 +106,27 @@ export function GirlForm({ initial, onSaved, onCancel }) {
       )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Full name (मुलीचे नाव) *')}><Input value={f.name || ''} onChange={(e) => set('name', e.target.value)} /></Field>
-        <Field label={t('Village *')}>{user?.role === 'volunteer' ? <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">Assigned village only</div> : <VillageSelect value={f.village_id} onChange={(v) => { set('village_id', v); set('group_id', '') }} placeholder={t('Select village')} />}</Field>
+        <Field label={t('Village *')}>
+          {user?.role === 'volunteer' ? (
+            user?.villages?.length > 1 ? (
+              <select
+                value={f.village_id || user.villages[0]?.id || ''}
+                onChange={(e) => { set('village_id', e.target.value); set('group_id', '') }}
+                className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-brand-500 focus:outline-none"
+              >
+                {user.villages.map((v) => (
+                  <option key={v.id} value={v.id}>{v.name}</option>
+                ))}
+              </select>
+            ) : (
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                {user?.village?.name || t('Assigned village only')}
+              </div>
+            )
+          ) : (
+            <VillageSelect value={f.village_id} onChange={(v) => { set('village_id', v); set('group_id', '') }} placeholder={t('Select village')} />
+          )}
+        </Field>
         <Field label={t('Kishori Group')}><GroupSelect villageId={f.village_id} value={f.group_id} onChange={(v) => set('group_id', v)} placeholder={t('No group')} /></Field>
         <Field label={t('School status')}><LookupSelect type="school_status" value={f.school_status} onChange={(v) => set('school_status', v)} placeholder={t('Unknown')} /></Field>
         <Field label={t('Date of birth')} hint={t('Or give age if DOB is unknown')}><Input type="date" value={f.dob?.slice?.(0, 10) || ''} onChange={(e) => set('dob', e.target.value)} /></Field>
@@ -163,8 +183,8 @@ export default function Girls() {
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm" placeholder={t('Search name, Girl ID, parent…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
-          {user?.role === 'stakeholder' && <TalukaSelect value={filters.taluka_id} onChange={(v) => set('taluka_id', v)} />}
-          {user?.role === 'stakeholder' && <VillageSelect value={filters.village_id} talukaId={filters.taluka_id} onChange={(v) => set('village_id', v)} />}
+          {user?.role !== 'volunteer' && <TalukaSelect value={filters.taluka_id} onChange={(v) => set('taluka_id', v)} />}
+          {user?.role !== 'volunteer' && <VillageSelect value={filters.village_id} talukaId={filters.taluka_id} onChange={(v) => set('village_id', v)} />}
           <GroupSelect villageId={filters.village_id} value={filters.group_id} onChange={(v) => set('group_id', v)} />
           <LookupSelect type="school_status" value={filters.school_status} onChange={(v) => set('school_status', v)} placeholder={t('Any school status')} />
           <Select options={[{ value: '10_14', label: t('Age 10–14') }, { value: '15_19', label: t('Age 15–19') }, { value: 'below_10', label: t('Below 10') }, { value: '20_plus', label: '20+' }]} placeholder={t('Any age')} value={filters.age_band} onChange={(e) => set('age_band', e.target.value)} />

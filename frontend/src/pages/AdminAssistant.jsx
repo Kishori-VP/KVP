@@ -11,9 +11,10 @@ import {
   X,
 } from 'lucide-react'
 import api, { errorMessage } from '../lib/api'
+import { t } from '../lib/i18n'
 
 const WELCOME_MESSAGE =
-  'Hi! Ask me about KVP villages, field activity, targets, cases, events, or attendance. I answer using indexed KVP database records.'
+  'Hi! Ask me anything about our programmes, field activities, villages, beneficiaries, targets, cases, events, or attendance. I answer using all database records across all programmes.'
 
 function readableAnswer(value) {
   if (typeof value === 'string') return value.trim()
@@ -36,7 +37,7 @@ function readableAnswer(value) {
     if (typeof value.text === 'string') return value.text.trim()
   }
 
-  return 'The assistant returned an unreadable response. Please try again.'
+  return t('The assistant returned an unreadable response. Please try again.')
 }
 
 function cleanSources(sources) {
@@ -59,19 +60,61 @@ export default function AdminAssistant() {
   const [showDatabase, setShowDatabase] = useState(false)
   const [question, setQuestion] = useState('')
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: WELCOME_MESSAGE },
+    { role: 'assistant', content: t(WELCOME_MESSAGE) },
   ])
   const [busy, setBusy] = useState(false)
   const [reindexing, setReindexing] = useState(false)
+  const [reindexProgress, setReindexProgress] = useState('')
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
+  const pollTimerRef = useRef(null)
+
+  function startPollingReindex() {
+    if (pollTimerRef.current) return
+    pollTimerRef.current = setInterval(async () => {
+      try {
+        const res = await api.get('/ai/reindex/status')
+        const data = res.data || {}
+        if (data.is_running) {
+          setReindexing(true)
+          const pct = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0
+          setReindexProgress(
+            data.total > 0
+              ? `${data.progress}/${data.total} (${pct}%)`
+              : 'Indexing…'
+          )
+        } else {
+          clearInterval(pollTimerRef.current)
+          pollTimerRef.current = null
+          setReindexing(false)
+          setReindexProgress('')
+          await loadStatus()
+          if (data.message && data.message !== 'Idle' && data.message !== 'Ready') {
+            setMessages((previous) => [
+              ...previous,
+              {
+                role: 'assistant',
+                content: data.message,
+              },
+            ])
+          }
+        }
+      } catch {
+        // network blip during polling, keep polling
+      }
+    }, 1500)
+  }
 
   async function loadStatus() {
     try {
       const response = await api.get('/ai/status')
       setStatus(response.data)
       setError('')
+      if (response.data?.is_reindexing) {
+        setReindexing(true)
+        startPollingReindex()
+      }
       return response.data
     } catch (err) {
       setError(errorMessage(err))
@@ -81,6 +124,9 @@ export default function AdminAssistant() {
 
   useEffect(() => {
     loadStatus()
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -88,7 +134,7 @@ export default function AdminAssistant() {
       behavior: 'smooth',
       block: 'end',
     })
-  }, [messages, busy, open, showDatabase])
+  }, [messages, busy, open, showDatabase, reindexing])
 
   useEffect(() => {
     if (open && !minimized) {
@@ -97,31 +143,30 @@ export default function AdminAssistant() {
     }
   }, [open, minimized])
 
-  async function handleReindex() {
+  async function handleReindex(force = false) {
     if (reindexing) return
 
     setReindexing(true)
+    setReindexProgress(force ? 'Rebuilding…' : 'Checking…')
     setError('')
 
     try {
-      const response = await api.post('/ai/reindex')
+      const response = await api.post(`/ai/reindex${force ? '?force=true' : ''}`)
       const result = response.data || {}
-
-      await loadStatus()
-
-      setMessages((previous) => [
-        ...previous,
-        {
-          role: 'assistant',
-          content:
-            result.message ||
-            `Knowledge index rebuilt. Indexed ${result.indexed_records ?? 0} chunks across ${result.indexed_collections ?? 0} collections.`,
-        },
-      ])
+      if (result.message) {
+        setMessages((previous) => [
+          ...previous,
+          {
+            role: 'assistant',
+            content: result.message,
+          },
+        ])
+      }
+      startPollingReindex()
     } catch (err) {
-      setError(errorMessage(err))
-    } finally {
       setReindexing(false)
+      setReindexProgress('')
+      setError(errorMessage(err))
     }
   }
 
@@ -205,7 +250,7 @@ export default function AdminAssistant() {
       {open && !minimized && (
         <section
           role="dialog"
-          aria-label="KVP Assistant"
+          aria-label={t('Ask AI')}
           className="mb-3 flex h-[min(620px,calc(100dvh-100px))] w-[min(410px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 sm:h-[600px]"
         >
           <header className="flex shrink-0 items-center gap-3 bg-brand-700 px-4 py-3 text-white">
@@ -214,9 +259,9 @@ export default function AdminAssistant() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="font-semibold">KVP Assistant</div>
+              <div className="font-semibold">{t('Ask AI')}</div>
               <div className="text-xs text-white/75">
-                KVP database assistant
+                {t('All programmes & database assistant')}
               </div>
             </div>
 
@@ -226,8 +271,8 @@ export default function AdminAssistant() {
                 setShowDatabase((current) => !current)
                 loadStatus()
               }}
-              title="Open database and index details"
-              aria-label="Open database and index details"
+              title={t('Open database and index details')}
+              aria-label={t('Open database and index details')}
               aria-expanded={showDatabase}
               className={`rounded-lg p-2 hover:bg-white/15 ${
                 showDatabase ? 'bg-white/20' : ''
@@ -239,8 +284,8 @@ export default function AdminAssistant() {
             <button
               type="button"
               onClick={() => setMinimized(true)}
-              title="Minimize assistant"
-              aria-label="Minimize assistant"
+              title={t('Minimize assistant')}
+              aria-label={t('Minimize assistant')}
               className="rounded-lg p-2 hover:bg-white/15"
             >
               <Minimize2 className="h-4 w-4" />
@@ -249,8 +294,8 @@ export default function AdminAssistant() {
             <button
               type="button"
               onClick={closeAssistant}
-              title="Close assistant and clear conversation"
-              aria-label="Close assistant"
+              title={t('Close assistant and clear conversation')}
+              aria-label={t('Close assistant')}
               className="rounded-lg p-2 hover:bg-white/15"
             >
               <X className="h-4 w-4" />
@@ -260,63 +305,95 @@ export default function AdminAssistant() {
           {showDatabase && (
             <div className="shrink-0 border-b border-blue-100 bg-blue-50 px-4 py-3 text-xs text-blue-950">
               <div className="mb-2 flex items-center justify-between">
-                <strong>Knowledge database</strong>
+                <strong>{t('Knowledge database')}</strong>
                 <button
                   type="button"
                   onClick={() => setShowDatabase(false)}
                   className="rounded px-2 py-1 hover:bg-blue-100"
                 >
-                  Hide
+                  {t('Hide')}
                 </button>
               </div>
 
               <div>
-                Indexed chunks:{' '}
+                {t('Indexed chunks:')}{' '}
                 <strong>{status?.indexed_chunks ?? 'Unknown'}</strong>
               </div>
               <div>
-                Retrieval mode:{' '}
+                {t('Retrieval mode:')}{' '}
                 <strong>{status?.retrieval_mode || 'Unknown'}</strong>
               </div>
               <div>
-                Chat model:{' '}
+                {t('Chat model:')}{' '}
                 <strong>{status?.model || 'Unknown'}</strong>
               </div>
               <div>
-                API configured:{' '}
-                <strong>{status?.configured ? 'Yes' : 'No'}</strong>
+                {t('API configured:')}{' '}
+                <strong>{status?.configured ? t('Yes') : t('No')}</strong>
               </div>
 
-              <button
-                type="button"
-                onClick={loadStatus}
-                className="mt-2 rounded border border-blue-200 bg-white px-2 py-1 hover:bg-blue-100"
-              >
-                Refresh database status
-              </button>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleReindex(false)}
+                  disabled={reindexing || !status?.configured}
+                  className="rounded border border-blue-300 bg-white px-2.5 py-1 font-semibold text-blue-900 shadow-sm hover:bg-blue-100 disabled:opacity-50"
+                  title={t('Check database for newly added or modified data')}
+                >
+                  {reindexing ? t('Syncing…') : t('Sync New Data')}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (window.confirm(t('Do you want to force a full re-index of all records?'))) {
+                      handleReindex(true)
+                    }
+                  }}
+                  disabled={reindexing || !status?.configured}
+                  className="rounded border border-gray-300 bg-white px-2 py-1 text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                  title={t('Force a complete rebuild from scratch')}
+                >
+                  {t('Full Rebuild')}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={loadStatus}
+                  className="rounded border border-blue-200 bg-white px-2 py-1 text-blue-800 hover:bg-blue-100"
+                >
+                  {t('Refresh')}
+                </button>
+              </div>
             </div>
           )}
 
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2 text-[11px] text-gray-500">
             <span className="truncate">
-              {status
-                ? `${status.indexed_chunks || 0} chunks · ${
-                    status.configured ? 'Assistant ready' : 'AI not configured'
-                  } · ${status.retrieval_mode || 'unknown'} retrieval`
-                : 'Checking assistant status…'}
+              {reindexing ? (
+                <span className="font-medium text-brand-700 animate-pulse">
+                  ⚡ {reindexProgress ? `${t('Syncing:')} ${reindexProgress}` : t('Syncing database…')}
+                </span>
+              ) : status ? (
+                `${status.indexed_chunks || 0} chunks · ${
+                  status.configured ? t('Assistant ready') : t('AI not configured')
+                } · ${status.retrieval_mode || 'unknown'} retrieval`
+              ) : (
+                t('Checking assistant status…')
+              )}
             </span>
 
             <button
               type="button"
-              onClick={handleReindex}
+              onClick={() => handleReindex(false)}
               disabled={reindexing || !status?.configured}
               className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 font-medium text-brand-700 hover:bg-brand-50 disabled:cursor-not-allowed disabled:opacity-50"
-              title="Rebuild knowledge index"
+              title={t('Check database for newly added or modified data')}
             >
               <RefreshCw
                 className={`h-3 w-3 ${reindexing ? 'animate-spin' : ''}`}
               />
-              {reindexing ? 'Indexing…' : 'Reindex'}
+              {reindexing ? (reindexProgress || t('Syncing…')) : t('Sync Data')}
             </button>
           </div>
 
@@ -333,7 +410,7 @@ export default function AdminAssistant() {
                 {message.role === 'assistant' && (
                   <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700">
                     <Sparkles className="h-3 w-3" />
-                    KVP Assistant
+                    {t('Ask AI')}
                   </div>
                 )}
 
@@ -343,7 +420,7 @@ export default function AdminAssistant() {
 
                 {message.sources?.length > 0 && (
                   <div className="mt-2 border-t border-gray-100 pt-2 text-[10px] text-gray-500">
-                    Sources:{' '}
+                    {t('Sources:')}{' '}
                     {[
                       ...new Set(message.sources.map((source) => source.collection)),
                     ].join(', ')}
@@ -355,7 +432,7 @@ export default function AdminAssistant() {
             {busy && (
               <div className="w-fit rounded-xl border border-gray-100 bg-white px-3 py-2 text-xs text-gray-500 shadow-sm">
                 <span className="mr-2 inline-block h-2 w-2 animate-pulse rounded-full bg-brand-600" />
-                Searching KVP records…
+                {t('Searching database records…')}
               </div>
             )}
 
@@ -387,15 +464,15 @@ export default function AdminAssistant() {
               }}
               rows={1}
               maxLength={2000}
-              placeholder="Ask about KVP data…"
-              aria-label="Ask the KVP assistant"
+              placeholder={t('Ask about any programme or data…')}
+              aria-label={t('Ask AI')}
               className="max-h-24 min-h-10 min-w-0 flex-1 resize-y rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
 
             <button
               type="submit"
               disabled={busy || !question.trim()}
-              aria-label="Send message"
+              aria-label={t('Send message')}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-700 text-white hover:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send className="h-4 w-4" />
@@ -403,7 +480,7 @@ export default function AdminAssistant() {
           </form>
 
           <div className="shrink-0 px-3 pb-2 text-center text-[10px] text-gray-400">
-            Verify important records against the source data.
+            {t('Verify important records against the source data.')}
           </div>
         </section>
       )}
@@ -413,10 +490,10 @@ export default function AdminAssistant() {
         onClick={toggleAssistant}
         aria-label={
           minimized
-            ? 'Restore KVP assistant'
+            ? t('Restore Ask AI')
             : open
-              ? 'Close KVP assistant'
-              : 'Open KVP assistant'
+              ? t('Close Ask AI')
+              : t('Open Ask AI')
         }
         aria-expanded={open && !minimized}
         className="ml-auto flex h-14 items-center gap-2 rounded-full bg-brand-700 px-4 text-white shadow-xl transition hover:-translate-y-0.5 hover:bg-brand-800 focus:outline-none focus:ring-4 focus:ring-brand-200"
@@ -431,10 +508,10 @@ export default function AdminAssistant() {
 
         <span className="text-sm font-semibold">
           {minimized
-            ? 'Restore assistant'
+            ? t('Restore Ask AI')
             : open
-              ? 'Close assistant'
-              : 'Ask KVP'}
+              ? t('Close Ask AI')
+              : t('Ask AI')}
         </span>
       </button>
     </div>

@@ -16,6 +16,7 @@ from app.utils.dates import utcnow
 # (code, label, label_mr, attributes)
 DEFAULT_LOOKUPS: dict[str, list[tuple[str, str, str | None, dict]]] = {
     "event_type": [
+        ("needy_girls", "Needy girls", "गरजू मुली", {}),
         ("kishori_meeting", "Kishori group meeting", "किशोरी मिटिंग", {"is_meeting": True}),
         ("bal_panchayat_meeting", "Bal Panchayat meeting", "बालपंचायत मिटिंग", {"is_meeting": True}),
         ("health_camp", "Health camp", "हेल्थ कॅम्प", {"health": True}),

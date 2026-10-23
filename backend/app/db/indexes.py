@@ -101,7 +101,12 @@ INDEXES: dict[str, list[IndexModel]] = {
     c.REPORT_TEMPLATES: [IndexModel("name", unique=True), IndexModel([("report_type", ASCENDING), ("is_active", ASCENDING)])],
     c.REPORT_SCHEDULES: [IndexModel([("is_active", ASCENDING), ("next_run_at", ASCENDING)])],
     c.GENERATED_REPORTS: [IndexModel("created_at")],
-    c.AI_KNOWLEDGE_CHUNKS: [IndexModel([("source_collection", ASCENDING), ("source_id", ASCENDING), ("chunk_no", ASCENDING)], unique=True)],
+    c.AI_KNOWLEDGE_CHUNKS: [
+        IndexModel([("source_collection", ASCENDING), ("source_id", ASCENDING), ("chunk_no", ASCENDING)], unique=True),
+        IndexModel([("content", TEXT)], default_language="none"),
+        IndexModel([("retrieval_mode", ASCENDING)]),
+        IndexModel([("content_hash", ASCENDING)]),
+    ],
     c.VOLUNTEER_ATTENDANCE: [IndexModel([("volunteer_id", ASCENDING), ("attendance_date", DESCENDING)], unique=True), IndexModel([("attendance_date", DESCENDING), ("status", ASCENDING)])],
     c.AUDIT_LOGS: [
         IndexModel([("at", DESCENDING)]),

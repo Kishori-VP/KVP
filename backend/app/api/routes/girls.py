@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import Db, Pagination, Stakeholder, can_access_village, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import DuplicateCheck, GirlCreate, GirlUpdate, HealthRecordCreate, MergeRequest
@@ -47,7 +47,7 @@ async def _resolve_refs(db, data: dict, user: dict) -> dict:
     """Validate village/group/lookup references and convert ids. Mutates and returns data."""
     if data.get("village_id"):
         village = await get_or_404(db[c.VILLAGES], data["village_id"], "Village")
-        if user["role"] == Role.VOLUNTEER and village["_id"] not in user_village_ids(user):
+        if user["role"] == Role.VOLUNTEER and not can_access_village(user, village["_id"]):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only manage girls of your assigned villages")
         data["village_id"] = village["_id"]
         data["taluka_id"] = village["taluka_id"]
@@ -139,7 +139,7 @@ async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(re
 async def check_duplicates(body: DuplicateCheck, db: Db, user: Annotated[dict, Depends(require_permission("girls", "read"))]):
     data = body.model_dump(exclude={"exclude_id"})
     data["village_id"] = oid(body.village_id) if body.village_id else None
-    if user["role"] == Role.VOLUNTEER and data["village_id"] not in user_village_ids(user):
+    if user["role"] == Role.VOLUNTEER and not can_access_village(user, data["village_id"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only check duplicates in your assigned villages")
     data["group_id"] = oid(body.group_id) if body.group_id else None
     found = await find_duplicates(db, _probe(data), oid(body.exclude_id) if body.exclude_id else None)

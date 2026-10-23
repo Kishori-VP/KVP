@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import Db, Pagination, Stakeholder, can_access_village, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import ApprovalDecision
@@ -57,8 +57,8 @@ async def _responsible(db, volunteer_id, village_id):
     vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value, "is_active": True})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Responsible volunteer not found or inactive")
-    if village_id not in user_village_ids(vol):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible volunteer must be assigned to the event's village")
+    if not can_access_village(vol, village_id):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible Tai must be assigned to the event's village")
     return vol
 
 

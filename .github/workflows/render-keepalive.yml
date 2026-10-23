@@ -1,0 +1,24 @@
+name: Render Free Tier Keep-Alive
+
+on:
+  schedule:
+    # Run every 12 minutes (Render free tier spins down after 15 minutes of inactivity)
+    - cron: '*/12 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  keepalive:
+    name: Ping Render Health Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send keepalive ping to Render backend
+        run: |
+          URL="${{ secrets.RENDER_BACKEND_URL || 'https://kvp-api.onrender.com' }}"
+          echo "Pinging $URL/api/v1/health at $(date -u)"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 45 "$URL/api/v1/health" || echo "failed")
+          echo "HTTP response status: $STATUS"
+          if [ "$STATUS" = "200" ]; then
+            echo "Render backend is awake and healthy!"
+          else
+            echo "Render instance is waking up or starting. Status: $STATUS"
+          fi

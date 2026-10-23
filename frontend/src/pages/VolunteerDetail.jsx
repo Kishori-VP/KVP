@@ -1,9 +1,10 @@
-import { ArrowLeft, MapPin, Shuffle } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, MapPin, Shuffle } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { TrendChart } from '../components/charts'
 import { GroupMultiSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, ProgressBar, Select, Spinner, StatTile, StatusBadge, Table, Tabs } from '../components/ui'
+import HandoverModal from '../components/HandoverModal'
 import api from '../lib/api'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
@@ -53,7 +54,7 @@ function AssignModal({ open, onClose, vol, onDone }) {
     <Modal open={open} title={t('Assign a village to {name}', { name: vol.name })} onClose={onClose}
       footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.village_id} onClick={submit}>{t('Assign')}</Button></>}>
       <ErrorBox message={error} />
-      <p className="text-sm text-gray-600">{t('A volunteer works in one village at a time. You can move them later with “Reassign village”.')}</p>
+      <p className="text-sm text-gray-600">{t('Assign another village to this Tai. A Tai can be assigned to multiple villages concurrently.')}</p>
       <Field label={t('Village *')}><VillageSelect value={f.village_id} onChange={(v) => setF({ ...f, village_id: v, group_ids: [] })} placeholder={t('Select village')} /></Field>
       <Field label={t('Kishori Groups')} group><GroupMultiSelect villageId={f.village_id} value={f.group_ids} onChange={(v) => setF({ ...f, group_ids: v })} /></Field>
       <Field label={t('Start date')}><Input type="date" value={f.effective_date} onChange={(e) => setF({ ...f, effective_date: e.target.value })} /></Field>
@@ -164,12 +165,17 @@ export default function VolunteerDetail() {
   const unassigned = !v.village_id
   return (
     <div className="space-y-4">
-      <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Volunteers')}</Link>
+      <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Tais')}</Link>
       <PageHeader title={v.name}
         subtitle={<>{v.phone}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
         actions={unassigned
           ? <Button icon={MapPin} onClick={() => setModal('assign')}>{t('Assign village')}</Button>
-          : <><Button variant="secondary" onClick={() => setModal('groups')}>{t('Groups')}</Button><Button icon={Shuffle} onClick={() => setModal('reassign')}>{t('Reassign village')}</Button></>} />
+          : <>
+              <Button variant="secondary" icon={MapPin} onClick={() => setModal('assign')}>{t('Assign another village')}</Button>
+              <Button variant="secondary" onClick={() => setModal('groups')}>{t('Groups')}</Button>
+              <Button variant="secondary" icon={ArrowRightLeft} onClick={() => setModal('handover')}>{t('Handover village')}</Button>
+              <Button icon={Shuffle} onClick={() => setModal('reassign')}>{t('Reassign village')}</Button>
+            </>} />
       {unassigned && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {t('This volunteer is not assigned to a village yet. Assign one to give them targets, groups, events and village data.')}
@@ -196,6 +202,7 @@ export default function VolunteerDetail() {
       <ReassignModal key={`r${modal}`} open={modal === 'reassign'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
       <AssignModal key={`a${modal}`} open={modal === 'assign'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
       <GroupsModal key={`g${modal}`} open={modal === 'groups'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload() }} />
+      <HandoverModal key={`h${modal}`} open={modal === 'handover'} sourceVolunteer={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
     </div>
   )
 }

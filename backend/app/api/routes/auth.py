@@ -86,7 +86,7 @@ async def _create_local_demo_user(db, identifier: str, password: str):
         "email": LOCAL_DEMO_EMAIL.lower(),
         "phone": LOCAL_DEMO_PHONE,
         "password_hash": hash_password(LOCAL_DEMO_PASSWORD),
-        "role": Role.STAKEHOLDER.value,
+        "role": Role.ADMIN.value,
         "village_id": None,
         "taluka_id": None,
         "group_ids": [],

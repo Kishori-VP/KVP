@@ -41,44 +41,80 @@ async def get_current_user(db: Db, token: Annotated[str, Depends(oauth2_scheme)]
     return user
 
 
+ADMIN_ROLES = (
+    Role.ADMIN.value,
+    Role.STAKEHOLDER.value,
+    Role.SUPER_ADMIN.value,
+    "admin",
+    "stakeholder",
+    "super_admin",
+)
+OVERSIGHT_ROLES = (
+    Role.STAKEHOLDER.value,
+    Role.SUPER_ADMIN.value,
+    "stakeholder",
+    "super_admin",
+)
+
 CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
 async def require_stakeholder(user: CurrentUser) -> dict:
-    if user["role"] != Role.STAKEHOLDER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Stakeholder access required")
+    """Allows Admin, Stakeholder, and Super Admin."""
+    if user.get("role") not in ADMIN_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
     return user
 
 
 Stakeholder = Annotated[dict, Depends(require_stakeholder)]
+Admin = Stakeholder
+
+
+async def require_super_admin(user: CurrentUser) -> dict:
+    """Allows top-level oversight: Stakeholder (formerly Super Admin)."""
+    if user.get("role") not in OVERSIGHT_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Stakeholder oversight access required")
+    return user
+
+
+SuperAdmin = Annotated[dict, Depends(require_super_admin)]
+
+
+def user_village_ids(user: dict) -> list[ObjectId]:
+    """Current villages of a volunteer. A volunteer can work in several villages."""
+    ids = user.get("village_ids")
+    if ids is None:  # records written before multi-village support
+        ids = [user["village_id"]] if user.get("village_id") else []
+    return [v if isinstance(v, ObjectId) else ObjectId(v) for v in ids]
+
+
+def can_access_village(user: dict, village_id) -> bool:
+    if user.get("role") in ADMIN_ROLES:
+        return True
+    if not village_id:
+        return False
+    vid = village_id if isinstance(village_id, ObjectId) else ObjectId(str(village_id))
+    return vid in user_village_ids(user)
 
 
 def require_permission(resource: str, action: str):
     async def checker(db: Db, user: CurrentUser) -> dict:
-        if user["role"] == Role.STAKEHOLDER:
+        if user.get("role") in ADMIN_ROLES:
             return user
         perms = await get_setting(db, "permissions")
         matrix = full_matrix(perms.get("volunteer", {}))
         if action not in matrix[Role.VOLUNTEER].get(resource, []):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not permitted: {action} {resource}")
         if not user_village_ids(user):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer has no assigned village")
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Tai has no assigned village")
         return user
 
     return checker
 
 
-def user_village_ids(user: dict) -> list:
-    """Current villages of a volunteer. A volunteer can work in several villages."""
-    ids = user.get("village_ids")
-    if ids is None:  # records written before multi-village support
-        ids = [user["village_id"]] if user.get("village_id") else []
-    return list(ids)
-
-
 def village_scope(user: dict, field: str = "village_id") -> dict:
-    """Mongo filter restricting Volunteers to their assigned villages. Stakeholders: no filter."""
-    if user["role"] == Role.STAKEHOLDER:
+    """Mongo filter restricting Volunteers (Tais) to their assigned villages. Admins & Stakeholders: no filter."""
+    if user.get("role") in ADMIN_ROLES:
         return {}
     return {field: {"$in": user_village_ids(user)}}
 
@@ -89,13 +125,13 @@ def narrow_to_village(query: dict, user: dict, village_id, field: str = "village
     if not village_id:
         return
     vid = ObjectId(str(village_id))
-    if user["role"] == Role.STAKEHOLDER or vid in user_village_ids(user):
+    if can_access_village(user, vid):
         query[field] = vid
 
 
 def ensure_volunteer_village(user: dict, village_id) -> None:
     """Volunteers may only write records for one of their own villages."""
-    if user["role"] == Role.VOLUNTEER and village_id not in user_village_ids(user):
+    if not can_access_village(user, village_id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This village is not one of your assigned villages")
 
 

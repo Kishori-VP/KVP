@@ -60,7 +60,7 @@ function Announce({ open, onClose }) {
 
 export default function Notifications() {
   const { user } = useAuth()
-  const isStakeholder = user?.role === 'stakeholder'
+  const isStakeholder = user?.role === 'admin' || user?.role === 'stakeholder' || user?.role === 'super_admin'
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [announcing, setAnnouncing] = useState(false)

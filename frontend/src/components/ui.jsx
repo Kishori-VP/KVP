@@ -126,12 +126,12 @@ export function Textarea(props) {
 export function Select({ options = [], placeholder, ...props }) {
   return (
     <select className={INPUT} {...props}>
-      {placeholder !== undefined && <option value="">{placeholder}</option>}
+      {placeholder !== undefined && <option value="">{typeof placeholder === 'string' ? t(placeholder) : placeholder}</option>}
       {options.map((o) => {
         const opt = typeof o === 'string' ? { value: o, label: humanize(o) } : o
         return (
           <option key={opt.value} value={opt.value}>
-            {opt.label}
+            {typeof opt.label === 'string' ? t(opt.label) : opt.label}
           </option>
         )
       })}
@@ -259,9 +259,10 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
 export function Tabs({ tabs, value, onChange }) {
   return (
     <div className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-200">
-      {tabs.map((t) => {
-        const v = typeof t === 'string' ? t : t.value
-        const label = typeof t === 'string' ? humanize(t) : t.label
+      {tabs.map((tabItem) => {
+        const v = typeof tabItem === 'string' ? tabItem : tabItem.value
+        const rawLabel = typeof tabItem === 'string' ? humanize(tabItem) : tabItem.label
+        const label = typeof rawLabel === 'string' ? t(rawLabel) : rawLabel
         return (
           <button
             key={v}

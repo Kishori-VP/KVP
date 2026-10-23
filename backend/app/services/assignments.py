@@ -1,4 +1,4 @@
-"""Volunteer <-> village assignment (PRD 4.1 / 4.2).
+"""Volunteer (Tai) <-> village assignment.
 
 Rules enforced here:
 - A Volunteer can work in several villages at once; each village is one current
@@ -11,7 +11,6 @@ Rules enforced here:
 """
 
 from datetime import date
-
 from bson import ObjectId
 from fastapi import HTTPException, status
 from pymongo.asynchronous.database import AsyncDatabase
@@ -157,16 +156,28 @@ async def end_assignment(db: AsyncDatabase, volunteer: dict, actor: dict, reason
     )
 
 
-async def set_groups(db: AsyncDatabase, volunteer: dict, group_ids: list) -> list[ObjectId]:
-    """Replace the volunteer's groups; each group is stored on the assignment of its own village."""
+async def unassign_village(db: AsyncDatabase, volunteer: dict, village_id, actor: dict, reason: str) -> None:
+    """Like remove_village, but a no-op when the village is not currently assigned."""
+    current = await current_assignment(db, volunteer["_id"], village_id)
+    if current:
+        await _close(db, current, actor, reason, today_local())
+    await sync_user(db, volunteer["_id"])
+
+
+async def set_groups(db: AsyncDatabase, volunteer: dict, group_ids: list, village_id=None) -> list[ObjectId]:
+    """Replace the volunteer's groups; each group is stored on the assignment of its own village.
+    With village_id, only that village's groups are replaced."""
     current = await current_assignments(db, volunteer["_id"])
+    if village_id:
+        current = [a for a in current if a["village_id"] == oid(village_id)]
     if not current:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer has no assigned village")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Tai has no assigned village")
     groups = await validate_groups(db, [a["village_id"] for a in current], group_ids)
     group_village = {g["_id"]: g["village_id"] async for g in db[c.GROUPS].find({"_id": {"$in": groups}}, {"village_id": 1})}
     now = utcnow()
     await db[c.GROUPS].update_many(
-        {"responsible_volunteer_id": volunteer["_id"], "_id": {"$nin": groups}},
+        {"responsible_volunteer_id": volunteer["_id"], "village_id": {"$in": [a["village_id"] for a in current]},
+         "_id": {"$nin": groups}},
         {"$set": {"responsible_volunteer_id": None, "updated_at": now}},
     )
     if groups:
@@ -179,3 +190,150 @@ async def set_groups(db: AsyncDatabase, volunteer: dict, group_ids: list) -> lis
         )
     await sync_user(db, volunteer["_id"])
     return groups
+
+
+async def handover_village(
+    db: AsyncDatabase,
+    from_volunteer: dict,
+    to_volunteer: dict,
+    village_id,
+    actor: dict,
+    reason: str,
+    transfer_groups: bool = True,
+    transfer_cases: bool = True,
+    transfer_targets: bool = False,
+    effective_date: date | None = None,
+) -> dict:
+    """Hand over a village from one Tai to another Tai.
+
+    - Unassigns the village from the source volunteer (saving assignment history).
+    - Assigns the village to the target volunteer.
+    - Optionally transfers all Kishori Groups of this village to the new volunteer.
+    - Optionally transfers all active/open cases in this village to the new volunteer.
+    - Optionally transfers active targets to the new volunteer.
+    """
+    vid = oid(village_id)
+    if from_volunteer["_id"] == to_volunteer["_id"]:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source and target Tais must be different")
+    if not to_volunteer.get("is_active"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cannot hand over village to an inactive volunteer")
+    if not from_volunteer.get("is_active"):
+        raise HTTPException(status.HTTP_409_CONFLICT, "Cannot hand over village from an inactive volunteer")
+
+    village = await load_active_village(db, vid)
+
+    # Verify source Tai is assigned to this village
+    from_village_ids = [v for v in (from_volunteer.get("village_ids") or [])]
+    if from_volunteer.get("village_id") and from_volunteer["village_id"] not in from_village_ids:
+        from_village_ids.append(from_volunteer["village_id"])
+
+    has_assignment = vid in from_village_ids or await db[c.VOLUNTEER_ASSIGNMENTS].find_one({
+        "volunteer_id": from_volunteer["_id"],
+        "village_id": vid,
+        "is_current": True,
+    })
+    if not has_assignment:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Source Tai is not currently assigned to this village")
+
+    # Verify target Tai is not already assigned to this village
+    to_village_ids = [v for v in (to_volunteer.get("village_ids") or [])]
+    if to_volunteer.get("village_id") and to_volunteer["village_id"] not in to_village_ids:
+        to_village_ids.append(to_volunteer["village_id"])
+    if vid in to_village_ids:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Target Tai is already assigned to this village")
+
+    # Determine groups of this village to transfer
+    group_ids = []
+    if transfer_groups:
+        groups_cursor = await db[c.GROUPS].find(
+            {"village_id": vid, "$or": [{"responsible_volunteer_id": from_volunteer["_id"]}, {"_id": {"$in": from_volunteer.get("group_ids", [])}}]},
+            {"_id": 1}
+        ).to_list()
+        group_ids = [g["_id"] for g in groups_cursor]
+        if not group_ids:
+            all_v_groups = await db[c.GROUPS].find({"village_id": vid}, {"_id": 1}).to_list()
+            group_ids = [g["_id"] for g in all_v_groups]
+
+    # 1. Unassign from source volunteer
+    await unassign_village(
+        db, from_volunteer, vid, actor, f"Handed over to {to_volunteer.get('name', 'another Tai')}: {reason}"
+    )
+
+    # Refresh to_volunteer document before assigning
+    fresh_to = await db[c.USERS].find_one({"_id": to_volunteer["_id"]})
+
+    # 2. Assign to target volunteer
+    assignment = await assign_village(
+        db,
+        fresh_to,
+        vid,
+        group_ids,
+        actor,
+        f"Handed over from {from_volunteer.get('name', 'another Tai')}: {reason}",
+        start_date=effective_date,
+    )
+
+    # 3. Transfer open cases if requested
+    cases_transferred = 0
+    if transfer_cases:
+        from app.services.beneficiaries import OPEN_CASE_STATUSES
+        now = utcnow()
+        cases = await db[c.CASES].find({
+            "village_id": vid,
+            "assigned_to": from_volunteer["_id"],
+            "status": {"$in": OPEN_CASE_STATUSES},
+        }).to_list()
+
+        for cs in cases:
+            await db[c.CASES].update_one(
+                {"_id": cs["_id"]},
+                {
+                    "$set": {"assigned_to": to_volunteer["_id"], "updated_at": now},
+                    "$push": {
+                        "timeline": {
+                            "at": now,
+                            "by": actor["_id"],
+                            "by_name": actor.get("name"),
+                            "type": "handover",
+                            "text": f"Handed over from {from_volunteer.get('name')} to {to_volunteer.get('name')}: {reason}",
+                            "assigned_to": to_volunteer["_id"],
+                        }
+                    },
+                },
+            )
+            cases_transferred += 1
+
+    # 4. Transfer active targets if requested
+    targets_transferred = 0
+    if transfer_targets:
+        now = utcnow()
+        targets = await db[c.TARGETS].find({
+            "volunteer_id": from_volunteer["_id"],
+            "status": "active",
+        }).to_list()
+        for tg in targets:
+            await db[c.TARGETS].update_one(
+                {"_id": tg["_id"]},
+                {
+                    "$set": {"volunteer_id": to_volunteer["_id"], "updated_at": now},
+                    "$push": {
+                        "revisions": {
+                            "at": now,
+                            "by": actor["_id"],
+                            "by_name": actor.get("name"),
+                            "reason": f"Village handover: {reason}",
+                            "changes": {"volunteer_id": {"from": str(from_volunteer["_id"]), "to": str(to_volunteer["_id"])}},
+                        }
+                    },
+                },
+            )
+            targets_transferred += 1
+
+    return {
+        "assignment": assignment,
+        "village": village,
+        "group_ids": group_ids,
+        "cases_transferred": cases_transferred,
+        "targets_transferred": targets_transferred,
+    }
+

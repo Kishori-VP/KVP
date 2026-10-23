@@ -78,11 +78,12 @@ export function invalidateRefData() {
   cache.clear()
 }
 
-export const useVillages = () => useRefData('/villages') || []
-export const useTalukas = () => useRefData('/talukas') || []
-export const useVolunteers = () => useRefData('/volunteers') || []
+export const useVillages = () => { const d = useRefData('/villages'); return Array.isArray(d) ? d : [] }
+export const useTalukas = () => { const d = useRefData('/talukas'); return Array.isArray(d) ? d : [] }
+export const useVolunteers = () => { const d = useRefData('/volunteers'); return Array.isArray(d) ? d : [] }
 export function useLookups(type) {
-  return useRefData('/config/lookups', { type }) || []
+  const d = useRefData('/config/lookups', { type })
+  return Array.isArray(d) ? d : []
 }
 export function lookupLabel(list, code) {
   const item = list.find((l) => l.code === code)

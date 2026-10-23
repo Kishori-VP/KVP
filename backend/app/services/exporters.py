@@ -67,7 +67,7 @@ _CODE = re.compile(r"[a-z]+(_[a-z]+)+")
 
 
 def _generated_line() -> str:
-    return f"Generated {datetime.now(local_tz()):%d-%m-%Y %H:%M} · {settings.app_name}"
+    return f"Generated {datetime.now(local_tz()):%d-%m-%Y %H:%M} IST · {settings.app_name}"
 
 
 # ---------------------------------------------------------------- Excel

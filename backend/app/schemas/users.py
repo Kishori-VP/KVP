@@ -57,10 +57,12 @@ class UserCreate(BaseModel):
         if self.village_id and self.village_id not in self.village_ids:
             self.village_ids = [self.village_id, *self.village_ids]
         self.village_ids = list(dict.fromkeys(self.village_ids))
+        if self.village_ids and not self.village_id:
+            self.village_id = self.village_ids[0]
         if self.group_ids and not self.village_ids:
             raise ValueError("Groups can only be assigned together with a village")
-        if self.role == Role.STAKEHOLDER and (self.village_ids or self.group_ids):
-            raise ValueError("Stakeholders are not mapped to a village")
+        if self.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and (self.village_ids or self.group_ids):
+            raise ValueError("Admins and Super Admins are not mapped to a village")
         return self
 
 
@@ -132,3 +134,20 @@ class RemoveVillageRequest(BaseModel):
 
 class GroupAssignment(BaseModel):
     group_ids: list[ObjectIdStr]
+
+
+class MultiAssignRequest(BaseModel):
+    village_ids: list[ObjectIdStr] = Field(min_length=1)
+    effective_date: date | None = None
+
+
+class HandoverRequest(BaseModel):
+    from_volunteer_id: ObjectIdStr
+    to_volunteer_id: ObjectIdStr
+    village_id: ObjectIdStr
+    transfer_groups: bool = True
+    transfer_cases: bool = True
+    transfer_targets: bool = False
+    effective_date: date | None = None
+    reason: str = Field(default="Village handover", min_length=3)
+

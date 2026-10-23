@@ -7,6 +7,7 @@ import { BarList, GroupedBars, STATUS, TrendChart } from '../components/charts'
 import { TalukaSelect } from '../components/pickers'
 import { Card, ErrorBox, Field, PageHeader, ProgressBar, Select, Spinner, StatTile, StatusBadge, Table, Tabs } from '../components/ui'
 import { fmtNum, humanize } from '../lib/format'
+import { useAuth } from '../lib/auth'
 import { useFetch } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
 
@@ -136,16 +137,25 @@ function VillagesCard({ taluka }) {
 }
 
 function TargetsCard({ taluka }) {
-  const { data } = useFetch('/dashboard/targets', { taluka_id: taluka })
+  const { data } = useFetch('/dashboard/targets', { taluka_id: taluka || undefined })
   return (
-    <Card title={t('Volunteer target achievement (current targets)')} actions={<Link to="/targets" className="text-xs text-brand-700 hover:underline">{t('Targets')}</Link>}>
+    <Card title={t('Tai target achievement (current active targets)')} actions={<Link to="/targets" className="text-xs text-brand-700 hover:underline">{t('Manage targets →')}</Link>}>
       {!data ? <Spinner /> : (
         <Table
-          empty={t('No targets running. Assign targets under Targets.')}
+          empty={t('No active targets running. Set targets under Targets.')}
           rowKey={(r) => r.volunteer_id}
           columns={[
-            { key: 'name', label: t('Volunteer'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
-            { key: 'targets', label: t('Targets'), render: (r) => r.targets.length },
+            { key: 'name', label: t('Tai'), render: (r) => <Link className="font-medium text-brand-700 hover:underline" to={`/volunteers/${r.volunteer_id}`}>{r.name}</Link> },
+            { key: 'targets', label: t('Active targets'), render: (r) => (
+              <div className="flex flex-wrap gap-1.5">
+                {(r.targets || []).map((tg) => (
+                  <span key={tg.id} className="inline-flex items-center gap-1 rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-800">
+                    <span className="font-medium">{tg.title}</span>: {tg.achieved || 0}/{tg.target_value}
+                  </span>
+                ))}
+                {!(r.targets?.length) && <span className="text-xs text-gray-400">{t('None')}</span>}
+              </div>
+            )},
             { key: 'avg', label: t('Average achievement'), render: (r) => <ProgressBar pct={r.avg_achievement_pct} /> },
             { key: 'at_risk_or_missed', label: t('At risk / missed'), className: 'tabular text-right' },
           ]}
@@ -305,12 +315,14 @@ function Drilldown() {
 }
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const [taluka, setTaluka] = useState('')
   const [period, setPeriod] = useState('monthly')
+  const isStakeholder = user?.role === 'stakeholder' || user?.role === 'super_admin'
   return (
     <div className="space-y-4">
       <PageHeader
-        title={t('Stakeholder dashboard')}
+        title={isStakeholder ? t('Stakeholder dashboard') : t('Admin dashboard')}
         subtitle={t('Programme-wide view of girls, villages, volunteers and field activity')}
         actions={
           <div className="flex flex-wrap items-end gap-2">
