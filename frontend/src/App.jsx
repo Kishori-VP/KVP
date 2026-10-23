@@ -35,7 +35,7 @@ function WakingBanner() {
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
       </span>
-      <span>{t('Connecting to Render… Free-tier server is waking up (~30-50s on initial load).')}</span>
+      <span>{t('Connecting to the backend please wait')}</span>
     </div>
   )
 }
