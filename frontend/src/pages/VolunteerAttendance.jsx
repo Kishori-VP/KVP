@@ -5,7 +5,6 @@ import api, { errorMessage } from '../lib/api'
 import { Button, Card, ErrorBox, Modal, PageHeader, Spinner, StatusBadge } from '../components/ui'
 import { t } from '../lib/i18n'
 import { todayISO } from '../lib/format'
-import NoteCamModal from '../components/NoteCamModal'
 import { useAuth } from '../lib/auth'
 
 const STATUSES = [
@@ -49,13 +48,10 @@ export default function VolunteerAttendance() {
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
 
-  // NoteCam photo preview modal
+  // Attendance photo preview
   const [previewPhoto, setPreviewPhoto] = useState(null)
   const [previewTitle, setPreviewTitle] = useState('')
 
-  // Admin NoteCam capture modal
-  const [noteCamOpen, setNoteCamOpen] = useState(false)
-  const [noteCamAction, setNoteCamAction] = useState('CHECK-IN')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -187,7 +183,7 @@ export default function VolunteerAttendance() {
       'Check-out': row.check_out || '',
       'GPS Check-in': row.check_in_gps ? `${row.check_in_gps.lat}, ${row.check_in_gps.lng}` : '',
       'GPS Check-out': row.check_out_gps ? `${row.check_out_gps.lat}, ${row.check_out_gps.lng}` : '',
-      'NoteCam Stamped Photo': row.check_in_photo ? 'Yes' : 'No',
+      'Photo': row.check_in_photo ? 'Yes' : 'No',
       Remarks: row.remarks || '',
       Saved: row.hasRecord ? 'Yes' : 'No',
     }))
@@ -216,20 +212,9 @@ export default function VolunteerAttendance() {
     <div className="space-y-6">
       <PageHeader
         title={t('Tai attendance register')}
-        subtitle={t('Daily check-in and check-out tracking with NoteCam GPS photos.')}
+        subtitle={t('Daily check-in and check-out tracking with GPS photos.')}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setNoteCamAction('CHECK-IN')
-                setNoteCamOpen(true)
-              }}
-              className="bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border-emerald-300"
-            >
-              <Camera className="mr-2 h-4 w-4 text-emerald-700" />
-              {t('NoteCam Check-In')}
-            </Button>
             <Button variant="secondary" onClick={exportExcel} disabled={loading || rows.length === 0}>
               <Download className="mr-2 h-4 w-4" />
               {t('Export to Excel')}
@@ -351,12 +336,12 @@ export default function VolunteerAttendance() {
                             type="button"
                             onClick={() => {
                               setPreviewPhoto(row.check_in_photo)
-                              setPreviewTitle(`${row.name} - ${t('NoteCam Check-In Photo')} (${row.check_in})`)
+                              setPreviewTitle(`${row.name} - ${t('Check-in photo')} (${row.check_in})`)
                             }}
                             className="mt-2 flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
                           >
                             <Camera className="h-3.5 w-3.5" />
-                            <span>{t('View NoteCam Photo')}</span>
+                            <span>{t('View photo')}</span>
                           </button>
                         )}
                         {row.check_in_gps && (
@@ -380,12 +365,12 @@ export default function VolunteerAttendance() {
                             type="button"
                             onClick={() => {
                               setPreviewPhoto(row.check_out_photo)
-                              setPreviewTitle(`${row.name} - ${t('NoteCam Check-Out Photo')} (${row.check_out})`)
+                              setPreviewTitle(`${row.name} - ${t('Check-out photo')} (${row.check_out})`)
                             }}
                             className="mt-2 flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
                           >
                             <Camera className="h-3.5 w-3.5" />
-                            <span>{t('View NoteCam Photo')}</span>
+                            <span>{t('View photo')}</span>
                           </button>
                         )}
                         {row.check_out_gps && (
@@ -443,29 +428,20 @@ export default function VolunteerAttendance() {
         )}
       </Card>
 
-      {/* NoteCam Photo Lightbox Preview Modal */}
+      {/* Attendance photo preview */}
       {previewPhoto && (
         <Modal
           open={Boolean(previewPhoto)}
           onClose={() => setPreviewPhoto(null)}
-          title={previewTitle || t('NoteCam Attendance Photo')}
+          title={previewTitle || t('Attendance photo')}
           footer={<Button onClick={() => setPreviewPhoto(null)}>{t('Close')}</Button>}
         >
           <div className="overflow-hidden rounded-xl bg-black">
-            <img src={previewPhoto} alt="NoteCam GPS capture" className="w-full max-h-[75vh] object-contain mx-auto" />
+            <img src={previewPhoto} alt="Attendance photo" className="w-full max-h-[75vh] object-contain mx-auto" />
           </div>
         </Modal>
       )}
 
-      {/* Admin NoteCam Attendance Modal */}
-      <NoteCamModal
-        open={noteCamOpen}
-        onClose={() => setNoteCamOpen(false)}
-        action={noteCamAction}
-        user={user}
-        villages={[]}
-        onSuccess={() => load()}
-      />
     </div>
   )
 }

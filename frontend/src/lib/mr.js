@@ -1608,4 +1608,9 @@ export default {
   "Caste": "जात",
   "Class": "इयत्ता",
   "Birth year": "जन्म वर्ष",
+  "Daily check-in and check-out tracking with GPS photos.": "GPS फोटोसह रोजचे चेक-इन आणि चेक-आउट ट्रॅकिंग.",
+  "View photo": "फोटो पहा",
+  "Check-in photo": "चेक-इन फोटो",
+  "Check-out photo": "चेक-आऊट फोटो",
+  "Attendance photo": "उपस्थिती फोटो",
 };
