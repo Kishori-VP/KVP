@@ -9,14 +9,15 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel("phone", unique=True),
         IndexModel([("role", ASCENDING), ("is_active", ASCENDING)]),
         IndexModel("village_id"),
+        IndexModel("village_ids"),
     ],
     c.VOLUNTEER_ASSIGNMENTS: [
-        # Enforces "one village per Volunteer at a time" at the database level.
+        # A Volunteer can have several villages, but each village only once at a time.
         IndexModel(
-            "volunteer_id",
+            [("volunteer_id", ASCENDING), ("village_id", ASCENDING)],
             unique=True,
             partialFilterExpression={"is_current": True},
-            name="one_current_assignment_per_volunteer",
+            name="current_assignment_per_volunteer_village",
         ),
         IndexModel([("volunteer_id", ASCENDING), ("start_date", DESCENDING)]),
         IndexModel("village_id"),
@@ -60,7 +61,9 @@ INDEXES: dict[str, list[IndexModel]] = {
         IndexModel("client_record_id", unique=True, partialFilterExpression={"client_record_id": {"$type": "string"}}),
     ],
     c.ACTIVITY_REPORTS: [
-        IndexModel([("volunteer_id", ASCENDING), ("report_date", ASCENDING)], unique=True),
+        # One daily report per volunteer per village per day (a volunteer can work in several villages).
+        IndexModel([("volunteer_id", ASCENDING), ("village_id", ASCENDING), ("report_date", ASCENDING)], unique=True,
+                   name="one_report_per_volunteer_village_day"),
         IndexModel("client_record_id", unique=True, partialFilterExpression={"client_record_id": {"$type": "string"}}),
         IndexModel([("village_id", ASCENDING), ("report_date", DESCENDING)]),
     ],
@@ -108,6 +111,18 @@ INDEXES: dict[str, list[IndexModel]] = {
 }
 
 
+# Indexes from earlier versions whose rules no longer apply.
+OBSOLETE: dict[str, list[str]] = {
+    c.VOLUNTEER_ASSIGNMENTS: ["one_current_assignment_per_volunteer"],
+    c.ACTIVITY_REPORTS: ["volunteer_id_1_report_date_1"],
+}
+
+
 async def ensure_indexes(db: AsyncDatabase) -> None:
+    for coll_name, names in OBSOLETE.items():
+        existing = await db[coll_name].index_information()
+        for name in names:
+            if name in existing:
+                await db[coll_name].drop_index(name)
     for coll_name, indexes in INDEXES.items():
         await db[coll_name].create_indexes(indexes)

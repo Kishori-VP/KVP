@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, village_scope
+from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.targets import TargetCancel, TargetCreate, TargetRevise
@@ -61,7 +61,9 @@ async def create_targets(body: TargetCreate, db: Db, actor: Stakeholder):
                 continue
             doc = {
                 "volunteer_id": vol["_id"],
-                "village_id": vol["village_id"],  # one village per volunteer -> target applies to that village
+                # One combined target across all of the volunteer's villages (village_id None means "all").
+                "village_id": None,
+                "village_ids": user_village_ids(vol),
                 "taluka_id": vol.get("taluka_id"),
                 "target_type": body.target_type,
                 "metric": metric,
@@ -103,13 +105,14 @@ async def list_targets(
     on_date: date | None = Query(None, description="Targets whose period includes this date"),
     status_: Annotated[str | None, Query(alias="status", description=f"One of {TARGET_STATUSES}")] = None,
 ):
-    query: dict = village_scope(user)
+    # Targets belong to the volunteer (combined across her villages), so volunteers see their own.
+    query: dict = {}
     if user["role"] == Role.VOLUNTEER:
         query["volunteer_id"] = user["_id"]
     elif volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
     if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+        query["$or"] = [{"village_id": oid(village_id)}, {"village_ids": oid(village_id)}]
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if target_type:
@@ -145,7 +148,7 @@ async def list_targets(
 
 @router.get("/{target_id}")
 async def get_target(target_id: str, db: Db, user: Annotated[dict, Depends(require_permission("targets", "read"))]):
-    t = await get_or_404(db[c.TARGETS], target_id, "Target", village_scope(user))
+    t = await get_or_404(db[c.TARGETS], target_id, "Target")
     if user["role"] == Role.VOLUNTEER and t["volunteer_id"] != user["_id"]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Target not found")
     [enriched] = await with_progress(db, [t])

@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, village_scope
+from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import DuplicateCheck, GirlCreate, GirlUpdate, HealthRecordCreate, MergeRequest
@@ -28,6 +28,7 @@ from app.services.lookups import ensure_code
 from app.services.validation import validate_entity
 from app.utils.dates import to_date, to_dt, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, serialize
+from app.utils.translit import to_latin
 
 router = APIRouter(prefix="/girls", tags=["girls"])
 
@@ -46,8 +47,8 @@ async def _resolve_refs(db, data: dict, user: dict) -> dict:
     """Validate village/group/lookup references and convert ids. Mutates and returns data."""
     if data.get("village_id"):
         village = await get_or_404(db[c.VILLAGES], data["village_id"], "Village")
-        if user["role"] == Role.VOLUNTEER and village["_id"] != user.get("village_id"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only manage girls of your assigned village")
+        if user["role"] == Role.VOLUNTEER and village["_id"] not in user_village_ids(user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only manage girls of your assigned villages")
         data["village_id"] = village["_id"]
         data["taluka_id"] = village["taluka_id"]
     if data.get("group_id"):
@@ -84,14 +85,18 @@ async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(re
     # Girl registration is a field-work action, not a Stakeholder action.
     if user.get("role") == Role.STAKEHOLDER:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Volunteers can register girls")
-    assigned_village_id = user.get("village_id")
-    if not assigned_village_id:
+    assigned = user_village_ids(user)
+    if not assigned:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Your account has no assigned village. Contact a Stakeholder.")
     data = body.model_dump(exclude={"confirm_not_duplicate", "survey_date"})
-    # Never trust the client-supplied village for a Volunteer. It must match their assignment.
-    if data.get("village_id") and str(data["village_id"]) != str(assigned_village_id):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only register girls in your assigned village")
-    data["village_id"] = str(assigned_village_id)
+    # Never trust the client-supplied village for a Volunteer. It must be one of her villages.
+    if data.get("village_id"):
+        if oid(data["village_id"]) not in assigned:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only register girls in your assigned villages")
+    elif len(assigned) == 1:
+        data["village_id"] = str(assigned[0])
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose the girl's village")
     await validate_entity(db, "girl", data)
     data = await _resolve_refs(db, data, user)
     data["birth_year"] = estimate_birth_year(body.dob, body.age, today_local())
@@ -104,8 +109,10 @@ async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(re
                         "confirm_not_duplicate=true.", "candidates": serialize(_duplicates_out(duplicates))},
         )
     now = utcnow()
-    girl_code, girl_seq = await next_girl_code(db)
+    village = await db[c.VILLAGES].find_one({"_id": data["village_id"]})
+    girl_code, girl_seq = await next_girl_code(db, village)
     data.update(
+        name_en=to_latin(data.get("name")),
         girl_code=girl_code,
         girl_seq=girl_seq,
         survey_date=to_dt(body.survey_date or today_local()),
@@ -132,8 +139,8 @@ async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(re
 async def check_duplicates(body: DuplicateCheck, db: Db, user: Annotated[dict, Depends(require_permission("girls", "read"))]):
     data = body.model_dump(exclude={"exclude_id"})
     data["village_id"] = oid(body.village_id) if body.village_id else None
-    if user["role"] == Role.VOLUNTEER and data["village_id"] != user.get("village_id"):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only check duplicates in your assigned village")
+    if user["role"] == Role.VOLUNTEER and data["village_id"] not in user_village_ids(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only check duplicates in your assigned villages")
     data["group_id"] = oid(body.group_id) if body.group_id else None
     found = await find_duplicates(db, _probe(data), oid(body.exclude_id) if body.exclude_id else None)
     return {"candidates": _duplicates_out(found)}
@@ -180,8 +187,7 @@ async def list_girls(
     sort: Literal["girl_code", "name", "created_at", "last_participation_at"] = "girl_code",
 ):
     query: dict = {"is_deleted": {"$ne": True}, **village_scope(user)}
-    if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if group_id:
@@ -218,7 +224,7 @@ async def list_girls(
         query["flags.profile_incomplete"] = profile_incomplete
     if q:
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
-        query["$or"] = [{"name": rx}, {"girl_code": rx}, {"household.father_name": rx},
+        query["$or"] = [{"name": rx}, {"name_en": rx}, {"girl_code": rx}, {"household.father_name": rx},
                         {"household.mother_name": rx}, {"household.head_name": rx}]
 
     sort_dir = -1 if sort in ("created_at", "last_participation_at") else 1
@@ -314,6 +320,8 @@ async def update_girl(girl_id: str, body: GirlUpdate, db: Db, user: Annotated[di
     await validate_entity(db, "girl", {**before, **data})
     merged = {**before, **data}
     data["flags.profile_incomplete"] = not (merged.get("name") and (merged.get("dob") or merged.get("birth_year")))
+    if "name" in data:
+        data["name_en"] = to_latin(data["name"])
     data["updated_at"] = utcnow()
     await db[c.GIRLS].update_one({"_id": before["_id"]}, {"$set": data})
     after = await db[c.GIRLS].find_one({"_id": before["_id"]})

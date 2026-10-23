@@ -99,7 +99,7 @@ async def programme_summary(db, start, end, period, scope):
         {"label": "Girls registered", "value": girls},
         {"label": "Villages", "value": len(vids)},
         {"label": "Kishori Groups", "value": await db[c.GROUPS].count_documents({"village_id": {"$in": vids}, "group_type": "kishori", "is_active": True})},
-        {"label": "Active volunteers", "value": await db[c.USERS].count_documents({"village_id": {"$in": vids}, "role": "volunteer", "is_active": True})},
+        {"label": "Active volunteers", "value": await db[c.USERS].count_documents({"village_ids": {"$in": vids}, "role": "volunteer", "is_active": True})},
         {"label": "Events planned in period", "value": await db[c.EVENTS].count_documents({"village_id": {"$in": vids}, "planned": True, "start_at": {"$gte": ls, "$lt": le}})},
         {"label": "Open cases (now)", "value": await db[c.CASES].count_documents({"village_id": {"$in": vids}, "status": {"$in": OPEN_CASE_STATUSES}})},
     ]
@@ -153,19 +153,25 @@ async def taluka_wise(db, start, end, period, scope):
         "totals": _totals(out, ["villages", *SUM_KEYS])}]}
 
 
+def _villages_label(u: dict, names: dict) -> str | None:
+    ids = u.get("village_ids") or ([u["village_id"]] if u.get("village_id") else [])
+    return ", ".join(n for n in (names.get(i) for i in ids) if n) or None
+
+
 async def volunteer_wise(db, start, end, period, scope):
     vids = [v["_id"] for v in scope["villages"]]
-    vols = await db[c.USERS].find({"role": "volunteer", "is_active": True, "village_id": {"$in": vids}}).sort("name", 1).to_list()
+    vols = await db[c.USERS].find({"role": "volunteer", "is_active": True, "village_ids": {"$in": vids}}).sort("name", 1).to_list()
     vnames = {v["_id"]: v["name"] for v in scope["villages"]}
     upto = min(end, today_local())
     rows = []
     for u in vols:
-        m = await metrics.activity_summary(db, u["_id"], u.get("village_id"), start, upto)
+        # Count her work in the villages of this report's scope.
+        m = await metrics.activity_summary(db, u["_id"], [x for x in (u.get("village_ids") or []) if x in vnames], start, upto)
         targets = await with_progress(db, await db[c.TARGETS].find({
             "volunteer_id": u["_id"], "status": "active", "period_start": {"$lte": to_dt(end)},
             "period_end": {"$gte": to_dt(start)}}).to_list())
         pcts = [min(t["progress"]["progress_pct"], 100) for t in targets]
-        rows.append({"volunteer": u["name"], "phone": u["phone"], "village": vnames.get(u.get("village_id")), **m,
+        rows.append({"volunteer": u["name"], "phone": u["phone"], "village": _villages_label(u, vnames), **m,
                      "targets": len(targets), "avg_achievement_pct": round(sum(pcts) / len(pcts), 1) if pcts else None,
                      "targets_missed": sum(1 for t in targets if t["progress"]["status"] == "missed")})
     return {"summary": [], "sections": [{"title": "Volunteer-wise", "columns": [
@@ -301,9 +307,10 @@ async def target_achievement(db, start, end, period, scope):
     vids = [v["_id"] for v in scope["villages"]]
     vnames = {v["_id"]: v["name"] for v in scope["villages"]}
     users = {u["_id"]: u["name"] async for u in db[c.USERS].find({}, {"name": 1})}
-    targets = await db[c.TARGETS].find({"village_id": {"$in": vids}, "status": "active",
+    targets = await db[c.TARGETS].find({"$or": [{"village_id": {"$in": vids}}, {"village_ids": {"$in": vids}}], "status": "active",
                                         "period_start": {"$lte": to_dt(end)}, "period_end": {"$gte": to_dt(start)}}).sort("period_start", 1).to_list()
-    rows = [{"volunteer": users.get(t["volunteer_id"]), "village": vnames.get(t["village_id"]), "target": t["title"],
+    rows = [{"volunteer": users.get(t["volunteer_id"]), "village": vnames.get(t["village_id"]) or _villages_label(t, vnames),
+             "target": t["title"],
              "period": f"{t['period_start']:%d %b} – {t['period_end']:%d %b %Y}", "target_value": t["target_value"],
              "achieved": t["progress"]["achieved"], "progress_pct": t["progress"]["progress_pct"], "status": t["progress"]["status"],
              "revisions": len(t.get("revisions", []))}

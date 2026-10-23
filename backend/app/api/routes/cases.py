@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, require_permission, village_scope
+from app.core.deps import Db, Pagination, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import CaseAssign, CaseCreate, CaseNote, CaseStatusChange, CaseUpdate
@@ -40,7 +40,7 @@ async def _check_assignee(db, user_id, village_id):
     assignee = await db[c.USERS].find_one({"_id": oid(user_id), "is_active": True})
     if not assignee:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assignee not found or inactive")
-    if assignee["role"] == Role.VOLUNTEER and assignee.get("village_id") != village_id:
+    if assignee["role"] == Role.VOLUNTEER and village_id not in user_village_ids(assignee):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer assignee must belong to the girl's village")
     return assignee
 
@@ -123,8 +123,7 @@ async def list_cases(
         query["severity"] = {"$in": severity}
     if category:
         query["category"] = category
-    if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if assigned_to:

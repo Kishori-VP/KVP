@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom'
 import { Button, Card, Empty, ErrorBox, PageHeader, ProgressBar, Spinner, StatTile, StatusBadge, Table } from '../components/ui'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 import { useState } from 'react'
 import { TrendChart } from '../components/charts'
 
@@ -173,8 +173,8 @@ export default function VolunteerDashboard() {
         <Card className="border-brand-200 bg-brand-50/50">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-700"><MapPin className="h-4 w-4" />{t('Assigned village')}</div>
-              <h2 className="text-xl font-semibold text-gray-900">{getVillageName(data.village)}</h2>
+              <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-brand-700"><MapPin className="h-4 w-4" />{t(data.villages?.length > 1 ? 'Assigned villages' : 'Assigned village')}</div>
+              <h2 className="text-xl font-semibold text-gray-900">{(data.villages?.length ? data.villages : [data.village]).map(getVillageName).join(', ')}</h2>
               <p className="mt-1 text-sm text-gray-600">{data.village?.taluka_name || data.village?.district || ''}</p>
               <p className="mt-2 text-xs text-gray-500">{t('{n} active groups', { n: data.groups?.length || 0 })} · {t('Month started {date}', { date: fmtDate(data.month_start) })}</p>
             </div>
@@ -214,7 +214,7 @@ export default function VolunteerDashboard() {
             </div> : <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">{t('Village coordinates have not been added yet. Ask your Stakeholder to set the village location. GPS-tagged visits will appear on this map when available.')}</p>}
           </Card>
           <Card title={t('Girls by Kishori Group')}>
-            {data.groups?.length ? <div className="space-y-3">{data.groups.map((group) => <div key={group.id}><div className="mb-1 flex items-center justify-between gap-2 text-sm"><Link className="font-medium text-gray-800 hover:text-brand-700" to={`/groups/${group.id}`}>{group.name}</Link><span className="text-xs text-gray-500">{group.girl_count || 0} {t('girls')}</span></div><div className="h-2 overflow-hidden rounded-full bg-gray-100"><div className="h-full rounded-full bg-brand-600" style={{ width: `${Math.min(100, (group.girl_count || 0) / Math.max(1, data.summary?.girls_total || 1) * 100)}%` }} /></div></div>)}</div> : <Empty>{t('No active groups in this village yet.')}</Empty>}
+            {data.groups?.length ? <div className="space-y-3">{data.groups.map((group) => <div key={group.id}><div className="mb-1 flex items-center justify-between gap-2 text-sm"><Link className="font-medium text-gray-800 hover:text-brand-700" to={`/groups/${group.id}`}>{localName(group)}</Link><span className="text-xs text-gray-500">{group.girl_count || 0} {t('girls')}</span></div><div className="h-2 overflow-hidden rounded-full bg-gray-100"><div className="h-full rounded-full bg-brand-600" style={{ width: `${Math.min(100, (group.girl_count || 0) / Math.max(1, data.summary?.girls_total || 1) * 100)}%` }} /></div></div>)}</div> : <Empty>{t('No active groups in this village yet.')}</Empty>}
           </Card>
         </div>
         {(data.summary?.pending_visits || data.summary?.pending_reports) > 0 && <Card title={t('Submissions awaiting review')}>

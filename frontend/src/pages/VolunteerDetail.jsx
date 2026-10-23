@@ -7,7 +7,7 @@ import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, Pag
 import api from '../lib/api'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 function ReassignModal({ open, onClose, vol, onDone }) {
   const [f, setF] = useState({ village_id: '', group_ids: [], reason: '', effective_date: '', action: 'move', transfer_to: '' })
@@ -140,7 +140,7 @@ function Coverage({ id }) {
         ['Groups met', `${data.groups.met} ${t('of')} ${data.groups.total}`],
         ['Visits with GPS', data.visit_locations.length],
       ]} />
-      {data.groups.not_met.length > 0 && <p className="mt-3 text-sm text-gray-700">Groups not met: {data.groups.not_met.map((g) => g.name).join(', ')}</p>}
+      {data.groups.not_met.length > 0 && <p className="mt-3 text-sm text-gray-700">Groups not met: {data.groups.not_met.map(localName).join(', ')}</p>}
     </Card>
   )
 }
@@ -166,7 +166,7 @@ export default function VolunteerDetail() {
     <div className="space-y-4">
       <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Volunteers')}</Link>
       <PageHeader title={v.name}
-        subtitle={<>{v.phone}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{v.village?.name}{v.village?.name_mr && ` (${v.village.name_mr})`}</>}</>}
+        subtitle={<>{v.phone}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
         actions={unassigned
           ? <Button icon={MapPin} onClick={() => setModal('assign')}>{t('Assign village')}</Button>
           : <><Button variant="secondary" onClick={() => setModal('groups')}>{t('Groups')}</Button><Button icon={Shuffle} onClick={() => setModal('reassign')}>{t('Reassign village')}</Button></>} />
@@ -177,7 +177,7 @@ export default function VolunteerDetail() {
       )}
       <div className="flex flex-wrap gap-2">
         {!v.is_active && <Badge>{t('Inactive')}</Badge>}
-        {(v.village_groups || []).filter((g) => g.assigned_to_this_volunteer).map((g) => <Badge key={g.id} tone="brand">{g.name}</Badge>)}
+        {(v.village_groups || []).filter((g) => g.assigned_to_this_volunteer).map((g) => <Badge key={g.id} tone="brand">{localName(g)}</Badge>)}
       </div>
       <Tabs tabs={unassigned ? ['overview', 'history', 'assignments'] : ['overview', 'activity', 'coverage', 'history', 'assignments']} value={tab} onChange={setTab} />
       {tab === 'overview' && <Overview id={id} />}

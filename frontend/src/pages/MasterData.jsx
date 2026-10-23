@@ -4,7 +4,7 @@ import { TalukaSelect, VillageSelect, VolunteerSelect } from '../components/pick
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs } from '../components/ui'
 import api from '../lib/api'
 import { invalidateRefData, useAction, useFetch, useVillages } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 const hasCoord = (v) => v !== '' && v !== null && v !== undefined && !Number.isNaN(Number(v))
 
@@ -97,7 +97,7 @@ function Groups() {
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null)
   const villages = useVillages()
-  const vname = (id) => villages.find((v) => v.id === id)?.name || '—'
+  const vname = (id) => localName(villages.find((v) => v.id === id)) || '—'
   const { data, reload } = useFetch('/groups', { ...f, page, page_size: 50 })
   return (
     <Card padded={false} title={t('Kishori & Bal Panchayat groups')} actions={<>

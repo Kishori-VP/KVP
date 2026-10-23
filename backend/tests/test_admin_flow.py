@@ -49,20 +49,30 @@ def test_master_data(client, admin):
     assert ok(client.get(f"{API}/districts", headers=admin))[0]["district"] == "Parbhani"
 
 
-def test_one_village_per_volunteer(client, admin, mongo):
-    # A volunteer can be created without a village and assigned later (at most one village at a time).
+def test_volunteer_villages(client, admin, mongo):
+    # A volunteer can be created without a village and given one or more villages later.
     later = ok(client.post(f"{API}/users", headers=admin, json={
         "name": "Sulochana", "phone": "9000000014", "password": "volunteer-3", "role": "volunteer"}), 201)
-    assert later["village_id"] is None
+    assert later["village_id"] is None and later["village_ids"] == []
     unassigned = ok(client.get(f"{API}/volunteers", headers=admin, params={"assigned": False}))
     assert [v["id"] for v in unassigned] == [later["id"]]
     assert client.post(f"{API}/users", headers=admin, json={
         "name": "X", "phone": "9000000015", "password": "volunteer-x", "role": "volunteer",
         "group_ids": [S["g1"]]}).status_code == 422  # groups need a village
     assigned = ok(client.post(f"{API}/volunteers/{later['id']}/assign", headers=admin, json={"village_id": S["v2"]}))
-    assert assigned["volunteer"]["village_id"] == S["v2"]
+    assert assigned["volunteer"]["village_ids"] == [S["v2"]]
+    # A second village is added, not swapped in.
+    both = ok(client.post(f"{API}/volunteers/{later['id']}/assign", headers=admin, json={"village_id": S["v1"]}))
+    assert both["volunteer"]["village_ids"] == [S["v2"], S["v1"]] and both["volunteer"]["village_id"] == S["v2"]
     assert client.post(f"{API}/volunteers/{later['id']}/assign", headers=admin,
-                       json={"village_id": S["v1"]}).status_code == 409  # already has a village
+                       json={"village_id": S["v1"]}).status_code == 409  # same village twice
+    in_v1 = ok(client.get(f"{API}/volunteers", headers=admin, params={"village_id": S["v1"]}))
+    assert later["id"] in [v["id"] for v in in_v1]
+    removed = ok(client.post(f"{API}/volunteers/{later['id']}/villages/{S['v2']}/remove", headers=admin,
+                             json={"reason": "Moved out of Chatori"}))
+    assert removed["volunteer"]["village_ids"] == [S["v1"]] and removed["volunteer"]["village_id"] == S["v1"]
+    history = ok(client.get(f"{API}/volunteers/{later['id']}/assignments", headers=admin))
+    assert sorted(h["is_current"] for h in history) == [False, True]
     ok(client.patch(f"{API}/users/{later['id']}/status", headers=admin, json={"is_active": False}))
 
     base = {"name": "Pooja Paul", "phone": "9000000011", "password": "volunteer-1", "role": "volunteer"}
@@ -76,10 +86,10 @@ def test_one_village_per_volunteer(client, admin, mongo):
     vol2 = ok(client.post(f"{API}/users", headers=admin, json={
         "name": "Manisha", "phone": "9000000012", "password": "volunteer-2", "role": "volunteer", "village_id": S["v2"]}), 201)
     S["vol2"] = vol2["id"]
-    # database-level guarantee: a second current assignment for the same volunteer is impossible
+    # database-level guarantee: the same village cannot be assigned twice to one volunteer
     from bson import ObjectId
     with pytest.raises(DuplicateKeyError):
-        mongo.volunteer_assignments.insert_one({"volunteer_id": ObjectId(S["vol"]), "village_id": ObjectId(S["v2"]),
+        mongo.volunteer_assignments.insert_one({"volunteer_id": ObjectId(S["vol"]), "village_id": ObjectId(S["v1"]),
                                                 "is_current": True})
     # stakeholders cannot be mapped to a village
     r = client.post(f"{API}/users", headers=admin, json={"name": "X", "phone": "9000000013", "password": "xxxxxxxx",
@@ -123,7 +133,9 @@ def test_girls_and_duplicates(client, admin):
     vh = S["vol_headers"]
     g = ok(client.post(f"{API}/girls", headers=vh, json=body), 201)
     S["girl"] = g["id"]
-    assert g["girl_code"].startswith("KVP-2627-") and g["age_band"] == "10_14"
+    # Taluka 01, village 01 (first ones created in this test run), first girl of the village.
+    assert g["girl_code"] == "KVP-01-01-001" and g["age_band"] == "10_14"
+    assert g["name_en"] == "Puja Raju Shinde"  # English spelling for English-mode display
     r = client.post(f"{API}/girls", headers=vh, json={**body, "name": "पूजा राजु शिंदे"})
     assert r.status_code == 409 and r.json()["detail"]["candidates"]
     g2 = ok(client.post(f"{API}/girls", headers=vh, json={**body, "name": "पूजा राजु शिंदे", "confirm_not_duplicate": True}), 201)
@@ -282,14 +294,15 @@ def test_field_records_and_targets(client, admin):
 def test_reassignment_moves_targets(client, admin):
     r = ok(client.post(f"{API}/volunteers/{S['vol']}/reassign", headers=admin, json={
         "village_id": S["v2"], "group_ids": [S["g3"]], "reason": "Field restructuring", "targets": {"action": "move"}}))
-    assert r["volunteer"]["village_id"] == S["v2"] and r["targets"]["affected"] == 2
+    # Targets are combined across her villages, so moving village leaves them unchanged.
+    assert r["volunteer"]["village_id"] == S["v2"] and r["targets"]["affected"] == 0
     hist = ok(client.get(f"{API}/volunteers/{S['vol']}/assignments", headers=admin))
     assert len(hist) == 2 and sum(h["is_current"] for h in hist) == 1
     assert hist[1]["end_date"] is not None
     g1 = ok(client.get(f"{API}/groups/{S['g1']}", headers=admin))
     assert g1["responsible_volunteer_id"] is None
     t = ok(client.get(f"{API}/targets/{S['target']}", headers=admin))
-    assert t["village_id"] == S["v2"] and len(t["revisions"]) == 2
+    assert t["village_id"] is None and len(t["revisions"]) == 1
     assert client.post(f"{API}/volunteers/{S['vol']}/reassign", headers=admin, json={
         "village_id": S["v2"], "group_ids": [S["g3"]], "reason": "Same again"}).status_code == 409
     # move back so later tests see the original village
@@ -397,3 +410,43 @@ def test_audit_and_notifications(client, admin):
     assert sent["sent"] == 2
     vol_notes = ok(client.get(f"{API}/notifications", headers=S["vol_headers"]))
     assert vol_notes["unread"] >= 1
+
+
+def test_multi_village_volunteer(client, admin):
+    """A volunteer working in two villages sees both and chooses the village for new records."""
+    v = ok(client.post(f"{API}/users", headers=admin, json={
+        "name": "Jyoti Mule", "phone": "9000000021", "password": "volunteer-21", "role": "volunteer",
+        "village_ids": [S["v1"], S["v2"]], "group_ids": [S["g1"], S["g3"]]}), 201)
+    assert v["village_ids"] == [S["v1"], S["v2"]] and sorted(v["group_ids"]) == sorted([S["g1"], S["g3"]])
+    tok = ok(client.post(f"{API}/auth/login", json={"identifier": "9000000021", "password": "volunteer-21"}))["access_token"]
+    vh = {"Authorization": f"Bearer {tok}"}
+    me = ok(client.get(f"{API}/auth/me", headers=vh))
+    assert sorted(x["id"] for x in me["villages"]) == sorted([S["v1"], S["v2"]])
+    assert sorted(x["id"] for x in ok(client.get(f"{API}/villages", headers=vh))) == sorted([S["v1"], S["v2"]])
+
+    girl = {"name": "Sneha Kadam", "age": 13}
+    assert client.post(f"{API}/girls", headers=vh, json=girl).status_code == 422  # which village?
+    g = ok(client.post(f"{API}/girls", headers=vh, json={**girl, "village_id": S["v2"], "confirm_not_duplicate": True}), 201)
+    assert g["village_id"] == S["v2"]
+    other = ok(client.post(f"{API}/villages", headers=admin, json={"name": "Elsewhere", "taluka_id": S["taluka"]}), 201)
+    assert client.post(f"{API}/girls", headers=vh, json={**girl, "village_id": other["id"]}).status_code == 403
+    seen = {x["village_id"] for x in ok(client.get(f"{API}/girls", headers=vh, params={"page_size": 200}))["items"]}
+    assert seen == {S["v1"], S["v2"]}
+
+    visit = {"volunteer_id": v["id"], "visit_date": str(TODAY), "girl_ids": [g["id"]]}
+    assert client.post(f"{API}/home-visits", headers=vh, json=visit).status_code == 422  # which village?
+    hv = ok(client.post(f"{API}/home-visits", headers=vh, json={**visit, "village_id": S["v2"]}), 201)
+    assert hv["village_id"] == S["v2"]
+    # Girls must belong to the chosen village.
+    assert client.post(f"{API}/home-visits", headers=vh, json={**visit, "village_id": S["v1"]}).status_code == 422
+
+    dash = ok(client.get(f"{API}/volunteers/me/dashboard", headers=vh))
+    assert dash["assigned"] and len(dash["villages"]) == 2 and dash["summary"]["girls_total"] >= 1
+    assert {m["village_id"] for m in dash["contacts"]["mandatory"]} == {S["v1"], S["v2"]}
+
+    # Moving her out of one village keeps the other; from_village_id is required when she has several.
+    r = client.post(f"{API}/volunteers/{v['id']}/reassign", headers=admin, json={"village_id": other["id"], "reason": "Moved"})
+    assert r.status_code == 422
+    moved = ok(client.post(f"{API}/volunteers/{v['id']}/reassign", headers=admin, json={
+        "village_id": other["id"], "from_village_id": S["v1"], "reason": "Moved to Elsewhere"}))
+    assert sorted(moved["volunteer"]["village_ids"]) == sorted([S["v2"], other["id"]])

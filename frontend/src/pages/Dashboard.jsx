@@ -8,7 +8,7 @@ import { TalukaSelect } from '../components/pickers'
 import { Card, ErrorBox, Field, PageHeader, ProgressBar, Select, Spinner, StatTile, StatusBadge, Table, Tabs } from '../components/ui'
 import { fmtNum, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 const VILLAGE_STATUS_COLOR = { on_track: STATUS.good, delayed: STATUS.warning, no_recent_activity: STATUS.critical }
 const SEVERITY_COLOR = { critical: STATUS.critical, high: STATUS.serious, medium: STATUS.warning, low: '#898781' }
@@ -108,7 +108,7 @@ function VillagesCard({ taluka }) {
             {mapped.map((v) => (
               <CircleMarker key={v.village_id} center={[v.location.lat, v.location.lng]} radius={9}
                 pathOptions={{ color: '#fcfcfb', weight: 2, fillColor: VILLAGE_STATUS_COLOR[v.status], fillOpacity: 1 }}>
-                <MapTooltip>{v.name} — {humanize(v.status)}</MapTooltip>
+                <MapTooltip>{localName(v)} — {humanize(v.status)}</MapTooltip>
               </CircleMarker>
             ))}
           </MapContainer>
@@ -122,7 +122,7 @@ function VillagesCard({ taluka }) {
         <Table
           rowKey={(r) => r.village_id}
           columns={[
-            { key: 'name', label: t('Village'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/villages/${r.village_id}`}>{r.name}</Link> },
+            { key: 'name', label: t('Village'), render: (r) => <Link className="text-brand-700 hover:underline" to={`/villages/${r.village_id}`}>{localName(r)}</Link> },
             { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
             { key: 'days_since', label: t('Last activity'), render: (r) => (r.days_since === null ? t('Never') : t('{n}d ago', { n: r.days_since })) },
             { key: 'home_visits_this_month', label: t('Visits (month)'), className: 'tabular text-right' },
@@ -268,10 +268,10 @@ function Drilldown() {
   const next = (row) => {
     const idx = LEVELS.indexOf(current.level)
     if (idx < 0 || idx >= LEVELS.length - 1) return
-    setTrail([...trail, { level: LEVELS[idx + 1], parent: row.id, label: row.name || row.girl_code }])
+    setTrail([...trail, { level: LEVELS[idx + 1], parent: row.id, label: localName(row) || row.girl_code }])
   }
   const metricCols = data?.rows?.[0]
-    ? Object.keys(data.rows[0]).filter((k) => !['id', 'name', 'name_mr', 'next_level', 'village_id', 'responsible_volunteer_id', 'girl_code', 'last_participation_at'].includes(k))
+    ? Object.keys(data.rows[0]).filter((k) => !['id', 'name', 'name_mr', 'name_en', 'next_level', 'village_id', 'responsible_volunteer_id', 'girl_code', 'last_participation_at'].includes(k))
     : []
   return (
     <Card title={t('Drill-down: district → taluka → village → group → girl')}>
@@ -292,8 +292,8 @@ function Drilldown() {
             onRowClick={current.level === 'girl' ? undefined : next}
             columns={[
               { key: 'name', label: humanize(current.level), render: (r) => current.level === 'girl'
-                ? <Link to={`/girls/${r.id}`} className="text-brand-700 hover:underline">{r.girl_code} {r.name && `· ${r.name}`}</Link>
-                : <span className="text-brand-700">{r.name}{r.name_mr && <span className="text-gray-500"> · {r.name_mr}</span>}</span> },
+                ? <Link to={`/girls/${r.id}`} className="text-brand-700 hover:underline">{r.girl_code} {r.name && `· ${localName(r)}`}</Link>
+                : <span className="text-brand-700">{localName(r)}</span> },
               ...metricCols.map((k) => ({ key: k, label: humanize(k), render: (r) => (typeof r[k] === 'string' && r[k].includes('_') ? <StatusBadge value={r[k]} /> : fmtNum(r[k])) })),
             ]}
             rows={data.rows}

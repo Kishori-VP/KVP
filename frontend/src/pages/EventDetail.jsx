@@ -5,7 +5,7 @@ import { Badge, Button, Card, Checkbox, DefinitionList, ErrorBox, Field, Input, 
 import api, { download, errorMessage } from '../lib/api'
 import { fmtDateTime, humanize } from '../lib/format'
 import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
-import { locale, t } from '../lib/i18n'
+import { locale, localName, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
 function Checklist({ ev, which, onSaved }) {
@@ -59,14 +59,14 @@ function Attendance({ ev, onSaved }) {
         ))}
       </div>
       {ev.groups?.length > 0 && (
-        <div className="mb-2 max-w-xs"><Select options={ev.groups.map((g) => ({ value: g.id, label: g.name }))} placeholder={t('All girls in village')} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} /></div>
+        <div className="mb-2 max-w-xs"><Select options={ev.groups.map((g) => ({ value: g.id, label: localName(g) }))} placeholder={t('All girls in village')} value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)} /></div>
       )}
       {!data ? <Spinner /> : (
         <div className="max-h-96 overflow-y-auto">
           <Table columns={[
             { key: 'present', label: t('Present'), render: (g) => <input type="checkbox" className="h-4 w-4" checked={Boolean(present[g.id])} onChange={(e) => setPresent({ ...present, [g.id]: e.target.checked })} /> },
             { key: 'girl_code', label: t('Girl ID') },
-            { key: 'name', label: t('Name'), render: (g) => g.name || '—' },
+            { key: 'name', label: t('Name'), render: (g) => localName(g) || '—' },
             { key: 'current_age', label: t('Age') },
           ]} rows={girls} empty={t('No girls registered in this village.')} />
         </div>
@@ -213,7 +213,7 @@ export default function EventDetail() {
       <Link to="/events" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Events')}</Link>
       <PageHeader
         title={ev.title}
-        subtitle={`${lookupLabel(types, ev.event_type)} · ${ev.village?.name} · ${fmtDateTime(ev.start_at)}`}
+        subtitle={`${lookupLabel(types, ev.event_type)} · ${localName(ev.village)} · ${fmtDateTime(ev.start_at)}`}
         actions={<>
           {!isVolunteer && <>
             <Button variant="secondary" size="sm" icon={Download} onClick={() => download(`/events/${id}/export`, { format: 'pdf' })}>PDF</Button>

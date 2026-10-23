@@ -10,7 +10,7 @@ services:
     plan: starter
     region: singapore
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: python -m app  # binds 0.0.0.0:$PORT (see app/__main__.py)
     healthCheckPath: /
     disk:
       name: kvp-storage

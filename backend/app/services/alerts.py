@@ -15,6 +15,11 @@ from app.utils.dates import day_range, to_date, to_dt, today_local, utcnow
 from app.utils.mongo import serialize
 
 
+def _villages_label(u: dict, names: dict) -> str | None:
+    ids = u.get("village_ids") or ([u["village_id"]] if u.get("village_id") else [])
+    return ", ".join(n for n in (names.get(i) for i in ids) if n) or None
+
+
 async def compute_alerts(db: AsyncDatabase, village_ids: list | None = None) -> dict:
     today = today_local()
     now = utcnow()
@@ -29,7 +34,9 @@ async def compute_alerts(db: AsyncDatabase, village_ids: list | None = None) -> 
         check_until = today - timedelta(days=rules["grace_days"])
         days = activity.working_days(check_until - timedelta(days=6), check_until, rules["working_days"])
         s, e = day_range(check_until - timedelta(days=6), check_until)
-        vq = {"role": Role.VOLUNTEER.value, "is_active": True, "village_id": {"$ne": None}, **vscope}
+        vq = {"role": Role.VOLUNTEER.value, "is_active": True, "village_id": {"$ne": None}}
+        if village_ids is not None:
+            vq["village_ids"] = {"$in": village_ids}
         async for v in db[c.USERS].find(vq):
             first = await db[c.VOLUNTEER_ASSIGNMENTS].find_one({"volunteer_id": v["_id"]}, sort=[("start_date", 1)])
             active_from = to_date(first["start_date"]) if first else to_date(v["created_at"])
@@ -39,7 +46,7 @@ async def compute_alerts(db: AsyncDatabase, village_ids: list | None = None) -> 
             missing = [d for d in due if d not in got]
             if missing:
                 overdue_reports.append({"type": "missing_daily_reports", "volunteer_id": v["_id"], "volunteer": v["name"],
-                                        "village": villages.get(v.get("village_id")), "missing_dates": missing,
+                                        "village": _villages_label(v, villages), "missing_dates": missing,
                                         "count": len(missing)})
     async for ev in db[c.EVENTS].find({"status": "scheduled", "end_at": {"$lt": now}, **vscope}, {"attendance": 0}):
         overdue_reports.append({"type": "event_report_overdue", "event_id": ev["_id"], "title": ev["title"],
@@ -73,12 +80,14 @@ async def compute_alerts(db: AsyncDatabase, village_ids: list | None = None) -> 
     inactive.sort(key=lambda x: -(x["days_since"] if x["days_since"] is not None else 10_000))
 
     # --- missed / at-risk targets
-    recent = await db[c.TARGETS].find({"status": "active", **vscope,
+    tscope = {"$or": [{"village_id": {"$in": village_ids}}, {"village_ids": {"$in": village_ids}}]} if village_ids is not None else {}
+    recent = await db[c.TARGETS].find({"status": "active", **tscope,
                                        "period_end": {"$gte": to_dt(today - timedelta(days=30))},
                                        "period_start": {"$lte": to_dt(today)}}).to_list()
     enriched = await with_progress(db, recent)
     missed = [{"target_id": t["_id"], "title": t["title"], "volunteer": users.get(t["volunteer_id"]),
-               "village": villages.get(t["village_id"]), "target_value": t["target_value"], **t["progress"]}
+               "village": villages.get(t["village_id"]) or _villages_label(t, villages), "target_value": t["target_value"],
+               **t["progress"]}
               for t in enriched if t["progress"]["status"] in ("missed", "at_risk")]
     missed.sort(key=lambda x: (x["status"] != "missed", x["progress_pct"]))
 

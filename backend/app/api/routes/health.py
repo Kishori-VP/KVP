@@ -5,7 +5,7 @@ from app.db.mongodb import get_database
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health")
+@router.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     try:
         await get_database().command("ping")

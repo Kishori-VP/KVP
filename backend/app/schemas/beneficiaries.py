@@ -157,6 +157,8 @@ class RiskIndicators(BaseModel):
 
 class HomeVisitCreate(BaseModel):
     volunteer_id: ObjectIdStr
+    village_id: ObjectIdStr | None = Field(
+        None, description="The village this record is for; required when the volunteer works in several villages")
     visit_date: date
     girl_ids: list[ObjectIdStr] = Field(default_factory=list)
     purpose: Literal["routine", "follow_up", "case_follow_up", "enrolment", "other"] = "routine"
@@ -187,6 +189,8 @@ class ActivityReportCreate(BaseModel):
     """Daily activity report (digital version of the existing Google Form)."""
 
     volunteer_id: ObjectIdStr
+    village_id: ObjectIdStr | None = Field(
+        None, description="The village this record is for; required when the volunteer works in several villages")
     report_date: date
     activities: list[str] = Field(description="activity_type lookup codes done that day")
     group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Groups met")

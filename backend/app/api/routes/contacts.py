@@ -4,7 +4,7 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, require_permission, village_scope
+from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, require_permission, village_scope, narrow_to_village
 from app.db import collections as c
 from app.schemas.master import ContactCreate, ContactUpdate
 from app.services import audit
@@ -79,8 +79,7 @@ async def list_contacts(
     include_inactive: bool = False,
 ):
     query: dict = village_scope(user)
-    if village_id and "village_id" not in query:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if category:

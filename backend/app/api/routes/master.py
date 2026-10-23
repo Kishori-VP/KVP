@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, village_scope
+from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.master import (
@@ -19,9 +19,11 @@ from app.schemas.master import (
     VillageUpdate,
 )
 from app.services import audit
+from app.services.counters import next_code
 from app.services.lookups import MANDATORY_CONTACT_CATEGORIES
 from app.utils.dates import utcnow
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, paginate, serialize
+from app.utils.translit import to_latin
 
 router = APIRouter(tags=["master data"])
 
@@ -50,7 +52,7 @@ async def _update(db, coll: str, id_: str, label: str, updates: dict, actor: dic
 @router.post("/talukas", status_code=status.HTTP_201_CREATED)
 async def create_taluka(body: TalukaCreate, db: Db, actor: Stakeholder):
     now = utcnow()
-    doc = {**body.model_dump(), "created_at": now, "updated_at": now}
+    doc = {**body.model_dump(), "code": await next_code(db, c.TALUKAS, {}), "created_at": now, "updated_at": now}
     try:
         res = await db[c.TALUKAS].insert_one(doc)
     except DuplicateKeyError:
@@ -105,6 +107,8 @@ async def create_village(body: VillageCreate, db: Db, actor: Stakeholder):
         "taluka_id": taluka["_id"],
         "district": taluka["district"],
         "location": body.location.model_dump() if body.location else None,
+        # Village number within its taluka, used in Girl IDs (KVP-<taluka>-<village>-<girl>).
+        "code": await next_code(db, c.VILLAGES, {"taluka_id": taluka["_id"]}),
         "created_at": now,
         "updated_at": now,
     }
@@ -180,7 +184,7 @@ async def bulk_update_locations(body: VillageLocationsUpdate, db: Db, actor: Sta
 
 @router.get("/villages/{village_id}")
 async def get_village(village_id: str, db: Db, user: CurrentUser):
-    if user["role"] == Role.VOLUNTEER and str(user.get("village_id")) != village_id:
+    if user["role"] == Role.VOLUNTEER and oid(village_id) not in user_village_ids(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your assigned village")
     village = await get_or_404(db[c.VILLAGES], village_id, "Village")
     vid = village["_id"]
@@ -237,6 +241,7 @@ async def create_group(body: GroupCreate, db: Db, actor: Stakeholder):
     now = utcnow()
     doc = {
         **body.model_dump(exclude={"village_id", "responsible_volunteer_id", "meeting_schedule"}),
+        "name_en": to_latin(body.name),
         "village_id": village["_id"],
         "taluka_id": village["taluka_id"],
         "responsible_volunteer_id": vol_id,
@@ -260,7 +265,7 @@ async def _check_responsible(db, volunteer_id, village_id):
     vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Volunteer not found")
-    if vol.get("village_id") != village_id:
+    if village_id not in user_village_ids(vol):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible volunteer must be assigned to this village")
     return vol["_id"]
 
@@ -277,8 +282,7 @@ async def list_groups(
     include_inactive: bool = False,
 ):
     query: dict = village_scope(user)
-    if village_id and "village_id" not in query:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if group_type:
@@ -313,4 +317,6 @@ async def update_group(group_id: str, body: GroupUpdate, db: Db, actor: Stakehol
             await db[c.USERS].update_one({"_id": new_vol}, {"$addToSet": {"group_ids": group["_id"]}})
     if updates.get("meeting_schedule") is not None:
         updates["meeting_schedule"] = body.meeting_schedule.model_dump()
+    if updates.get("name"):
+        updates["name_en"] = to_latin(updates["name"])
     return await _update(db, c.GROUPS, group_id, "Group", updates, actor, "group")

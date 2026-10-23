@@ -6,7 +6,7 @@ import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Progres
 import api from '../lib/api'
 import { fmtDate } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 function AddVolunteer({ onClose, onSaved }) {
   const [f, setF] = useState({ group_ids: [] })
@@ -55,7 +55,7 @@ function Roster() {
         { key: 'name', label: t('Volunteer'), className: 'font-medium' },
         { key: 'phone', label: t('Mobile') },
         { key: 'village_name', label: t('Village'), render: (r) => r.village_name || <Badge tone="yellow">{t('Not assigned')}</Badge> },
-        { key: 'groups', label: t('Groups'), render: (r) => r.groups.map((g) => g.name).join(', ') || '—' },
+        { key: 'groups', label: t('Groups'), render: (r) => r.groups.map(localName).join(', ') || '—' },
         { key: 'home_visits_this_month', label: t('Visits (month)'), className: 'tabular text-right' },
         { key: 'open_cases', label: t('Open cases'), className: 'tabular text-right' },
         { key: 'last_report_date', label: t('Last daily report'), render: (r) => fmtDate(r.last_report_date) },

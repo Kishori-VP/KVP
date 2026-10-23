@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, village_scope
+from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import ActivityReportCreate, ApprovalDecision, HomeVisitCreate, HomeVisitUpdate
@@ -34,6 +34,21 @@ async def _volunteer(db, volunteer_id, user: dict) -> dict:
     if user["role"] == Role.VOLUNTEER and vol["_id"] != user["_id"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteers can only record their own activity")
     return vol
+
+
+async def _record_village(db, vol: dict, village_id) -> dict:
+    """The village a new record belongs to: the one chosen, or her only village."""
+    vids = user_village_ids(vol)
+    if village_id:
+        if oid(village_id) not in vids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The volunteer is not assigned to this village")
+        chosen = oid(village_id)
+    elif len(vids) == 1:
+        chosen = vids[0]
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            "The volunteer works in several villages: choose the village (village_id)")
+    return await db[c.VILLAGES].find_one({"_id": chosen}, {"taluka_id": 1, "name": 1})
 
 
 async def _girls_in_village(db, girl_ids: list, village_id) -> list:
@@ -64,17 +79,18 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
             return serialize(existing)
     vol = await _volunteer(db, body.volunteer_id, user)
     _check_date_rules(body.visit_date, body.status)
-    girl_ids = await _girls_in_village(db, body.girl_ids, vol["village_id"])
-    data = body.model_dump(exclude={"volunteer_id", "girl_ids", "visit_date"})
-    await validate_entity(db, "home_visit", {**data, "volunteer_id": vol["_id"], "village_id": vol["village_id"],
+    village = await _record_village(db, vol, body.village_id)
+    girl_ids = await _girls_in_village(db, body.girl_ids, village["_id"])
+    data = body.model_dump(exclude={"volunteer_id", "village_id", "girl_ids", "visit_date"})
+    await validate_entity(db, "home_visit", {**data, "volunteer_id": vol["_id"], "village_id": village["_id"],
                                              "visit_date": body.visit_date})
     now = utcnow()
     is_historical = body.is_historical or body.visit_date < today_local()
     doc = {
         **data,
         "volunteer_id": vol["_id"],
-        "village_id": vol["village_id"],
-        "taluka_id": vol.get("taluka_id"),
+        "village_id": village["_id"],
+        "taluka_id": village["taluka_id"],
         "girl_ids": girl_ids,
         "visit_date": to_dt(body.visit_date),
         "is_historical": is_historical,
@@ -121,8 +137,7 @@ async def list_home_visits(
     query: dict = village_scope(user)
     if volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
-    if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if girl_id:
         query["girl_ids"] = oid(girl_id)
     if status_:
@@ -212,17 +227,18 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Report date cannot be in the future")
     for code in body.activities:
         await ensure_code(db, "activity_type", code, "activity")
+    village = await _record_village(db, vol, body.village_id)
     group_ids = oids(body.group_ids)
-    if group_ids and await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, "village_id": vol["village_id"]}) != len(set(group_ids)):
+    if group_ids and await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, "village_id": village["_id"]}) != len(set(group_ids)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Groups must belong to the volunteer's village")
-    girl_ids = await _girls_in_village(db, body.home_visit_girl_ids, vol["village_id"])
+    girl_ids = await _girls_in_village(db, body.home_visit_girl_ids, village["_id"])
     now = utcnow()
     is_historical = body.is_historical or body.report_date < today_local()
     doc = {
-        **body.model_dump(exclude={"volunteer_id", "group_ids", "home_visit_girl_ids", "report_date"}),
+        **body.model_dump(exclude={"volunteer_id", "village_id", "group_ids", "home_visit_girl_ids", "report_date"}),
         "volunteer_id": vol["_id"],
-        "village_id": vol["village_id"],
-        "taluka_id": vol.get("taluka_id"),
+        "village_id": village["_id"],
+        "taluka_id": village["taluka_id"],
         "report_date": to_dt(body.report_date),
         "group_ids": group_ids,
         "home_visit_girl_ids": girl_ids,
@@ -262,8 +278,7 @@ async def list_activity_reports(
     query: dict = village_scope(user)
     if volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
-    if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if approval:
         query["approval.status"] = approval
     if start_date or end_date:

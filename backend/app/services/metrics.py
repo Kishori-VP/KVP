@@ -20,12 +20,17 @@ from app.utils.dates import day_range
 NOT_REJECTED = {"approval.status": {"$ne": "rejected"}}
 
 
-def _scope(volunteer_id: ObjectId | None, village_id: ObjectId | None, vol_field: str = "volunteer_id") -> dict:
+def _village_filter(village_id):
+    """A single village id, or a list of villages (a volunteer's villages)."""
+    return {"$in": list(village_id)} if isinstance(village_id, (list, tuple, set)) else village_id
+
+
+def _scope(volunteer_id: ObjectId | None, village_id, vol_field: str = "volunteer_id") -> dict:
     q: dict = {}
     if volunteer_id:
         q[vol_field] = volunteer_id
     if village_id:
-        q["village_id"] = village_id
+        q["village_id"] = _village_filter(village_id)
     return q
 
 
@@ -89,7 +94,7 @@ async def follow_ups(db, volunteer_id, village_id, start, end) -> int:
         "visit_date": {"$gte": s, "$lt": e}, **NOT_REJECTED})
     match: dict = {"timeline.type": "follow_up"}
     if village_id:
-        match["village_id"] = village_id
+        match["village_id"] = _village_filter(village_id)
     elem: dict = {"type": "follow_up", "at": {"$gte": s, "$lt": e}}
     if volunteer_id:
         elem["by"] = volunteer_id

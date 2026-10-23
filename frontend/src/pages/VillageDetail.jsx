@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { Badge, Card, DefinitionList, ErrorBox, PageHeader, Spinner, Table } from '../components/ui'
 import { humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 export default function VillageDetail() {
   const { id } = useParams()
@@ -13,7 +13,7 @@ export default function VillageDetail() {
   return (
     <div className="space-y-4">
       <Link to="/villages" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Villages')}</Link>
-      <PageHeader title={`${v.name}${v.name_mr ? ` · ${v.name_mr}` : ''}`} subtitle={`${v.taluka?.name} ${t('taluka')} · ${v.district} ${t('district')}`} />
+      <PageHeader title={localName(v)} subtitle={`${v.taluka?.name} ${t('taluka')} · ${v.district} ${t('district')}`} />
       {v.missing_mandatory_contacts.length > 0 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {t('Missing key contacts')}: {v.missing_mandatory_contacts.map(humanize).join(', ')} — {t('add them under')} <Link className="underline" to="/contacts">{t('Contacts')}</Link>.

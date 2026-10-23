@@ -36,10 +36,19 @@ export function t(text, vars) {
   return out
 }
 
-/** Show an English/Marathi name pair with the current language first. */
-export function bilingual(en, mr, sep = ' · ') {
-  if (!mr) return en
-  return current === 'mr' ? `${mr}${sep}${en}` : `${en}${sep}${mr}`
+/** The name in the current language only: Marathi after switching to मराठी, otherwise English. */
+export function bilingual(en, mr) {
+  return current === 'mr' ? mr || en : en || mr
+}
+
+/**
+ * Name of a record (girl, group, village…) in the current language.
+ * Girls and groups are entered in Marathi (`name`) and get an English spelling (`name_en`);
+ * villages and talukas have an English `name` and a Marathi `name_mr`.
+ */
+export function localName(obj) {
+  if (!obj) return ''
+  return current === 'mr' ? obj.name_mr || obj.name || obj.name_en || '' : obj.name_en || obj.name || obj.name_mr || ''
 }
 
 /** Locale for Intl formatting (Latin digits are kept for readability of figures). */

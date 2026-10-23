@@ -8,7 +8,7 @@ import { fmtDate, fmtDateTime, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups } from '../lib/hooks'
 import { GirlForm } from './Girls'
 import { AADHAAR_SIDES, uploadAadhaar } from '../lib/aadhaar'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
 export function CaseCreateModal({ open, onClose, girl, onCreated }) {
@@ -194,7 +194,7 @@ function MergeModal({ open, onClose, girl, onMerged }) {
           {candidates.map((c) => (
             <label key={c.girl.id} className="flex items-center gap-2 text-sm">
               <input type="radio" name="dup" checked={dupId === c.girl.id} onChange={() => setDupId(c.girl.id)} />
-              {c.girl.girl_code} · {c.girl.name} <span className="text-gray-500">({t('{n}% match', { n: Math.round(c.score * 100) })})</span>
+              {c.girl.girl_code} · {localName(c.girl)} <span className="text-gray-500">({t('{n}% match', { n: Math.round(c.score * 100) })})</span>
             </label>
           ))}
         </div>
@@ -238,8 +238,8 @@ export default function GirlDetail() {
     <div className="space-y-4">
       <Link to="/girls" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Girls')}</Link>
       <PageHeader
-        title={<span>{g.girl_code} {g.name && <span className="text-gray-600">· {g.name}</span>}</span>}
-        subtitle={<>{g.village?.name}{g.village?.name_mr && ` (${g.village.name_mr})`}{g.group && ` · ${g.group.name}`}</>}
+        title={<span>{g.girl_code} {g.name && <span className="text-gray-600">· {localName(g)}</span>}</span>}
+        subtitle={<>{localName(g.village)}{g.group && ` · ${localName(g.group)}`}</>}
         actions={<>
           <Button variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>{t('Edit')}</Button>
           <Button variant="secondary" icon={Plus} onClick={() => setNewCase(true)}>{t('New case')}</Button>

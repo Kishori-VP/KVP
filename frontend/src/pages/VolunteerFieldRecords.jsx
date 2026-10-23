@@ -5,17 +5,17 @@ import { Button, Card, Checkbox, Empty, ErrorBox, Field, Input, Modal, PageHeade
 import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 function GirlMultiPicker({ villageId, value, onChange }) {
   const [search, setSearch] = useState('')
   const { data, loading, error } = useFetch(villageId ? '/girls' : null, { page: 1, page_size: 500, sort: 'name' })
-  const girls = (data?.items || []).filter((girl) => !villageId || girl.village_id === villageId).filter((girl) => `${girl.name || ''} ${girl.girl_code || ''}`.toLowerCase().includes(search.toLowerCase()))
+  const girls = (data?.items || []).filter((girl) => !villageId || girl.village_id === villageId).filter((girl) => `${girl.name || ''} ${girl.name_en || ''} ${girl.girl_code || ''}`.toLowerCase().includes(search.toLowerCase()))
   const toggle = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
   return <div className="space-y-2">
     <Input placeholder={t('Search girls')} value={search} onChange={(e) => setSearch(e.target.value)} />
     <ErrorBox message={error} />
-    {loading ? <Spinner /> : girls.length ? <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">{girls.map((girl) => <label key={girl.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50"><input type="checkbox" checked={value.includes(girl.id)} onChange={() => toggle(girl.id)} /><span className="font-medium">{girl.girl_code}</span><span>{girl.name || t('Name not recorded')}</span></label>)}</div> : <Empty>{t('No girls registered in your village yet.')}</Empty>}
+    {loading ? <Spinner /> : girls.length ? <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">{girls.map((girl) => <label key={girl.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50"><input type="checkbox" checked={value.includes(girl.id)} onChange={() => toggle(girl.id)} /><span className="font-medium">{girl.girl_code}</span><span>{localName(girl) || t('Name not recorded')}</span></label>)}</div> : <Empty>{t('No girls registered in your village yet.')}</Empty>}
   </div>
 }
 
@@ -123,7 +123,7 @@ function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
     <ErrorBox message={error} />
     <Field label={t('Report date *')}><Input type="date" max={todayISO()} value={form.report_date} onChange={(e) => setForm({ ...form, report_date: e.target.value })} /></Field>
     <Field label={t('Activities completed *')}><div className="flex flex-wrap gap-3">{activityTypes.map((item) => <Checkbox key={item.code} label={item.label_mr || item.label} checked={form.activities.includes(item.code)} onChange={() => toggle('activities', item.code)} />)}</div></Field>
-    <Field label={t('Groups met')}><div className="flex flex-wrap gap-3">{(groups?.items || []).map((group) => <Checkbox key={group.id} label={group.name} checked={form.group_ids.includes(group.id)} onChange={() => toggle('group_ids', group.id)} />)}</div></Field>
+    <Field label={t('Groups met')}><div className="flex flex-wrap gap-3">{(groups?.items || []).map((group) => <Checkbox key={group.id} label={localName(group)} checked={form.group_ids.includes(group.id)} onChange={() => toggle('group_ids', group.id)} />)}</div></Field>
     <div className="grid gap-3 sm:grid-cols-2"><Field label={t('Girls present')}><Input type="number" min={0} value={form.girls_present} onChange={(e) => setForm({ ...form, girls_present: e.target.value })} /></Field><Field label={t('Home visits completed')}><Input type="number" min={0} value={form.home_visits_count} onChange={(e) => setForm({ ...form, home_visits_count: e.target.value })} /></Field></div>
     <Field label={t('Girls visited at home')}><GirlMultiPicker villageId={user?.village_id} value={form.home_visit_girl_ids} onChange={(ids) => setForm({ ...form, home_visit_girl_ids: ids })} /></Field>
     <VoiceTextarea label={t('Topics discussed')} value={form.topics_discussed} onChange={(value) => setForm({ ...form, topics_discussed: value })} />

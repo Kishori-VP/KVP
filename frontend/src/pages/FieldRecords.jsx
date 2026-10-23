@@ -5,7 +5,7 @@ import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagi
 import api from '../lib/api'
 import { fmtDate, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups, useVolunteers } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 
 const RISKS = ['child_marriage_risk', 'school_dropout_risk', 'health_concern', 'anaemia_concern', 'gender_discrimination']
 
@@ -13,13 +13,13 @@ function GirlPicker({ villageId, value, onChange }) {
   const { data } = useFetch(villageId ? '/girls' : null, { village_id: villageId, page_size: 500, sort: 'name' })
   const [q, setQ] = useState('')
   if (!villageId) return <p className="text-xs text-gray-500">{t('Pick a volunteer first.')}</p>
-  const girls = (data?.items || []).filter((g) => !q || `${g.girl_code} ${g.name || ''}`.toLowerCase().includes(q.toLowerCase()))
+  const girls = (data?.items || []).filter((g) => !q || `${g.girl_code} ${g.name || ''} ${g.name_en || ''}`.toLowerCase().includes(q.toLowerCase()))
   return (
     <div>
       <Input placeholder={t('Filter by name or Girl ID')} value={q} onChange={(e) => setQ(e.target.value)} />
       <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">
         {girls.slice(0, 200).map((g) => (
-          <Checkbox key={g.id} label={`${g.girl_code} · ${g.name || t('no name')}`} checked={value.includes(g.id)}
+          <Checkbox key={g.id} label={`${g.girl_code} · ${localName(g) || t('no name')}`} checked={value.includes(g.id)}
             onChange={(e) => onChange(e.target.checked ? [...value, g.id] : value.filter((x) => x !== g.id))} />
         ))}
       </div>
@@ -83,7 +83,7 @@ function ActivityReportModal({ open, onClose, onSaved }) {
         <div className="flex flex-wrap gap-3">{acts.map((a) => <Checkbox key={a.code} label={a.label_mr || a.label} checked={f.activities.includes(a.code)} onChange={() => toggle('activities', a.code)} />)}</div>
       </Field>
       <Field label={t('Groups met')} group>
-        <div className="flex flex-wrap gap-3">{(groups?.items || []).map((g) => <Checkbox key={g.id} label={g.name} checked={f.group_ids.includes(g.id)} onChange={() => toggle('group_ids', g.id)} />)}</div>
+        <div className="flex flex-wrap gap-3">{(groups?.items || []).map((g) => <Checkbox key={g.id} label={localName(g)} checked={f.group_ids.includes(g.id)} onChange={() => toggle('group_ids', g.id)} />)}</div>
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Girls present (किती मुली हजर होत्या?)')}><Input type="number" min={0} value={f.girls_present} onChange={(e) => setF({ ...f, girls_present: e.target.value })} /></Field>

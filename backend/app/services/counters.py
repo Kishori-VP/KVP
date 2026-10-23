@@ -2,7 +2,6 @@ from pymongo import ReturnDocument
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.db import collections as c
-from app.services.app_settings import get_setting
 
 
 async def next_sequence(db: AsyncDatabase, name: str) -> int:
@@ -16,11 +15,35 @@ async def ensure_sequence_at_least(db: AsyncDatabase, name: str, value: int) -> 
     await db[c.COUNTERS].update_one({"_id": name}, {"$max": {"seq": value}}, upsert=True)
 
 
-async def next_girl_code(db: AsyncDatabase) -> tuple[str, int]:
-    cfg = await get_setting(db, "girl_id")
-    prefix, pad = cfg["prefix"], int(cfg.get("pad") or 0)
-    seq = await next_sequence(db, f"girl:{prefix}")
-    return f"{prefix}{str(seq).zfill(pad)}", seq
+GIRL_CODE_PREFIX = "KVP"
+
+
+def girl_code(taluka_code: int, village_code: int, seq: int) -> str:
+    """KVP-<taluka no.>-<village no.>-<girl no. within the village>, e.g. KVP-01-03-045."""
+    return f"{GIRL_CODE_PREFIX}-{taluka_code:02d}-{village_code:02d}-{seq:03d}"
+
+
+def village_counter(village_id) -> str:
+    return f"girl:village:{village_id}"
+
+
+async def next_code(db: AsyncDatabase, coll: str, query: dict) -> int:
+    """Next free number for a taluka (within all talukas) or a village (within its taluka)."""
+    last = await db[coll].find_one({**query, "code": {"$type": "int"}}, sort=[("code", -1)])
+    return (last["code"] if last else 0) + 1
+
+
+async def next_girl_code(db: AsyncDatabase, village: dict) -> tuple[str, int]:
+    """The next Girl ID in this village. Talukas and villages get a number the first time it is needed."""
+    taluka = await db[c.TALUKAS].find_one({"_id": village["taluka_id"]})
+    if taluka.get("code") is None:
+        taluka["code"] = await next_code(db, c.TALUKAS, {})
+        await db[c.TALUKAS].update_one({"_id": taluka["_id"]}, {"$set": {"code": taluka["code"]}})
+    if village.get("code") is None:
+        village["code"] = await next_code(db, c.VILLAGES, {"taluka_id": village["taluka_id"]})
+        await db[c.VILLAGES].update_one({"_id": village["_id"]}, {"$set": {"code": village["code"]}})
+    seq = await next_sequence(db, village_counter(village["_id"]))
+    return girl_code(taluka["code"], village["code"], seq), seq
 
 
 async def next_case_code(db: AsyncDatabase) -> str:

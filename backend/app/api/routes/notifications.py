@@ -71,7 +71,7 @@ async def announce(body: Announcement, db: Db, actor: Stakeholder):
     elif body.audience == "village":
         if not body.village_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "village_id is required for audience 'village'")
-        query["village_id"] = oid(body.village_id)
+        query["village_ids"] = oid(body.village_id)
     sent = 0
     async for u in db[c.USERS].find(query, {"_id": 1}):
         if await notifications.notify(db, u["_id"], "announcement", body.title, body.message, severity=body.severity):

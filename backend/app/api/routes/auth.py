@@ -259,6 +259,10 @@ async def me(
             {"name": 1, "name_mr": 1},
         )
         output["village"] = serialize(village)
+        ids = user.get("village_ids") or [user["village_id"]]
+        output["villages"] = serialize(
+            await db[c.VILLAGES].find({"_id": {"$in": ids}}, {"name": 1, "name_mr": 1}).sort("name", 1).to_list()
+        )
 
     return output
 

@@ -61,18 +61,42 @@ def require_permission(resource: str, action: str):
         matrix = full_matrix(perms.get("volunteer", {}))
         if action not in matrix[Role.VOLUNTEER].get(resource, []):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not permitted: {action} {resource}")
-        if not user.get("village_id"):
+        if not user_village_ids(user):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteer has no assigned village")
         return user
 
     return checker
 
 
+def user_village_ids(user: dict) -> list:
+    """Current villages of a volunteer. A volunteer can work in several villages."""
+    ids = user.get("village_ids")
+    if ids is None:  # records written before multi-village support
+        ids = [user["village_id"]] if user.get("village_id") else []
+    return list(ids)
+
+
 def village_scope(user: dict, field: str = "village_id") -> dict:
-    """Mongo filter restricting Volunteers to their assigned village. Stakeholders: no filter."""
+    """Mongo filter restricting Volunteers to their assigned villages. Stakeholders: no filter."""
     if user["role"] == Role.STAKEHOLDER:
         return {}
-    return {field: user.get("village_id")}
+    return {field: {"$in": user_village_ids(user)}}
+
+
+def narrow_to_village(query: dict, user: dict, village_id, field: str = "village_id") -> None:
+    """Apply an optional ?village_id= filter. Volunteers can narrow to one of their own villages;
+    any other village is ignored, so they still only see their own villages."""
+    if not village_id:
+        return
+    vid = ObjectId(str(village_id))
+    if user["role"] == Role.STAKEHOLDER or vid in user_village_ids(user):
+        query[field] = vid
+
+
+def ensure_volunteer_village(user: dict, village_id) -> None:
+    """Volunteers may only write records for one of their own villages."""
+    if user["role"] == Role.VOLUNTEER and village_id not in user_village_ids(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This village is not one of your assigned villages")
 
 
 class PageParams(BaseModel):

@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import Db, Pagination, Stakeholder
+from app.core.deps import Db, Pagination, Stakeholder, user_village_ids
 from app.core.permissions import Role
 from app.core.security import hash_password
 from app.db import collections as c
@@ -31,6 +31,7 @@ async def create_user(body: UserCreate, db: Db, actor: Stakeholder):
         "password_hash": hash_password(body.password),
         "role": body.role.value,
         "village_id": None,
+        "village_ids": [],
         "taluka_id": None,
         "group_ids": [],
         "designation": body.designation,
@@ -41,20 +42,24 @@ async def create_user(body: UserCreate, db: Db, actor: Stakeholder):
         "updated_at": now,
         "last_login_at": None,
     }
-    if body.role == Role.VOLUNTEER and body.village_id:
+    if body.role == Role.VOLUNTEER and body.village_ids:
         # Validate before inserting so a bad village/group never leaves an orphan user.
-        village = await assignments.load_active_village(db, body.village_id)
-        await assignments.validate_groups(db, village["_id"], body.group_ids)
+        villages = [await assignments.load_active_village(db, vid) for vid in body.village_ids]
+        await assignments.validate_groups(db, [v["_id"] for v in villages], body.group_ids)
     try:
         res = await db[c.USERS].insert_one(doc)
     except DuplicateKeyError as exc:
         raise _duplicate_error(exc)
     doc["_id"] = res.inserted_id
 
-    if body.role == Role.VOLUNTEER and body.village_id:
-        await assignments.assign_village(
-            db, doc, body.village_id, body.group_ids, actor, "Initial assignment", body.assignment_start_date
-        )
+    if body.role == Role.VOLUNTEER and body.village_ids:
+        group_village = {g["_id"]: g["village_id"] async for g in db[c.GROUPS].find(
+            {"_id": {"$in": [oid(g) for g in body.group_ids]}}, {"village_id": 1})}
+        for vid in body.village_ids:
+            await assignments.assign_village(
+                db, doc, vid, [g for g in body.group_ids if group_village.get(oid(g)) == oid(vid)], actor,
+                "Initial assignment", body.assignment_start_date,
+            )
     await audit.log(db, actor, "create", "user", doc["_id"], f"Created {body.role.value} {doc['name']}")
     return serialize(await db[c.USERS].find_one({"_id": doc["_id"]}))
 
@@ -74,9 +79,10 @@ async def list_users(
     if role:
         query["role"] = role.value
     if village_id:
-        query["village_id"] = oid(village_id)
+        query["village_ids"] = oid(village_id)
     if taluka_id:
-        query["taluka_id"] = oid(taluka_id)
+        taluka_villages = await db[c.VILLAGES].distinct("_id", {"taluka_id": oid(taluka_id)})
+        query.setdefault("village_ids", {"$in": taluka_villages})
     if is_active is not None:
         query["is_active"] = is_active
     if q:
@@ -91,6 +97,7 @@ async def get_user(user_id: str, db: Db, _: Stakeholder):
     out = serialize(user)
     if user.get("village_id"):
         out["village"] = serialize(await db[c.VILLAGES].find_one({"_id": user["village_id"]}))
+        out["villages"] = serialize(await db[c.VILLAGES].find({"_id": {"$in": user_village_ids(user)}}).sort("name", 1).to_list())
         out["groups"] = serialize(await db[c.GROUPS].find({"_id": {"$in": user.get("group_ids", [])}}).to_list())
     out["assignment_history"] = serialize(
         await db[c.VOLUNTEER_ASSIGNMENTS].find({"volunteer_id": user["_id"]}).sort([("start_date", -1), ("created_at", -1)]).to_list()

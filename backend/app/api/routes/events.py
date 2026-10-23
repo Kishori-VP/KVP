@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
-from app.core.deps import Db, Pagination, Stakeholder, require_permission, village_scope
+from app.core.deps import Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import ApprovalDecision
@@ -57,7 +57,7 @@ async def _responsible(db, volunteer_id, village_id):
     vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value, "is_active": True})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Responsible volunteer not found or inactive")
-    if vol.get("village_id") != village_id:
+    if village_id not in user_village_ids(vol):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Responsible volunteer must be assigned to the event's village")
     return vol
 
@@ -157,8 +157,7 @@ async def list_events(
     query: dict = village_scope(user)
     if display:
         query.update(status_query(display))
-    if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if event_type:
@@ -189,8 +188,7 @@ async def calendar(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Calendar range is limited to one year")
     s, e = local_day_bounds(start_date, end_date)
     query: dict = {"start_at": {"$gte": s, "$lt": e}, **village_scope(user)}
-    if village_id and user["role"] == Role.STAKEHOLDER:
-        query["village_id"] = oid(village_id)
+    narrow_to_village(query, user, village_id)
     if event_type:
         query["event_type"] = event_type
     docs = await db[c.EVENTS].find(query, {"attendance": 0}).sort("start_at", 1).to_list()
@@ -268,13 +266,14 @@ async def get_event(event_id: str, db: Db, user: Annotated[dict, Depends(require
     ev = await _load(db, event_id, user)
     out = event_out(ev, full=True)
     girl_ids = [a["girl_id"] for a in ev.get("attendance", [])]
-    girls = {g["_id"]: g for g in await db[c.GIRLS].find({"_id": {"$in": girl_ids}}, {"girl_code": 1, "name": 1, "group_id": 1}).to_list()}
+    girls = {g["_id"]: g for g in await db[c.GIRLS].find({"_id": {"$in": girl_ids}}, {"girl_code": 1, "name": 1, "name_en": 1, "group_id": 1}).to_list()}
     for a in out["attendance"]:
         g = girls.get(oid(a["girl_id"]))
         a["girl_code"] = g["girl_code"] if g else None
         a["name"] = g.get("name") if g else None
+        a["name_en"] = g.get("name_en") if g else None
     out["village"] = serialize(await db[c.VILLAGES].find_one({"_id": ev["village_id"]}, {"name": 1, "name_mr": 1}))
-    out["groups"] = serialize(await db[c.GROUPS].find({"_id": {"$in": ev.get("group_ids", [])}}, {"name": 1}).to_list())
+    out["groups"] = serialize(await db[c.GROUPS].find({"_id": {"$in": ev.get("group_ids", [])}}, {"name": 1, "name_en": 1}).to_list())
     if ev.get("responsible_volunteer_id"):
         out["responsible_volunteer"] = serialize(
             await db[c.USERS].find_one({"_id": ev["responsible_volunteer_id"]}, {"name": 1, "phone": 1}))

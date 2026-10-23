@@ -984,6 +984,7 @@ export default {
   "Assigned girls": "नेमून दिलेल्या मुली",
   "Assigned until": "नेमणूक समाप्त",
   "Assigned village": "नेमून दिलेले गाव",
+  "Assigned villages": "नेमलेली गावे",
   "Assigned village map": "नेमून दिलेल्या गावाचा नकाशा",
   "Assignment history is retained when your village changes.": "गाव बदलल्यास नेमणुकीचा इतिहास जतन केला जातो.",
   "Attach photos": "फोटो जोडा",

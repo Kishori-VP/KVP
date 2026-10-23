@@ -37,10 +37,11 @@ class UserCreate(BaseModel):
     phone: str = Field(pattern=PHONE_PATTERN)
     password: str = Field(min_length=8)
     role: Role
-    village_id: ObjectIdStr | None = Field(
-        None, description="Optional for Volunteers: a volunteer has at most one village and can be assigned later"
+    village_id: ObjectIdStr | None = Field(None, description="Single village (kept for older clients; see village_ids)")
+    village_ids: list[ObjectIdStr] = Field(
+        default_factory=list, description="Volunteers: villages they work in (optional, can be assigned later)"
     )
-    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Kishori Groups in the assigned village")
+    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Kishori Groups in the assigned villages")
     assignment_start_date: date | None = None
     contact: ContactDetails = Field(default_factory=ContactDetails)
     designation: str | None = None
@@ -53,9 +54,12 @@ class UserCreate(BaseModel):
 
     @model_validator(mode="after")
     def check_village_rule(self):
-        if self.group_ids and not self.village_id:
+        if self.village_id and self.village_id not in self.village_ids:
+            self.village_ids = [self.village_id, *self.village_ids]
+        self.village_ids = list(dict.fromkeys(self.village_ids))
+        if self.group_ids and not self.village_ids:
             raise ValueError("Groups can only be assigned together with a village")
-        if self.role == Role.STAKEHOLDER and (self.village_id or self.group_ids):
+        if self.role == Role.STAKEHOLDER and (self.village_ids or self.group_ids):
             raise ValueError("Stakeholders are not mapped to a village")
         return self
 
@@ -89,14 +93,18 @@ class TargetHandling(BaseModel):
     action: str = Field(
         "move",
         pattern="^(move|close|transfer)$",
-        description="What happens to the volunteer's open targets: move to new village, close them, "
-        "or transfer them to another volunteer who stays in the old village",
+        description="What happens to the volunteer's open targets: keep them ('move' - targets cover all her "
+        "villages), close them, or transfer them to another volunteer who works in the old village",
     )
     transfer_to_volunteer_id: ObjectIdStr | None = None
 
 
 class ReassignRequest(BaseModel):
-    village_id: ObjectIdStr
+    """Move a volunteer from one of her villages to another village."""
+
+    village_id: ObjectIdStr = Field(description="The new village")
+    from_village_id: ObjectIdStr | None = Field(
+        None, description="The village she leaves; may be omitted when she has exactly one village")
     group_ids: list[ObjectIdStr] = Field(default_factory=list)
     effective_date: date | None = None
     reason: str = Field(min_length=3)
@@ -110,10 +118,15 @@ class ReassignRequest(BaseModel):
 
 
 class AssignRequest(BaseModel):
-    """First village assignment for a volunteer who has none."""
+    """Add a village to a volunteer (her other villages stay as they are)."""
 
     village_id: ObjectIdStr
     group_ids: list[ObjectIdStr] = Field(default_factory=list)
+    effective_date: date | None = None
+
+
+class RemoveVillageRequest(BaseModel):
+    reason: str = Field(min_length=3)
     effective_date: date | None = None
 
 

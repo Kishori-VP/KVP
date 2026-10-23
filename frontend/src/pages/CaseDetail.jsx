@@ -6,7 +6,7 @@ import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, Pag
 import api from '../lib/api'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { useAction, useFetch } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { localName, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
 const NEXT = {
@@ -54,7 +54,7 @@ export default function CaseDetail() {
       <Link to="/cases" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Cases')}</Link>
       <PageHeader
         title={<span>{c.case_code} · {c.title}</span>}
-        subtitle={<>{t('Girl')} <Link className="text-brand-700 hover:underline" to={`/girls/${c.girl_id}`}>{c.girl?.girl_code}{c.girl?.name && ` · ${c.girl.name}`}</Link></>}
+        subtitle={<>{t('Girl')} <Link className="text-brand-700 hover:underline" to={`/girls/${c.girl_id}`}>{c.girl?.girl_code}{c.girl?.name && ` · ${localName(c.girl)}`}</Link></>}
         actions={<>
           {NEXT[c.status].filter((s) => !isVolunteer || s !== 'closed').map((s) => <Button key={s} size="sm" variant={s === 'escalated' ? 'danger' : 'secondary'} onClick={() => setStatusModal(s)}>Mark {humanize(s).toLowerCase()}</Button>)}
           {!isVolunteer && <Button size="sm" onClick={() => setAssign({ assigned_to: c.assigned_to || '' })}>{t('Assign')}</Button>}

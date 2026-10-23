@@ -55,6 +55,6 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])  # HEAD for uptime / health probes
 async def root():
     return {"message": f"{settings.app_name} API", "docs": "/docs"}

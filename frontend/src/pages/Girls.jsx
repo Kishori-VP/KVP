@@ -8,7 +8,7 @@ import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
 import { useAuth } from '../lib/auth'
-import { locale, t } from '../lib/i18n'
+import { locale, localName, t } from '../lib/i18n'
 
 /** File picker with a thumbnail preview, used for each side of the Aadhaar card. */
 function AadhaarPicker({ label, file, onChange }) {
@@ -95,7 +95,7 @@ export function GirlForm({ initial, onSaved, onCancel }) {
             {dupes.map((d) => (
               <li key={d.girl.id} className="flex justify-between gap-2">
                 <a className="text-brand-700 hover:underline" href={`/girls/${d.girl.id}`} target="_blank" rel="noreferrer">
-                  {d.girl.girl_code} · {d.girl.name || t('no name')}
+                  {d.girl.girl_code} · {localName(d.girl) || t('no name')}
                 </a>
                 <span className="text-amber-800">{t('{n}% match', { n: Math.round(d.score * 100) })}</span>
               </li>
@@ -181,7 +181,7 @@ export default function Girls() {
               onRowClick={(r) => nav(`/girls/${r.id}`)}
               columns={[
                 { key: 'girl_code', label: t('Girl ID'), className: 'whitespace-nowrap font-medium' },
-                { key: 'name', label: t('Name'), render: (r) => r.name || <span className="text-gray-400">{t('Not recorded')}</span> },
+                { key: 'name', label: t('Name'), render: (r) => localName(r) || <span className="text-gray-400">{t('Not recorded')}</span> },
                 { key: 'current_age', label: t('Age') },
                 { key: 'school_status', label: t('School'), render: (r) => humanize(r.school_status) },
                 { key: 'case', label: t('Cases'), render: (r) => (r.case_summary?.open ? <Badge tone="orange">{t('{n} open', { n: r.case_summary.open })}</Badge> : '—') },

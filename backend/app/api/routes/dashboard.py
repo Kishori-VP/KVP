@@ -74,7 +74,7 @@ async def summary(
         "districts": len(await db[c.TALUKAS].distinct("district", {"_id": {"$in": talukas}})),
         "kishori_groups": await db[c.GROUPS].count_documents({"group_type": "kishori", "is_active": True, **_vmatch(vids)}),
         "bal_panchayat_groups": await db[c.GROUPS].count_documents({"group_type": "bal_panchayat", "is_active": True, **_vmatch(vids)}),
-        "active_volunteers": await db[c.USERS].count_documents({"role": Role.VOLUNTEER.value, "is_active": True, **_vmatch(vids)}),
+        "active_volunteers": await db[c.USERS].count_documents({"role": Role.VOLUNTEER.value, "is_active": True, **_vmatch(vids, "village_ids")}),
         "unassigned_volunteers": await db[c.USERS].count_documents(
             {"role": Role.VOLUNTEER.value, "is_active": True, "village_id": None}) if vids is None else 0,
         "events_conducted": await db[c.EVENTS].count_documents({"status": "completed", "start_at": {"$gte": ls, "$lt": le}, **_vmatch(vids)}),
@@ -145,7 +145,14 @@ async def village_status(db: Db, _: Stakeholder, taluka_id: ObjectIdStr | None =
     ids = [v["_id"] for v in villages]
     girls = await _count_by(db, c.GIRLS, {"village_id": {"$in": ids}, "is_deleted": {"$ne": True}}, "village_id")
     open_cases = await _count_by(db, c.CASES, {"village_id": {"$in": ids}, "status": {"$in": OPEN_CASE_STATUSES}}, "village_id")
-    vols = await _count_by(db, c.USERS, {"village_id": {"$in": ids}, "role": "volunteer", "is_active": True}, "village_id")
+    # A volunteer can work in several villages: count her in each of them.
+    vols: dict = {}
+    async for row in await db[c.USERS].aggregate([
+        {"$match": {"village_ids": {"$in": ids}, "role": "volunteer", "is_active": True}},
+        {"$unwind": "$village_ids"}, {"$match": {"village_ids": {"$in": ids}}},
+        {"$group": {"_id": "$village_ids", "n": {"$sum": 1}}},
+    ]):
+        vols[row["_id"]] = row["n"]
     month_start, _e = period_bounds("monthly")
     rows = []
     for v in villages:
@@ -287,7 +294,7 @@ async def drilldown(
         async for v in db[c.VILLAGES].find(q).sort("name", 1):
             rows.append({"id": str(v["_id"]), "name": v["name"], "name_mr": v.get("name_mr"),
                          "groups": await db[c.GROUPS].count_documents({"village_id": v["_id"], "group_type": "kishori"}),
-                         "volunteers": await db[c.USERS].count_documents({"village_id": v["_id"], "role": "volunteer", "is_active": True}),
+                         "volunteers": await db[c.USERS].count_documents({"village_ids": v["_id"], "role": "volunteer", "is_active": True}),
                          "activity_status": statuses.get(v["_id"], {}).get("status"),
                          **await village_metrics([v["_id"]]), "next_level": "group|volunteer"})
     elif level == "group":
@@ -295,7 +302,7 @@ async def drilldown(
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "parent_id (village id) is required")
         async for g in db[c.GROUPS].find({"village_id": oid(parent_id)}).sort([("group_type", 1), ("name", 1)]):
             girls = await db[c.GIRLS].count_documents({"group_id": g["_id"], "is_deleted": {"$ne": True}})
-            rows.append({"id": str(g["_id"]), "name": g["name"], "group_type": g["group_type"], "girls": girls,
+            rows.append({"id": str(g["_id"]), "name": g["name"], "name_en": g.get("name_en"), "group_type": g["group_type"], "girls": girls,
                          "responsible_volunteer_id": str(g["responsible_volunteer_id"]) if g.get("responsible_volunteer_id") else None,
                          "open_cases": await db[c.CASES].count_documents({"status": {"$in": OPEN_CASE_STATUSES},
                             "girl_id": {"$in": [x["_id"] async for x in db[c.GIRLS].find({"group_id": g["_id"]}, {"_id": 1})]}}),
@@ -303,9 +310,10 @@ async def drilldown(
     elif level == "volunteer":
         q: dict = {"role": "volunteer", "is_active": True}
         if parent_id:
-            q["village_id"] = oid(parent_id)
+            q["village_ids"] = oid(parent_id)
         async for u in db[c.USERS].find(q).sort("name", 1):
-            summary_ = await metrics.activity_summary(db, u["_id"], u.get("village_id"), start, upto)
+            # Within a village drill-down, count only that village's work.
+            summary_ = await metrics.activity_summary(db, u["_id"], oid(parent_id) if parent_id else None, start, upto)
             rows.append({"id": str(u["_id"]), "name": u["name"], "village_id": str(u.get("village_id")), **summary_,
                          "next_level": "girl"})
     elif level == "girl":
@@ -314,13 +322,13 @@ async def drilldown(
         pid = oid(parent_id)
         parent_vol = await db[c.USERS].find_one({"_id": pid, "role": "volunteer"})
         if parent_vol:
-            q = {"village_id": parent_vol.get("village_id")}
+            q = {"village_id": {"$in": parent_vol.get("village_ids") or [parent_vol.get("village_id")]}}
         elif await db[c.GROUPS].find_one({"_id": pid}):
             q = {"group_id": pid}
         else:
             q = {"village_id": pid}
         async for g in db[c.GIRLS].find({**q, "is_deleted": {"$ne": True}}).sort("girl_seq", 1).limit(500):
-            rows.append({"id": str(g["_id"]), "girl_code": g["girl_code"], "name": g.get("name"),
+            rows.append({"id": str(g["_id"]), "girl_code": g["girl_code"], "name": g.get("name"), "name_en": g.get("name_en"),
                          "household_head": (g.get("household") or {}).get("head_name"),
                          "father_name": (g.get("household") or {}).get("father_name"),
                          "school_status": g.get("school_status"),
