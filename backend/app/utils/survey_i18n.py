@@ -4,7 +4,14 @@ Question labels and common answers are translated; any other free text is transl
 to Latin script so the English view never shows Devanagari.
 """
 
+import json
+import re
+from pathlib import Path
+
 from app.utils.translit import to_latin
+
+# Free-text answers from the survey, translated once (normalised Marathi text -> English).
+SENTENCES: dict[str, str] = json.loads((Path(__file__).with_name("survey_translations.json")).read_text(encoding="utf-8"))
 
 QUESTIONS = {
     "जात": "Caste",
@@ -99,14 +106,85 @@ WORDS = {
 }
 
 
+# Word by word, for list-style answers such as fruits, subjects, crops and land/income amounts.
+TOKENS = {
+    # fruits
+    "आंबा": "mango", "आंबे": "mango", "आबा": "mango", "आमाब": "mango", "केळी": "banana", "केळे": "banana", "केळ": "banana",
+    "केली": "banana", "केळि": "banana", "कैळि": "banana", "किळे": "banana", "कोळी": "banana", "🍌": "",
+    "चिकू": "chikoo", "चिकु": "chikoo", "चिक्कू": "chikoo", "चीकु": "chikoo", "चुकू": "chikoo",
+    "सफरचंद": "apple", "सफरचंदा": "apple", "सरफरचंद": "apple", "सपरचंद": "apple", "पेरू": "guava", "पेरु": "guava",
+    "पपई": "papaya", "अंगूर": "grapes", "अंगुर": "grapes", "अगुर": "grapes", "द्राक्ष": "grapes", "द्राक्षे": "grapes",
+    "संत्री": "orange", "संत्रे": "orange", "संत्रा": "orange", "मोसंबी": "sweet lime", "अननस": "pineapple",
+    "टरबूज": "watermelon", "टरबुज": "watermelon", "जांभूळ": "jamun", "डाळिंब": "pomegranate", "फणस": "jackfruit",
+    "बोरे": "ber", "बोरी": "ber", "लिंब": "lemon", "लिंबू": "lemon", "खरबूज": "muskmelon", "सीताफळ": "custard apple",
+    "मोसमी": "seasonal", "मोसम": "seasonal", "असमी": "seasonal", "फळे": "fruits", "फळ": "fruit",
+    "आठवडी": "weekly", "आठवडा": "weekly", "आठवडे": "weekly", "बाजारातील": "market", "बाजार": "market", "बाजारात": "market",
+    # vegetables
+    "मेथी": "fenugreek", "पालक": "spinach", "वांगी": "brinjal", "वांगे": "brinjal", "टोमॅटो": "tomato", "कांदा": "onion",
+    "भेंडी": "okra", "कोथिंबीर": "coriander", "मिरची": "chilli", "बटाटा": "potato", "दोडके": "ridge gourd",
+    "भोपळा": "pumpkin", "कारले": "bitter gourd", "शेपू": "dill", "चुका": "sorrel", "अंबाडी": "roselle",
+    "काकडी": "cucumber", "गाजर": "carrot", "बीट": "beetroot", "मुळा": "radish", "कोबी": "cabbage", "फुलकोबी": "cauliflower",
+    # subjects
+    "मराठी": "Marathi", "मरठी": "Marathi", "इंग्रजी": "English", "इंग्लिश": "English", "अंग्रेजी": "English",
+    "हिंदी": "Hindi", "गणित": "Maths", "मॅथ": "Maths", "विज्ञान": "Science", "सायन्स": "Science",
+    "इतिहास": "History", "भूगोल": "Geography", "भुगोल": "Geography", "राज्यशास्त्र": "Civics", "नागरिकशास्त्र": "Civics",
+    "चित्रकला": "Drawing", "संस्कृत": "Sanskrit", "ग्रामर": "grammar", "सर्व": "all", "विषय": "subjects",
+    # crops
+    "सोयाबीन": "soybean", "कापूस": "cotton", "तूर": "toor", "तुर": "toor", "गहू": "wheat", "ज्वारी": "jowar",
+    "हरभरा": "chana", "ऊस": "sugarcane", "बाजरी": "bajra", "मूग": "moong", "मुग": "moong", "उडीद": "urad",
+    "भुईमूग": "groundnut", "करडई": "safflower", "हळद": "turmeric", "मका": "maize", "तांदूळ": "rice",
+    # sports / interests
+    "खो": "kho", "खोखो": "kho-kho", "कबड्डी": "kabaddi", "क्रिकेट": "cricket", "धावणे": "running", "रनिंग": "running",
+    "लंगडी": "langdi", "डान्स": "dance", "गायन": "singing", "कराटे": "karate", "बॅडमिंटन": "badminton",
+    "व्हॉलीबॉल": "volleyball", "रांगोळी": "rangoli", "मेहंदी": "mehendi", "वाचन": "reading", "खेळ": "sports",
+    # careers
+    "पोलीस": "police", "पोलिस": "police", "डॉक्टर": "doctor", "शिक्षक": "teacher", "शिक्षिका": "teacher",
+    "नर्स": "nurse", "वकील": "lawyer", "इंजिनिअर": "engineer", "आर्मी": "army", "अधिकारी": "officer",
+    "ऑफिसर": "officer", "आयपीएस": "IPS", "आयएएस": "IAS", "कलेक्टर": "collector", "तलाठी": "talathi",
+    # amounts / units
+    "एकर": "acres", "एक्कर": "acres", "येकर": "acres", "गुंठे": "gunthas", "हजार": "thousand", "हाजार": "thousand",
+    "लाख": "lakh", "रुपये": "rupees", "रू": "rupees", "मेंढ्या": "sheep",
+    "एक": "one", "दोन": "two", "तीन": "three", "चार": "four", "पाच": "five", "सहा": "six", "सात": "seven",
+    "आठ": "eight", "नऊ": "nine", "दहा": "ten", "अकरा": "eleven", "बारा": "twelve", "वीस": "twenty", "पन्नास": "fifty",
+    "अर्धा": "half", "अडीच": "two and a half", "दीड": "one and a half",
+    # connectors
+    "आणि": "and", "व": "and", "इ": "etc.", "ई": "etc.", "नाही": "no", "नाहीत": "none", "P": "", "p": "",
+}
+
+UNITS = {"acres", "gunthas", "thousand", "lakh", "rupees", "sheep"}
+
+
+def _normalise(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[\s.।,]+$", "", text)).strip()
+
+
+def _by_words(text: str) -> str | None:
+    words = [w for w in re.split(r"[\s,.\-]+", re.sub(r"(\d)([^\d\s,])", r" ", text)) if w]
+    out = []
+    for w in words:
+        if w in TOKENS:
+            out.append(TOKENS[w])
+        elif re.fullmatch(r"[\d.]+|[A-Za-z]+", w):
+            out.append(w)
+        else:
+            return None
+    out = [w for w in out if w]
+    if not out:
+        return None
+    joined = " ".join(out) if any(w in UNITS or w[0].isdigit() for w in out) else ", ".join(out)
+    return joined[0].upper() + joined[1:]
+
+
 def _answer(value) -> str:
-    text = str(value).strip()
+    text = _normalise(str(value))
     if text in WORDS:
         return WORDS[text]
     parts = [p.strip() for p in text.split(",")]
     if len(parts) > 1 and all(p in WORDS for p in parts if p):
         return ", ".join(WORDS[p] for p in parts if p)
-    return to_latin(text) or text
+    if text in SENTENCES:
+        return SENTENCES[text]
+    return _by_words(text) or to_latin(text) or text
 
 
 def survey_in_english(survey: dict) -> dict:
