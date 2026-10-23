@@ -11,6 +11,7 @@ from app.api.routes import (
     dashboard,
     delivery,
     events,
+    external_girls,
     field,
     girls,
     health,
@@ -34,6 +35,7 @@ api_router.include_router(volunteers.router)
 api_router.include_router(master.router)
 api_router.include_router(contacts.router)
 api_router.include_router(girls.router)
+api_router.include_router(external_girls.router)
 api_router.include_router(cases.router)
 api_router.include_router(field.router)
 api_router.include_router(events.router)

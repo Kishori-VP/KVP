@@ -34,7 +34,8 @@ function getVillageName(village) {
 
 const QUICK_LINKS = [
   { to: '/girls', label: 'Girls & groups', description: 'View or register girls', icon: Users },
-  { to: '/field', label: 'Record a visit', description: 'Plan a visit or submit today’s report', icon: ClipboardCheck },
+  { to: '/external-girls', label: 'External girls', description: 'Records of external girls', icon: Users },
+  { to: '/field', label: 'Visits, calls & records', description: 'Record visits, calls or daily report', icon: ClipboardCheck },
   { to: '/events', label: 'Event reports', description: 'Submit attendance and event outcomes', icon: CalendarDays },
   { to: '/field', label: 'Voice entry', description: 'Dictate Marathi field observations', icon: Mic },
   { to: '/contacts', label: 'Village contacts', description: 'Maintain key contact details', icon: Phone },

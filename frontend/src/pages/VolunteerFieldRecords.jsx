@@ -1,4 +1,5 @@
-import { Camera, Eye, MapPin, Mic, Plus, Save, Square } from 'lucide-react'
+import { Camera, Eye, MapPin, Mic, Phone, PhoneCall, Plus, Save, Square } from 'lucide-react'
+import CallModal from '../components/CallModal'
 import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
@@ -521,14 +522,18 @@ export default function VolunteerFieldRecords() {
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const visitQuery = useFetch('/home-visits', { page: 1, page_size: 100, volunteer_id: user?.id, status: status || undefined, start_date: start || undefined, end_date: end || undefined })
+  const callQuery = useFetch('/external-calls', { page: 1, page_size: 100, caller_id: user?.id, status: status || undefined, start_date: start || undefined, end_date: end || undefined })
   const reportQuery = useFetch('/activity-reports', { page: 1, page_size: 100, volunteer_id: user?.id, start_date: start || undefined, end_date: end || undefined })
-  const active = tab === 'visits' ? visitQuery : reportQuery
+  const active = tab === 'visits' ? visitQuery : tab === 'calls' ? callQuery : reportQuery
   const changeVisitStatus = async (visit, nextStatus) => {
     try { await api.patch(`/home-visits/${visit.id}`, { status: nextStatus }); await visitQuery.reload() } catch (e) { window.alert(e.response?.data?.detail || e.message) }
   }
+  const changeCallStatus = async (call, nextStatus) => {
+    try { await api.patch(`/external-calls/${call.id}`, { status: nextStatus }); await callQuery.reload() } catch (e) { window.alert(e.response?.data?.detail || e.message) }
+  }
   return <div className="space-y-4">
-    <PageHeader title={t('My field records')} subtitle={t('Plan visits, record completed work and submit the daily activity report.')} actions={<><Button variant="secondary" icon={MapPin} onClick={() => setModal('visit')}>{t('Home visit')}</Button><Button icon={Plus} onClick={() => setModal('report')}>{t('Daily report')}</Button></>} />
-    <Tabs tabs={[{ value: 'visits', label: t('Home visits') }, { value: 'reports', label: t('Daily reports') }]} value={tab} onChange={setTab} />
+    <PageHeader title={t('Visits, calls and daily records')} subtitle={t('Plan visits, record phone calls to external girls, and submit daily reports.')} actions={<><Button variant="secondary" icon={MapPin} onClick={() => setModal('visit')}>{t('Home visit')}</Button><Button variant="secondary" icon={PhoneCall} onClick={() => setModal('call')}>{t('Record a call')}</Button><Button icon={Plus} onClick={() => setModal('report')}>{t('Daily report')}</Button></>} />
+    <Tabs tabs={[{ value: 'visits', label: t('Home visits') }, { value: 'calls', label: t('External calls') }, { value: 'reports', label: t('Daily reports') }]} value={tab} onChange={setTab} />
     {queue.length > 0 && <Card title={t('Offline submissions')} actions={<Button size="sm" variant="secondary" busy={syncingRef.current} onClick={() => syncQueue(true)}>{t('Retry sync')}</Button>}>
       <p className="mb-2 text-xs text-gray-500">{t('Field forms are stored on this device until they sync. Keep this account signed in and reconnect to upload them.')}</p>
       <div className="space-y-2">{queue.map((item) => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-gray-50 px-3 py-2 text-sm"><span>{t(item.label)} · {fmtDate(item.date)}</span><span className={item.error ? 'text-red-700' : 'text-amber-700'}>{item.error || t('Waiting to sync')}</span></div>)}</div>
@@ -544,7 +549,14 @@ export default function VolunteerFieldRecords() {
         { key: 'approval', label: t('Review'), render: (r) => <StatusBadge value={r.approval?.status} /> },
         { key: 'notes', label: t('Notes'), render: (r) => <span className="line-clamp-2">{r.observations || r.notes || '—'}</span> },
         { key: 'actions', label: '', render: (r) => <div className="flex flex-wrap gap-1">{r.status === 'planned' && <><Button size="sm" onClick={() => changeVisitStatus(r, 'completed')}>{t('Complete')}</Button><Button size="sm" variant="secondary" onClick={() => changeVisitStatus(r, 'missed')}>{t('Missed')}</Button></>}<Button size="sm" variant="ghost" icon={Camera} onClick={() => setPhotoVisit(r)}>{t('Attach photos')}</Button></div> },
-      ]} rows={visitQuery.data?.items} empty={t('No home visits in this period.')} /> : <Table onRowClick={(r) => setSelectedReport(r)} columns={[
+      ]} rows={visitQuery.data?.items} empty={t('No home visits in this period.')} /> : tab === 'calls' ? <Table columns={[
+        { key: 'call_date', label: t('Date'), render: (r) => fmtDate(r.call_date) },
+        { key: 'girl', label: t('External Girl'), render: (r) => <div><div className="font-medium text-gray-900">{r.external_girl_name}</div><div className="font-mono text-xs text-gray-500">{r.phone_called || '—'}</div></div> },
+        { key: 'purpose', label: t('Purpose'), render: (r) => humanize(r.purpose) },
+        { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
+        { key: 'notes', label: t('Observations / Notes'), render: (r) => <span className="line-clamp-2">{r.observations || r.notes || '—'}</span> },
+        { key: 'actions', label: '', render: (r) => <div className="flex flex-wrap gap-1">{r.status === 'planned' && <><Button size="sm" onClick={() => changeCallStatus(r, 'completed')}>{t('Complete')}</Button><Button size="sm" variant="secondary" onClick={() => changeCallStatus(r, 'unanswered')}>{t('Unanswered')}</Button></>}</div> },
+      ]} rows={callQuery.data?.items} empty={t('No calls recorded in this period.')} /> : <Table onRowClick={(r) => setSelectedReport(r)} columns={[
         { key: 'report_date', label: t('Date'), render: (r) => fmtDate(r.report_date) },
         { key: 'activities', label: t('Activities'), render: (r) => (r.activities || []).map(humanize).join(', ') || '—' },
         { key: 'groups', label: t('Groups met'), render: (r) => r.group_ids?.length || 0 },
@@ -555,6 +567,7 @@ export default function VolunteerFieldRecords() {
       ]} rows={reportQuery.data?.items} empty={t('No daily reports in this period.')} />}
     </Card>
     {modal === 'visit' && <VisitEditor user={user} submitRecord={submitRecord} onClose={() => setModal(null)} onSaved={() => { setModal(null); visitQuery.reload() }} />}
+    {modal === 'call' && <CallModal onClose={() => setModal(null)} onSaved={() => { setModal(null); callQuery.reload() }} />}
     {modal === 'report' && <DailyReportEditor user={user} submitRecord={submitRecord} onClose={() => setModal(null)} onSaved={() => { setModal(null); reportQuery.reload() }} />}
     {selectedReport && <ReportViewModal report={selectedReport} onClose={() => setSelectedReport(null)} />}
     {photoVisit && <PhotoUploadModal visit={photoVisit} onClose={() => setPhotoVisit(null)} onSaved={() => { setPhotoVisit(null); visitQuery.reload() }} />}

@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   FolderCog,
+  GraduationCap,
   HeartPulse,
   History,
   LayoutDashboard,
@@ -14,6 +15,7 @@ import {
   Menu,
   MessageSquare,
   Phone,
+  PhoneCall,
   Settings,
   Target,
   UserCog,
@@ -46,7 +48,6 @@ const NAV = [
       { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },
       { to: '/cases', label: 'Cases', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },
-      { to: '/field', label: 'Field records', icon: ClipboardList },
     ],
   },
   {
@@ -88,7 +89,7 @@ const VOLUNTEER_NAV = [
     section: 'My work',
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-      { to: '/field', label: 'Visits & daily reports', icon: ClipboardList },
+      { to: '/field', label: 'Visits, calls & records', icon: ClipboardList },
       { to: '/targets', label: 'My targets', icon: Target },
     ],
   },
@@ -97,6 +98,7 @@ const VOLUNTEER_NAV = [
     items: [
       { to: '/girls', label: 'Girls', icon: Users },
       { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },
+      { to: '/external-girls', label: 'External girls', icon: GraduationCap },
       { to: '/groups', label: 'Groups', icon: Users },
       { to: '/cases', label: 'Follow-ups', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },

@@ -29,3 +29,5 @@ COUNTERS = "counters"
 
 AI_KNOWLEDGE_CHUNKS = "ai_knowledge_chunks"
 VOLUNTEER_ATTENDANCE = "volunteer_attendance"
+EXTERNAL_GIRLS = "external_girls"
+EXTERNAL_CALLS = "external_calls"

@@ -5,7 +5,7 @@ import { useFetch } from '../lib/hooks'
 import { t } from '../lib/i18n'
 
 const ACTIONS = ['create', 'update', 'delete', 'approve', 'reject', 'reassign', 'revise', 'verify', 'login', 'import', 'config_change', 'status_change', 'export']
-const ENTITIES = ['user', 'girl', 'case', 'event', 'event_report', 'home_visit', 'activity_report', 'target', 'village', 'group', 'taluka', 'contact', 'setting', 'lookup', 'provider_config', 'report', 'report_template', 'report_schedule', 'media', 'message', 'master_data']
+const ENTITIES = ['user', 'girl', 'external_girl', 'external_call', 'case', 'event', 'event_report', 'home_visit', 'activity_report', 'target', 'village', 'group', 'taluka', 'contact', 'setting', 'lookup', 'provider_config', 'report', 'report_template', 'report_schedule', 'media', 'message', 'master_data']
 
 export default function AuditLog() {
   const [f, setF] = useState({ action: '', entity_type: '', start_date: '', end_date: '' })

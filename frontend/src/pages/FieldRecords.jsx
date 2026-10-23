@@ -1,4 +1,5 @@
-import { Check, Eye, Plus, Trash2, X } from 'lucide-react'
+import { Check, Eye, PhoneCall, Plus, Trash2, X } from 'lucide-react'
+import CallModal from '../components/CallModal'
 import { useState } from 'react'
 import { VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
@@ -243,7 +244,7 @@ export default function FieldRecords() {
   const [selectedReport, setSelectedReport] = useState(null)
   const vols = useVolunteers()
   const volName = (id) => vols.find((v) => v.id === id)?.name || '—'
-  const url = tab === 'visits' ? '/home-visits' : '/activity-reports'
+  const url = tab === 'visits' ? '/home-visits' : tab === 'calls' ? '/external-calls' : '/activity-reports'
 
   const { data, error, loading, reload } = useFetch(url, {
     volunteer_id: f.volunteer_id || undefined,
@@ -260,12 +261,13 @@ export default function FieldRecords() {
 
   return (
     <div>
-      <PageHeader title={t('Field records')} subtitle={t('Home visits and daily activity reports (the digital version of the Google Form)')}
+      <PageHeader title={t('Visits, calls and daily records')} subtitle={t('Home visits, external calls and daily activity reports')}
         actions={<>
           <Button variant="secondary" icon={Plus} onClick={() => setModal('visit')}>{t('Home visit')}</Button>
+          <Button variant="secondary" icon={PhoneCall} onClick={() => setModal('call')}>{t('Record a call')}</Button>
           <Button icon={Plus} onClick={() => setModal('report')}>{t('Daily report')}</Button>
         </>} />
-      <Tabs tabs={[{ value: 'visits', label: t('Home visits') }, { value: 'reports', label: t('Daily activity reports') }]} value={tab} onChange={(v) => { setTab(v); setPage(1) }} />
+      <Tabs tabs={[{ value: 'visits', label: t('Home visits') }, { value: 'calls', label: t('External calls') }, { value: 'reports', label: t('Daily activity reports') }]} value={tab} onChange={(v) => { setTab(v); setPage(1) }} />
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-3 lg:grid-cols-6">
           <VolunteerSelect value={f.volunteer_id} onChange={(v) => set('volunteer_id', v)} />
@@ -288,6 +290,15 @@ export default function FieldRecords() {
                 { key: 'risks', label: t('Risks'), render: (r) => Object.entries(r.risk_indicators || {}).filter(([, v]) => v === true).map(([k]) => humanize(k)).join(', ') || '—' },
                 { key: 'approval', label: t('Approval'), render: (r) => (r.approval?.status === 'pending' ? <ApprovalButtons path={`/home-visits/${r.id}/approval`} onDone={reload} /> : <StatusBadge value={r.approval?.status} />) },
               ]} rows={data?.items} empty={t('No home visits recorded.')} />
+            ) : tab === 'calls' ? (
+              <Table columns={[
+                { key: 'call_date', label: t('Date'), render: (r) => fmtDate(r.call_date) },
+                { key: 'girl', label: t('External Girl'), render: (r) => <div><div className="font-medium text-gray-900">{r.external_girl_name}</div><div className="font-mono text-xs text-gray-500">{r.phone_called || '—'}</div></div> },
+                { key: 'caller', label: t('Caller'), render: (r) => r.caller_name || '—' },
+                { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
+                { key: 'purpose', label: t('Purpose'), render: (r) => humanize(r.purpose) },
+                { key: 'notes', label: t('Observations / Notes'), render: (r) => <span className="line-clamp-2">{r.observations || r.notes || '—'}</span> },
+              ]} rows={data?.items} empty={t('No external calls recorded.')} />
             ) : (
               <Table onRowClick={(r) => setSelectedReport(r)} columns={[
                 { key: 'report_date', label: t('Date'), render: (r) => fmtDate(r.report_date) },
@@ -305,6 +316,7 @@ export default function FieldRecords() {
         )}
       </Card>
       <HomeVisitModal key={`v${modal}`} open={modal === 'visit'} onClose={() => setModal(null)} onSaved={() => { setModal(null); setTab('visits'); reload() }} />
+      {modal === 'call' && <CallModal onClose={() => setModal(null)} onSaved={() => { setModal(null); setTab('calls'); reload() }} />}
       <ActivityReportModal key={`r${modal}`} open={modal === 'report'} onClose={() => setModal(null)} onSaved={() => { setModal(null); setTab('reports'); reload() }} />
       {selectedReport && <ReportDetailModal report={selectedReport} onClose={() => setSelectedReport(null)} onUpdated={() => { setSelectedReport(null); reload() }} />}
     </div>
