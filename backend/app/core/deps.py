@@ -119,6 +119,21 @@ def village_scope(user: dict, field: str = "village_id") -> dict:
     return {field: {"$in": user_village_ids(user)}}
 
 
+def group_villages(group: dict) -> list[ObjectId]:
+    """The villages whose girls may belong to a group: its own village plus any member villages."""
+    return [group["village_id"], *group.get("member_village_ids", [])]
+
+
+def group_scope(user: dict, village_id=None) -> dict:
+    """Mongo filter for groups visible to the user, optionally narrowed to groups open to one village."""
+    vids = None if user.get("role") in ADMIN_ROLES else user_village_ids(user)
+    if village_id and can_access_village(user, village_id):
+        vids = [ObjectId(str(village_id))]
+    if vids is None:
+        return {}
+    return {"$or": [{"village_id": {"$in": vids}}, {"member_village_ids": {"$in": vids}}]}
+
+
 def narrow_to_village(query: dict, user: dict, village_id, field: str = "village_id") -> None:
     """Apply an optional ?village_id= filter. Volunteers can narrow to one of their own villages;
     any other village is ignored, so they still only see their own villages."""

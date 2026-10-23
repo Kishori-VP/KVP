@@ -1603,4 +1603,9 @@ export default {
   "Your saved field activity will appear here.": "तुम्ही जतन केलेले क्षेत्रीय काम येथे दिसेल.",
   "Your village, activities, follow-ups and targets in one place.": "तुमचे गाव, उपक्रम, पाठपुरावे आणि उद्दिष्टे एकाच ठिकाणी.",
   "नाव (Marathi)": "नाव (मराठी)",
+  "Baseline survey": "प्राथमिक सर्वेक्षण",
+  "Show {n} answers": "{n} उत्तरे दाखवा",
+  "Caste": "जात",
+  "Class": "इयत्ता",
+  "Birth year": "जन्म वर्ष",
 };

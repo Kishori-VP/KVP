@@ -88,7 +88,7 @@ export function GroupMultiSelect({ villageId, villageIds, value = [], onChange }
   const ids = villageIds || (villageId ? [villageId] : [])
   const villages = useVillages()
   const { data } = useFetch(ids.length ? '/groups' : null, ids.length === 1 ? { village_id: ids[0], page_size: 500 } : { page_size: 500 })
-  const groups = (data?.items || []).filter((g) => ids.includes(g.village_id))
+  const groups = (data?.items || []).filter((g) => [g.village_id, ...(g.member_village_ids || [])].some((id) => ids.includes(id)))
   const villageName = (id) => villages.find((v) => v.id === id)?.name
   if (!ids.length) return <p className="text-xs text-gray-500">{t('Pick a village to choose groups.')}</p>
   if (!groups.length) return <p className="text-xs text-gray-500">{ids.length > 1 ? t('These villages have no groups.') : t('This village has no groups.')}</p>

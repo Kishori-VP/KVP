@@ -66,6 +66,8 @@ class GroupCreate(BaseModel):
     group_type: GroupType = "kishori"
     group_number: str | None = None
     village_id: ObjectIdStr
+    member_village_ids: list[ObjectIdStr] = Field(
+        default_factory=list, description="Other villages whose girls may join this group (e.g. a split-off hamlet)")
     meeting_schedule: MeetingSchedule | None = None
     responsible_volunteer_id: ObjectIdStr | None = None
     is_active: bool = True
@@ -74,6 +76,7 @@ class GroupCreate(BaseModel):
 class GroupUpdate(BaseModel):
     name: str | None = None
     group_number: str | None = None
+    member_village_ids: list[ObjectIdStr] | None = None
     meeting_schedule: MeetingSchedule | None = None
     responsible_volunteer_id: ObjectIdStr | None = None
     is_active: bool | None = None

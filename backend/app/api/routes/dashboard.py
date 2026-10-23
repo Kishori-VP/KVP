@@ -300,7 +300,8 @@ async def drilldown(
     elif level == "group":
         if not parent_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "parent_id (village id) is required")
-        async for g in db[c.GROUPS].find({"village_id": oid(parent_id)}).sort([("group_type", 1), ("name", 1)]):
+        async for g in db[c.GROUPS].find({"$or": [{"village_id": oid(parent_id)}, {"member_village_ids": oid(parent_id)}]}).sort(
+                [("group_type", 1), ("name", 1)]):
             girls = await db[c.GIRLS].count_documents({"group_id": g["_id"], "is_deleted": {"$ne": True}})
             rows.append({"id": str(g["_id"]), "name": g["name"], "name_en": g.get("name_en"), "group_type": g["group_type"], "girls": girls,
                          "responsible_volunteer_id": str(g["responsible_volunteer_id"]) if g.get("responsible_volunteer_id") else None,

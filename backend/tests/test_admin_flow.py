@@ -159,6 +159,20 @@ def test_girls_and_duplicates(client, admin):
     assert ok(client.get(f"{API}/girls", headers=admin, params={"village_id": S["v1"]}))["total"] == 1
 
 
+def test_group_member_villages(client, admin):
+    vh = S["vol_headers"]
+    # ताराराणी (g3) belongs to v2, so a v1 girl cannot join it...
+    assert client.patch(f"{API}/girls/{S['girl']}", headers=vh, json={"group_id": S["g3"]}).status_code == 422
+    # ...until v1 is added as a member village of the group.
+    grp = ok(client.patch(f"{API}/groups/{S['g3']}", headers=admin, json={"member_village_ids": [S["v1"]]}))
+    assert grp["member_village_ids"] == [S["v1"]]
+    in_v1 = ok(client.get(f"{API}/groups", headers=vh, params={"village_id": S["v1"]}))
+    assert S["g3"] in [g["id"] for g in in_v1["items"]]
+    assert ok(client.patch(f"{API}/girls/{S['girl']}", headers=vh, json={"group_id": S["g3"]}))["group_id"] == S["g3"]
+    ok(client.patch(f"{API}/girls/{S['girl']}", headers=vh, json={"group_id": S["g1"]}))
+    ok(client.patch(f"{API}/groups/{S['g3']}", headers=admin, json={"member_village_ids": []}))
+
+
 def test_girl_aadhaar_images(client, admin):
     def upload(content, kind, entity_type="girl"):
         return client.post(f"{API}/media", headers=admin, files={"file": ("aadhaar.png", content, "image/png")},

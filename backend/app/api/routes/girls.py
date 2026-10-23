@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, Stakeholder, can_access_village, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import Db, Pagination, Stakeholder, can_access_village, group_villages, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import DuplicateCheck, GirlCreate, GirlUpdate, HealthRecordCreate, MergeRequest
@@ -53,7 +53,7 @@ async def _resolve_refs(db, data: dict, user: dict) -> dict:
         data["taluka_id"] = village["taluka_id"]
     if data.get("group_id"):
         group = await get_or_404(db[c.GROUPS], data["group_id"], "Group")
-        if data.get("village_id") and group["village_id"] != data["village_id"]:
+        if data.get("village_id") and data["village_id"] not in group_villages(group):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Group does not belong to the girl's village")
         data["group_id"] = group["_id"]
     if data.get("school_status"):
@@ -229,12 +229,21 @@ async def list_girls(
 
     sort_dir = -1 if sort in ("created_at", "last_participation_at") else 1
     total = await db[c.GIRLS].count_documents(query)
-    cursor = db[c.GIRLS].find(query).sort(sort, sort_dir)
+    projection = {"custom_fields.baseline_survey": 0}  # full survey answers are only sent on the profile
+    cursor = db[c.GIRLS].find(query, projection).sort(sort, sort_dir)
     if sort == "girl_code":
-        cursor = db[c.GIRLS].find(query).sort([("girl_seq", 1), ("girl_code", 1)])
+        cursor = db[c.GIRLS].find(query, projection).sort([("girl_seq", 1), ("girl_code", 1)])
     docs = await cursor.skip((pg.page - 1) * pg.page_size).limit(pg.page_size).to_list()
-    return {"items": [girl_out(d) for d in docs], "total": total, "page": pg.page, "page_size": pg.page_size,
-            "age_bands": list(AGE_BANDS)}
+    villages = await _names(db, c.VILLAGES, {d.get("village_id") for d in docs})
+    groups = await _names(db, c.GROUPS, {d.get("group_id") for d in docs})
+    items = [{**girl_out(d), "village_name": villages.get(d.get("village_id")), "group_name": groups.get(d.get("group_id"))}
+             for d in docs]
+    return {"items": items, "total": total, "page": pg.page, "page_size": pg.page_size, "age_bands": list(AGE_BANDS)}
+
+
+async def _names(db, coll: str, ids: set) -> dict:
+    ids = [i for i in ids if i]
+    return {d["_id"]: d["name"] for d in await db[coll].find({"_id": {"$in": ids}}, {"name": 1}).to_list()} if ids else {}
 
 
 @router.get("/{girl_id}")

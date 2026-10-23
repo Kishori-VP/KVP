@@ -170,6 +170,21 @@ function AadhaarCard({ girl }) {
   )
 }
 
+/** Answers from the baseline survey (Master Data form), shown question by question. */
+function BaselineSurvey({ survey }) {
+  const [open, setOpen] = useState(false)
+  const answers = Object.entries(survey).filter(([q]) => !q.startsWith('_'))
+  return (
+    <Card title={t('Baseline survey')} className="lg:col-span-2"
+      actions={<Button variant="secondary" onClick={() => setOpen(!open)}>{open ? t('Hide') : t('Show {n} answers', { n: answers.length })}</Button>}>
+      <p className="text-xs text-gray-500">{t('Survey date')}: {fmtDate(survey._survey_date)}</p>
+      {open && <dl className="mt-3 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+        {answers.map(([q, a]) => <div key={q} className="border-b border-gray-100 pb-2"><dt className="text-xs text-gray-500">{q}</dt><dd className="text-gray-900">{a}</dd></div>)}
+      </dl>}
+    </Card>
+  )
+}
+
 function MergeModal({ open, onClose, girl, onMerged }) {
   const [dupId, setDupId] = useState('')
   const [reason, setReason] = useState('')
@@ -260,7 +275,9 @@ export default function GirlDetail() {
         <div className="grid gap-4 lg:grid-cols-2">
           <Card title={t('Profile')}>
             <DefinitionList items={[
-              ['Age', g.current_age ?? '—'], ['Date of birth', fmtDate(g.dob)], ['School status', humanize(g.school_status)],
+              ['Age', g.current_age ?? '—'], ['Date of birth', fmtDate(g.dob)], ['Birth year', g.dob ? null : g.birth_year],
+              ['Mobile', g.phone], ['Village', g.village && localName(g.village)], ['Group', g.group && localName(g.group)],
+              ['School status', humanize(g.school_status)],
               ['School', g.school_name], ['Standard', g.standard], ['Survey date', fmtDate(g.survey_date)],
               ['Enrolled on', fmtDate(g.enrollment?.enrolled_on)], ['Source', humanize(g.source)],
             ]} />
@@ -269,8 +286,10 @@ export default function GirlDetail() {
             <DefinitionList items={[
               ['Father', h.father_name], ['Mother', h.mother_name], ['Head', h.head_name], ['Mobile', h.phone],
               ['Members', h.members_count], ['Economic status', h.economic_status?.toUpperCase()], ['Address', h.address],
+              ['Category', h.social_category], ['Caste', g.custom_fields?.caste],
             ]} />
           </Card>
+          {g.custom_fields?.baseline_survey && <BaselineSurvey survey={g.custom_fields.baseline_survey} />}
           <Card title={t('Participation summary')}>
             <DefinitionList items={[
               ['Events attended', g.participation?.events_attended], ['Attendance rate', g.participation?.attendance_rate != null ? `${Math.round(g.participation.attendance_rate * 100)}%` : '—'],

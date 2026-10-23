@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, group_scope, user_village_ids, village_scope
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.master import (
@@ -22,7 +22,7 @@ from app.services import audit
 from app.services.counters import next_code
 from app.services.lookups import MANDATORY_CONTACT_CATEGORIES
 from app.utils.dates import utcnow
-from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, paginate, serialize
+from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, oids, paginate, serialize
 from app.utils.translit import to_latin
 
 router = APIRouter(tags=["master data"])
@@ -189,7 +189,8 @@ async def get_village(village_id: str, db: Db, user: CurrentUser):
     village = await get_or_404(db[c.VILLAGES], village_id, "Village")
     vid = village["_id"]
     taluka = await db[c.TALUKAS].find_one({"_id": village["taluka_id"]})
-    groups = await db[c.GROUPS].find({"village_id": vid}).sort([("group_type", 1), ("name", 1)]).to_list()
+    groups = await db[c.GROUPS].find({"$or": [{"village_id": vid}, {"member_village_ids": vid}]}).sort(
+        [("group_type", 1), ("name", 1)]).to_list()
     volunteers = await db[c.USERS].find(
         {"village_id": vid, "role": Role.VOLUNTEER.value}, {"name": 1, "phone": 1, "is_active": 1, "group_ids": 1}
     ).to_list()
@@ -234,13 +235,23 @@ async def update_village(village_id: str, body: VillageUpdate, db: Db, actor: St
 
 # ---------------------------------------------------------------- groups
 
+async def _member_villages(db, ids: list, home_village_id) -> list:
+    """Validate a group's member villages; the home village itself is never listed."""
+    members = [v for v in dict.fromkeys(oids(ids)) if v != home_village_id]
+    if members and await db[c.VILLAGES].count_documents({"_id": {"$in": members}}) != len(members):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Member village not found")
+    return members
+
+
 @router.post("/groups", status_code=status.HTTP_201_CREATED)
 async def create_group(body: GroupCreate, db: Db, actor: Stakeholder):
     village = await get_or_404(db[c.VILLAGES], body.village_id, "Village")
     vol_id = await _check_responsible(db, body.responsible_volunteer_id, village["_id"])
+    members = await _member_villages(db, body.member_village_ids, village["_id"])
     now = utcnow()
     doc = {
-        **body.model_dump(exclude={"village_id", "responsible_volunteer_id", "meeting_schedule"}),
+        **body.model_dump(exclude={"village_id", "member_village_ids", "responsible_volunteer_id", "meeting_schedule"}),
+        "member_village_ids": members,
         "name_en": to_latin(body.name),
         "village_id": village["_id"],
         "taluka_id": village["taluka_id"],
@@ -281,8 +292,7 @@ async def list_groups(
     responsible_volunteer_id: ObjectIdStr | None = None,
     include_inactive: bool = False,
 ):
-    query: dict = village_scope(user)
-    narrow_to_village(query, user, village_id)
+    query: dict = group_scope(user, village_id)
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if group_type:
@@ -296,7 +306,7 @@ async def list_groups(
 
 @router.get("/groups/{group_id}")
 async def get_group(group_id: str, db: Db, user: CurrentUser):
-    group = await get_or_404(db[c.GROUPS], group_id, "Group", village_scope(user))
+    group = await get_or_404(db[c.GROUPS], group_id, "Group", group_scope(user))
     girls = await db[c.GIRLS].find(
         {"group_id": group["_id"], "is_deleted": {"$ne": True}}, {"girl_code": 1, "name": 1, "dob": 1, "age": 1}
     ).sort("girl_code", 1).to_list()
@@ -319,4 +329,8 @@ async def update_group(group_id: str, body: GroupUpdate, db: Db, actor: Stakehol
         updates["meeting_schedule"] = body.meeting_schedule.model_dump()
     if updates.get("name"):
         updates["name_en"] = to_latin(updates["name"])
+    if updates.get("member_village_ids") is not None:
+        updates["member_village_ids"] = await _member_villages(db, updates["member_village_ids"], group["village_id"])
+    elif "member_village_ids" in updates:
+        updates["member_village_ids"] = []
     return await _update(db, c.GROUPS, group_id, "Group", updates, actor, "group")
