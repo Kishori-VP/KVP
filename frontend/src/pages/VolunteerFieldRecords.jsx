@@ -5,7 +5,7 @@ import { useAuth } from '../lib/auth'
 import { Badge, Button, Card, Checkbox, Empty, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
 import api, { errorMessage } from '../lib/api'
 import { fmtDate, humanize, todayISO } from '../lib/format'
-import { useAction, useFetch, useLookups } from '../lib/hooks'
+import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
 
 function GirlMultiPicker({ villageId, value, onChange }) {
@@ -310,7 +310,6 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
 function ReportViewModal({ report, onClose }) {
   const activityTypes = useLookups('activity_type')
   if (!report) return null
-  const actMap = Object.fromEntries(activityTypes.map((a) => [a.code, a.label_mr || a.label]))
 
   return (
     <Modal open title={t('Daily Activity Report Details')} onClose={onClose} wide footer={<Button variant="secondary" onClick={onClose}>{t('Close')}</Button>}>
@@ -327,10 +326,11 @@ function ReportViewModal({ report, onClose }) {
           <span className="text-xs font-semibold uppercase text-gray-500">{t('Activities Done')}</span>
           <div className="mt-1 flex flex-wrap gap-2">
             {(report.activities || []).map((code) => (
-              <Badge key={code} variant="brand">{actMap[code] || humanize(code)}</Badge>
+              <Badge key={code} variant="brand">{lookupLabel(activityTypes, code)}</Badge>
             ))}
             {!report.activities?.length && <span className="text-gray-400">—</span>}
           </div>
+          {report.health_camp_name && <p className="mt-2 text-gray-700"><span className="text-xs text-gray-500">{t('Health camp')}: </span>{report.health_camp_name}</p>}
         </div>
 
         {report.topics_discussed && (
@@ -372,9 +372,13 @@ function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
     home_visit_girl_ids: [],
     topics_discussed: '',
     other_meetings: '',
+    health_camp_name: '',
     is_historical: false,
   })
   const { data: groups } = useFetch('/groups', { village_id: form.village_id || undefined, page: 1, page_size: 200 })
+  const kishoriGroups = (groups?.items || []).filter((g) => g.group_type !== 'bal_panchayat')
+  const balPanchayats = (groups?.items || []).filter((g) => g.group_type === 'bal_panchayat')
+  const healthCamp = form.activities.includes('health_camp')
   const { busy, error, run } = useAction()
   const toggle = (key, id) => setForm((prev) => ({ ...prev, [key]: prev[key].includes(id) ? prev[key].filter((x) => x !== id) : [...prev[key], id] }))
   const save = () => run(async () => {
@@ -386,10 +390,11 @@ function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
       home_visits_count: Number(form.home_visits_count),
       topics_discussed: form.topics_discussed || null,
       other_meetings: form.other_meetings || null,
+      health_camp_name: healthCamp ? form.health_camp_name.trim() : null,
     })
     onSaved()
   }).catch(() => {})
-  return <Modal open title={t('Daily activity report')} onClose={onClose} wide footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} icon={Save} disabled={!form.report_date || !form.activities.length} onClick={save}>{t('Submit daily report')}</Button></>}>
+  return <Modal open title={t('Daily activity report')} onClose={onClose} wide footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} icon={Save} disabled={!form.report_date || !form.activities.length || (healthCamp && !form.health_camp_name.trim())} onClick={save}>{t('Submit daily report')}</Button></>}>
     <ErrorBox message={error} />
     {assignedVillages.length > 1 && (
       <Field label={t('Select village for this report')}>
@@ -400,15 +405,17 @@ function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
         >
           {assignedVillages.map((v) => (
             <option key={v.id || v._id} value={v.id || v._id}>
-              {v.name_mr || v.name}
+              {localName(v)}
             </option>
           ))}
         </select>
       </Field>
     )}
     <Field label={t('Report date *')}><Input type="date" max={todayISO()} value={form.report_date} onChange={(e) => setForm({ ...form, report_date: e.target.value })} /></Field>
-    <Field label={t('Activities completed *')}><div className="flex flex-wrap gap-3">{activityTypes.map((item) => <Checkbox key={item.code} label={item.label_mr || item.label} checked={form.activities.includes(item.code)} onChange={() => toggle('activities', item.code)} />)}</div></Field>
-    <Field label={t('Groups met')}><div className="flex flex-wrap gap-3">{(groups?.items || []).map((group) => <Checkbox key={group.id} label={localName(group)} checked={form.group_ids.includes(group.id)} onChange={() => toggle('group_ids', group.id)} />)}</div></Field>
+    <Field label={t('Activities completed *')}><div className="flex flex-wrap gap-3">{activityTypes.map((item) => <Checkbox key={item.code} label={lookupLabel(activityTypes, item.code)} checked={form.activities.includes(item.code)} onChange={() => toggle('activities', item.code)} />)}</div></Field>
+    {healthCamp && <Field label={t('Which health camp? *')}><Input value={form.health_camp_name} placeholder={t('e.g. Haemoglobin check-up camp at PHC')} onChange={(e) => setForm({ ...form, health_camp_name: e.target.value })} /></Field>}
+    <Field label={t('Kishori groups met')}>{kishoriGroups.length ? <div className="flex flex-wrap gap-3">{kishoriGroups.map((group) => <Checkbox key={group.id} label={localName(group)} checked={form.group_ids.includes(group.id)} onChange={() => toggle('group_ids', group.id)} />)}</div> : <p className="text-xs text-gray-500">{t('No Kishori groups in this village.')}</p>}</Field>
+    <Field label={t('Bal Panchayat groups met')}>{balPanchayats.length ? <div className="flex flex-wrap gap-3">{balPanchayats.map((group) => <Checkbox key={group.id} label={localName(group)} checked={form.group_ids.includes(group.id)} onChange={() => toggle('group_ids', group.id)} />)}</div> : <p className="text-xs text-gray-500">{t('No Bal Panchayat in this village.')}</p>}</Field>
     <div className="grid gap-3 sm:grid-cols-2"><Field label={t('Girls present')}><Input type="number" min={0} value={form.girls_present} onChange={(e) => setForm({ ...form, girls_present: e.target.value })} /></Field><Field label={t('Home visits completed')}><Input type="number" min={0} value={form.home_visits_count} onChange={(e) => setForm({ ...form, home_visits_count: e.target.value })} /></Field></div>
     <Field label={t('Girls visited at home')}><GirlMultiPicker villageId={form.village_id || user?.village_id} value={form.home_visit_girl_ids} onChange={(ids) => setForm({ ...form, home_visit_girl_ids: ids })} /></Field>
     <VoiceTextarea label={t('Topics discussed')} value={form.topics_discussed} onChange={(value) => setForm({ ...form, topics_discussed: value })} />
@@ -456,6 +463,7 @@ function deviceId() {
 }
 
 export default function VolunteerFieldRecords() {
+  const activityTypes = useLookups('activity_type')
   const { user } = useAuth()
   const queueKey = `kvp_field_queue_${user?.id || 'unknown'}`
   const [queue, setQueue] = useState(() => readQueue(queueKey))
@@ -558,7 +566,7 @@ export default function VolunteerFieldRecords() {
         { key: 'actions', label: '', render: (r) => <div className="flex flex-wrap gap-1">{r.status === 'planned' && <><Button size="sm" onClick={() => changeCallStatus(r, 'completed')}>{t('Complete')}</Button><Button size="sm" variant="secondary" onClick={() => changeCallStatus(r, 'unanswered')}>{t('Unanswered')}</Button></>}</div> },
       ]} rows={callQuery.data?.items} empty={t('No calls recorded in this period.')} /> : <Table onRowClick={(r) => setSelectedReport(r)} columns={[
         { key: 'report_date', label: t('Date'), render: (r) => fmtDate(r.report_date) },
-        { key: 'activities', label: t('Activities'), render: (r) => (r.activities || []).map(humanize).join(', ') || '—' },
+        { key: 'activities', label: t('Activities'), render: (r) => (r.activities || []).map((code) => lookupLabel(activityTypes, code)).join(', ') || '—' },
         { key: 'groups', label: t('Groups met'), render: (r) => r.group_ids?.length || 0 },
         { key: 'girls_present', label: t('Girls present') },
         { key: 'home_visits_count', label: t('Home visits') },

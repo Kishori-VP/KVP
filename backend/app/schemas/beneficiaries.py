@@ -215,7 +215,8 @@ class ActivityReportCreate(BaseModel):
         None, description="The village this record is for; required when the volunteer works in several villages")
     report_date: date
     activities: list[str] = Field(description="activity_type lookup codes done that day")
-    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Groups met")
+    health_camp_name: str | None = Field(None, max_length=200, description="Which health camp, when health_camp is ticked")
+    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Kishori groups and Bal Panchayats met")
     girls_present: int = Field(0, ge=0)
     topics_discussed: str | None = None
     home_visits_count: int = Field(0, ge=0)

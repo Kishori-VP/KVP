@@ -5,7 +5,7 @@ import { VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
 import api from '../lib/api'
 import { fmtDate, humanize, todayISO } from '../lib/format'
-import { useAction, useFetch, useLookups, useVillages, useVolunteers } from '../lib/hooks'
+import { useAction, useFetch, useLookups, useVillages, useVolunteers, lookupLabel } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
 
 const RISKS = ['child_marriage_risk', 'school_dropout_risk', 'health_concern', 'anaemia_concern', 'gender_discrimination']
@@ -129,7 +129,7 @@ function ActivityReportModal({ open, onClose, onSaved }) {
         <Field label={t('Date')}><Input type="date" max={todayISO()} value={f.report_date} onChange={(e) => setF({ ...f, report_date: e.target.value })} /></Field>
       </div>
       <Field label={t('Activities done (आज काय ऍक्टिव्हिटी पूर्ण केली?)')} group>
-        <div className="flex flex-wrap gap-3">{acts.map((a) => <Checkbox key={a.code} label={a.label_mr || a.label} checked={f.activities.includes(a.code)} onChange={() => toggle('activities', a.code)} />)}</div>
+        <div className="flex flex-wrap gap-3">{acts.map((a) => <Checkbox key={a.code} label={lookupLabel(acts, a.code)} checked={f.activities.includes(a.code)} onChange={() => toggle('activities', a.code)} />)}</div>
       </Field>
       <Field label={t('Groups met')} group>
         <div className="flex flex-wrap gap-3">{(groups?.items || []).map((g) => <Checkbox key={g.id} label={localName(g)} checked={f.group_ids.includes(g.id)} onChange={() => toggle('group_ids', g.id)} />)}</div>
@@ -154,7 +154,7 @@ function ReportDetailModal({ report, onClose, onUpdated }) {
 
   const vol = vols.find((v) => v.id === report.volunteer_id)
   const vil = villages.find((v) => (v.id || v._id) === report.village_id)
-  const actMap = Object.fromEntries(acts.map((a) => [a.code, a.label_mr || a.label]))
+  const actMap = Object.fromEntries(acts.map((a) => [a.code, lookupLabel(acts, a.code)]))
 
   const decide = (decision) => run(async () => {
     await api.post(`/activity-reports/${report.id}/approval`, { decision })

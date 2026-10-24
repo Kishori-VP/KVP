@@ -227,9 +227,12 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Report date cannot be in the future")
     for code in body.activities:
         await ensure_code(db, "activity_type", code, "activity")
+    if "health_camp" in body.activities and not (body.health_camp_name or "").strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Say which health camp it was")
     village = await _record_village(db, vol, body.village_id)
     group_ids = oids(body.group_ids)
-    if group_ids and await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, "village_id": village["_id"]}) != len(set(group_ids)):
+    in_village = {"$or": [{"village_id": village["_id"]}, {"member_village_ids": village["_id"]}]}
+    if group_ids and await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, **in_village}) != len(set(group_ids)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Groups must belong to the volunteer's village")
     girl_ids = await _girls_in_village(db, body.home_visit_girl_ids, village["_id"])
     now = utcnow()

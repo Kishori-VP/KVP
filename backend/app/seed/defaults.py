@@ -38,7 +38,6 @@ DEFAULT_LOOKUPS: dict[str, list[tuple[str, str, str | None, dict]]] = {
     "activity_type": [
         ("kishori_group_meeting", "Kishori group meeting", "किशोरी गट सभा", {}),
         ("home_visit", "Home / parent visit", "गृह भेटी / पालक भेटी", {}),
-        ("mental_wellbeing_training", "Mental wellbeing training", "मनाचे आरोग्य ट्रेनिंग", {}),
         ("health_camp", "Health camp", "हेल्थ कॅम्प", {}),
         ("bal_panchayat", "Bal Panchayat", "बाल पंचायत", {}),
         ("leadership_activity", "Leadership activity", "नेतृत्व उपक्रम", {}),

@@ -1710,4 +1710,10 @@ export default {
   "No calls have been recorded for this girl yet.": "या मुलीसाठी अद्याप कोणतेही कॉल नोंदवलेले नाहीत.",
   "No calls recorded in this period.": "या कालावधीत कोणतेही कॉल नोंदवलेले नाहीत.",
   "Call Now (कॉल करा)": "कॉल करा",
+  "Which health camp? *": "कोणता हेल्थ कॅम्प? *",
+  "e.g. Haemoglobin check-up camp at PHC": "उदा. PHC येथील हिमोग्लोबिन तपासणी कॅम्प",
+  "Kishori groups met": "भेटलेले किशोरी गट",
+  "Bal Panchayat groups met": "भेटलेले बाल पंचायत गट",
+  "No Kishori groups in this village.": "या गावात किशोरी गट नाहीत.",
+  "No Bal Panchayat in this village.": "या गावात बाल पंचायत नाही.",
 };

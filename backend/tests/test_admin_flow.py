@@ -509,3 +509,14 @@ def test_group_numbers_follow_village(client, admin):
     assert re.fullmatch(r"\d{2}-\d{2}-K\d{2}", k["group_number"]) and re.fullmatch(r"\d{2}-\d{2}-BP01", b["group_number"])
     k2 = ok(client.post(f"{API}/groups", headers=admin, json={"name": "आणखी एक गट", "village_id": S["v2"]}), 201)
     assert int(k2["group_number"][-2:]) == int(k["group_number"][-2:]) + 1
+
+
+def test_daily_report_health_camp_and_groups(client, admin):
+    vh = S["vol_headers"]
+    me = ok(client.get(f"{API}/auth/me", headers=vh))
+    bp = ok(client.get(f"{API}/groups", headers=vh, params={"group_type": "bal_panchayat"}))["items"][0]
+    body = {"volunteer_id": me["id"], "village_id": bp["village_id"], "report_date": str(TODAY - timedelta(days=9)),
+            "activities": ["health_camp"], "group_ids": [bp["id"]]}
+    assert client.post(f"{API}/activity-reports", headers=vh, json=body).status_code == 422  # which camp?
+    r = ok(client.post(f"{API}/activity-reports", headers=vh, json={**body, "health_camp_name": "HB camp at PHC"}), 201)
+    assert r["health_camp_name"] == "HB camp at PHC" and r["group_ids"] == [bp["id"]]
