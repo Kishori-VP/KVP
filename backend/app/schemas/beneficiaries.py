@@ -1,11 +1,12 @@
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.master import GeoPoint
 from app.utils.dates import today_local
 from app.utils.mongo import ObjectIdStr
+from app.utils.standard import normalise_standard
 
 EnrollmentStatus = Literal["active", "inactive", "migrated", "married", "exited"]
 Severity = Literal["critical", "high", "medium", "low"]
@@ -48,6 +49,11 @@ class GirlBase(BaseModel):
     enrollment: Enrollment | None = None
     phone: str | None = Field(None, pattern=r"^[6-9]\d{9}$")
     custom_fields: dict[str, Any] | None = None
+
+    @field_validator("standard", mode="before")
+    @classmethod
+    def class_number_only(cls, v):
+        return normalise_standard(v)
 
 
 class GirlCreate(GirlBase):
