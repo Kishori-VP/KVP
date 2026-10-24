@@ -1,13 +1,13 @@
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { GroupedBars } from '../components/charts'
 import { GroupMultiSelect, LookupSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs, Textarea, cx } from '../components/ui'
 import api from '../lib/api'
-import { fmtDateTime, humanize, todayISO } from '../lib/format'
+import { fmtDate, fmtDateTime, humanize, todayISO } from '../lib/format'
 import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
-import { t } from '../lib/i18n'
+import { locale, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
 export function EventForm({ onSaved, onCancel }) {
@@ -62,41 +62,67 @@ function monthGrid(year, month) {
   return cells
 }
 
+const STATUS_STYLE = { completed: 'bg-green-50 text-green-800', overdue: 'bg-orange-50 text-orange-800', cancelled: 'bg-gray-100 text-gray-500 line-through', today: 'bg-brand-50 text-brand-800', upcoming: 'bg-blue-50 text-blue-800' }
+const PER_CELL = 3
+
 function CalendarView({ villageId }) {
   const nav = useNavigate()
   const now = new Date()
   const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() })
+  const [selected, setSelected] = useState(todayISO())
   const cells = monthGrid(ym.y, ym.m)
   const start = cells.find(Boolean)
   const end = cells[cells.length - 1]
   const { data } = useFetch('/events/calendar', { start_date: start, end_date: end, village_id: villageId })
   const byDay = Object.fromEntries((data?.days || []).map((d) => [d.date, d.events]))
-  const shift = (n) => setYm(({ y, m }) => { const d = new Date(y, m + n, 1); return { y: d.getFullYear(), m: d.getMonth() } })
-  const label = new Date(ym.y, ym.m, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+  const shift = (n) => setYm(({ y, m }) => { const d = new Date(y, m + n, 1); setSelected(null); return { y: d.getFullYear(), m: d.getMonth() } })
+  const label = new Date(ym.y, ym.m, 1).toLocaleDateString(locale(), { month: 'long', year: 'numeric' })
   const today = todayISO()
+  const total = (data?.days || []).reduce((n, d) => n + d.events.length, 0)
+  const dayEvents = (selected && byDay[selected]) || []
   return (
-    <Card title={label} actions={<>
-      <Button size="sm" variant="secondary" icon={ChevronLeft} onClick={() => shift(-1)}>{t('Prev')}</Button>
-      <Button size="sm" variant="secondary" onClick={() => shift(1)}>{t('Next')} <ChevronRight className="h-4 w-4" /></Button>
-    </>}>
-      {data && <div className="mb-3 flex flex-wrap gap-2 text-xs">{Object.entries(data.counts).map(([k, n]) => <span key={k}><StatusBadge value={k} /> {n}</span>)}</div>}
-      <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="bg-gray-50 px-2 py-1 font-medium text-gray-500">{d}</div>)}
-        {cells.map((iso, i) => (
-          <div key={i} className={cx('min-h-24 bg-white p-1', !iso && 'bg-gray-50')}>
-            {iso && <div className={cx('mb-1 text-right', iso === today ? 'font-bold text-brand-700' : 'text-gray-500')}>{Number(iso.slice(8))}</div>}
-            {(byDay[iso] || []).map((ev) => (
-              <button key={ev.id} type="button" onClick={() => nav(`/events/${ev.id}`)}
-                className={cx('mb-0.5 block w-full truncate rounded px-1 py-0.5 text-left',
-                  { completed: 'bg-green-50 text-green-800', overdue: 'bg-orange-50 text-orange-800', cancelled: 'bg-gray-100 text-gray-500 line-through', today: 'bg-brand-50 text-brand-800', upcoming: 'bg-blue-50 text-blue-800' }[ev.display_status])}
-                title={`${ev.title} · ${ev.village_name} · ${humanize(ev.display_status)}`}>
-                {ev.start_time} {ev.title}
-              </button>
-            ))}
-          </div>
-        ))}
-      </div>
-    </Card>
+    <div className="space-y-4">
+      <Card title={label} actions={<>
+        <Button size="sm" variant="secondary" icon={ChevronLeft} onClick={() => shift(-1)}>{t('Prev')}</Button>
+        <Button size="sm" variant="secondary" onClick={() => shift(1)}>{t('Next')} <ChevronRight className="h-4 w-4" /></Button>
+      </>}>
+        {data && <div className="mb-3 flex flex-wrap items-center gap-2 text-xs"><span className="font-medium text-gray-700">{t('{n} events this month', { n: total })}</span>{Object.entries(data.counts).map(([k, n]) => <span key={k}><StatusBadge value={k} /> {n}</span>)}</div>}
+        <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border border-gray-200 bg-gray-200 text-xs">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="bg-gray-50 px-1 py-1 text-center font-medium text-gray-500 sm:px-2 sm:text-left">{t(d)}</div>)}
+          {cells.map((iso, i) => {
+            const evs = (iso && byDay[iso]) || []
+            return (
+              <div key={i} role={iso ? 'button' : undefined} tabIndex={iso ? 0 : undefined} onClick={() => iso && setSelected(iso)}
+                onKeyDown={(e) => iso && e.key === 'Enter' && setSelected(iso)}
+                className={cx('min-h-20 bg-white p-1 sm:min-h-24', !iso && 'bg-gray-50', iso && 'cursor-pointer hover:bg-gray-50', iso === selected && 'ring-2 ring-inset ring-brand-500')}>
+                {iso && <div className={cx('mb-1 text-right', iso === today ? 'font-bold text-brand-700' : 'text-gray-500')}>{Number(iso.slice(8))}</div>}
+                {/* phones: just a count; wider screens: the first few events */}
+                {evs.length > 0 && <div className="rounded bg-brand-50 px-1 text-center font-semibold text-brand-800 sm:hidden">{evs.length}</div>}
+                <div className="hidden sm:block">
+                  {evs.slice(0, PER_CELL).map((ev) => (
+                    <button key={ev.id} type="button" onClick={(e) => { e.stopPropagation(); nav(`/events/${ev.id}`) }}
+                      className={cx('mb-0.5 block w-full truncate rounded px-1 py-0.5 text-left', STATUS_STYLE[ev.display_status])}
+                      title={`${ev.title} · ${ev.village_name} · ${humanize(ev.display_status)}`}>
+                      {ev.start_time} {ev.title}
+                    </button>
+                  ))}
+                  {evs.length > PER_CELL && <div className="px-1 font-medium text-brand-700">{t('+{n} more', { n: evs.length - PER_CELL })}</div>}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+      {selected && <Card title={`${t('Events on')} ${fmtDate(selected)} · ${dayEvents.length}`}>
+        {dayEvents.length ? <div className="divide-y divide-gray-100">{dayEvents.map((ev) => (
+          <Link key={ev.id} to={`/events/${ev.id}`} className="flex items-start justify-between gap-3 py-2 hover:text-brand-700">
+            <div className="min-w-0"><div className="truncate font-medium text-gray-900">{ev.title}</div>
+              <div className="text-xs text-gray-500">{ev.start_time || ''}{ev.end_time ? `–${ev.end_time}` : ''} · {ev.village_name}</div></div>
+            <StatusBadge value={ev.display_status} />
+          </Link>
+        ))}</div> : <p className="text-sm text-gray-500">{t('No events on this day.')}</p>}
+      </Card>}
+    </div>
   )
 }
 
