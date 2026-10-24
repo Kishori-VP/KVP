@@ -1,4 +1,5 @@
 import {
+  ArrowRightLeft,
   Eye,
   Pencil,
   Plus,
@@ -260,6 +261,31 @@ function GirlProfileModal({ girlId, onClose, onEditGirl }) {
       }
     >
       <div className="space-y-4">
+        {/* Transfer Information */}
+        {g.transferred_from_girl_code && (
+          <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3.5 text-sm">
+            <div className="flex items-center gap-2 font-medium text-blue-900">
+              <ArrowRightLeft className="h-4 w-4 shrink-0 text-blue-700" />
+              <span>{t('Transferred from village Kishori group')} ({g.transferred_from_girl_code})</span>
+            </div>
+            {g.transferred_from_village_name && (
+              <div className="mt-1 text-xs text-blue-700">
+                <span className="font-semibold">{t('Original Village')}:</span> {g.transferred_from_village_name}
+              </div>
+            )}
+            {g.transfer_reason && (
+              <div className="mt-1 text-xs text-blue-800">
+                <span className="font-semibold">{t('Reason for removal / transfer')}:</span> {g.transfer_reason}
+              </div>
+            )}
+            {g.transferred_at && (
+              <div className="mt-1 text-[11px] text-blue-600">
+                {t('Transferred on')}: {fmtDate(g.transferred_at)} {g.transferred_by_name ? `· ${g.transferred_by_name}` : ''}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Profile Details */}
         <div className="grid gap-3 sm:grid-cols-2">
           <Card title={t('Profile details')}>
@@ -463,6 +489,13 @@ export default function ExternalGirls() {
                       )}
                       {r.status === 'follow_up' && (
                         <Badge tone="yellow">{t('Follow-up')}</Badge>
+                      )}
+                      {r.transferred_from_girl_code && (
+                        <div className="mt-0.5">
+                          <Badge tone="blue" className="text-[10px]">
+                            {t('Transferred from {code}', { code: r.transferred_from_girl_code })}
+                          </Badge>
+                        </div>
                       )}
                     </div>
                   ),

@@ -1,4 +1,5 @@
-import { ArrowLeft, FileText, Pencil, Plus, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, FileText, Pencil, Plus, Upload } from 'lucide-react'
+import VoiceTextarea from '../components/VoiceTextarea'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { LookupSelect, VolunteerSelect } from '../components/pickers'
@@ -223,6 +224,183 @@ function MergeModal({ open, onClose, girl, onMerged }) {
   )
 }
 
+
+export function TransferToExternalModal({ open, girl, onClose, onTransferred }) {
+  const h = girl?.household || {}
+  const [reason, setReason] = useState('')
+  const [notes, setNotes] = useState('')
+  const [status, setStatus] = useState('active')
+  const [phone, setPhone] = useState(() => girl?.phone || h.phone || '')
+  const [location, setLocation] = useState(() => {
+    const vName = localName(girl?.village) || ''
+    const addr = h.address || h.hamlet || ''
+    return [vName, addr].filter(Boolean).join(', ')
+  })
+  const [guardianName, setGuardianName] = useState(
+    () => h.guardian_name || h.father_name || h.mother_name || h.head_name || ''
+  )
+  const [guardianRelation, setGuardianRelation] = useState(
+    () => (h.father_name ? 'father' : h.mother_name ? 'mother' : '')
+  )
+  const { busy, error, run } = useAction()
+
+  useEffect(() => {
+    if (open && girl) {
+      const hh = girl.household || {}
+      setReason('')
+      setNotes('')
+      setStatus('active')
+      setPhone(girl.phone || hh.phone || '')
+      const vName = localName(girl.village) || ''
+      const addr = hh.address || hh.hamlet || ''
+      setLocation([vName, addr].filter(Boolean).join(', '))
+      setGuardianName(hh.guardian_name || hh.father_name || hh.mother_name || hh.head_name || '')
+      setGuardianRelation(hh.father_name ? 'father' : hh.mother_name ? 'mother' : '')
+    }
+  }, [open, girl])
+
+  const PRESETS = [
+    { label: t('Married (विवाह झाला)'), text: 'विवाह झाल्यामुळे सासरी गेली (Married)' },
+    { label: t('Migrated for education (शिक्षणासाठी स्थलांतर)'), text: 'शिक्षणासाठी शहरात स्थलांतर केले (Migrated for studies)' },
+    { label: t('Family migrated (कुटुंब स्थलांतर)'), text: 'कुटुंब गावाबाहेर स्थलांतरित झाले (Family migrated)' },
+    { label: t('Job / employment (नोकरी / काम)'), text: 'कामासाठी / नोकरीसाठी बाहेर (Working outside)' },
+    { label: t('Aged out (वय पूर्ण झाले)'), text: 'वय पूर्ण झाल्याने गट सोडला (Age 20+ years)' },
+  ]
+
+  const appendPreset = (presetText) => {
+    if (!reason.trim()) {
+      setReason(presetText)
+    } else if (!reason.includes(presetText)) {
+      setReason(`${reason.trim()}, ${presetText}`)
+    }
+  }
+
+  const submit = () =>
+    run(async () => {
+      const payload = {
+        reason: reason.trim(),
+        notes: notes.trim() || null,
+        status,
+        phone: phone.trim() || null,
+        location: location.trim() || null,
+        guardian_name: guardianName.trim() || null,
+        guardian_relation: guardianRelation.trim() || null,
+        education_status: girl.school_status || null,
+        school_or_college: girl.school_name || null,
+        standard: girl.standard || null,
+      }
+      const res = await api.post(`/girls/${girl.id}/transfer-to-external`, payload)
+      onTransferred(res.data)
+    })
+
+  return (
+    <Modal
+      open={open}
+      title={t('Transfer {code} to External Girls', { code: girl.girl_code })}
+      onClose={onClose}
+      wide
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t('Cancel')}
+          </Button>
+          <Button
+            className="bg-amber-600 hover:bg-amber-700 text-white"
+            busy={busy}
+            disabled={!reason.trim() || reason.trim().length < 2}
+            onClick={submit}
+          >
+            {t('Transfer to External')}
+          </Button>
+        </>
+      }
+    >
+      <ErrorBox message={error} />
+
+      <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-sm text-amber-900">
+        <p className="font-semibold">{t('Removal & Transfer Notice')}</p>
+        <p className="mt-1 text-xs text-amber-800">
+          {t(
+            'This action removes {name} ({code}) from the village Kishori database so she no longer requires volunteer home visits or meeting tracking. She is safely moved to External Girls, where any Tai or Stakeholder can stay in touch via phone calls.',
+            { name: localName(girl) || girl.girl_code, code: girl.girl_code }
+          )}
+        </p>
+      </div>
+
+      <div className="space-y-3 pt-2">
+        <VoiceTextarea
+          label={t('Reason for removal / transfer (कारण) *')}
+          value={reason}
+          onChange={setReason}
+          placeholder={t('Click mic to speak in Marathi or English, or type reason (e.g. Married, Migrated)...')}
+          rows={3}
+          hint={t('Use the microphone button to record reason via speech-to-text in Marathi or English')}
+        />
+
+        <div>
+          <div className="mb-1.5 text-xs font-medium text-gray-600">{t('Quick reason presets:')}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {PRESETS.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-xs text-gray-700 hover:border-brand-500 hover:bg-brand-50 hover:text-brand-800"
+                onClick={() => appendPreset(p.text)}
+              >
+                + {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 pt-2 sm:grid-cols-2">
+          <Field label={t('Contact mobile (मोबाईल नंबर)')} hint={t('For future phone calls and check-ins')}>
+            <Input
+              type="tel"
+              value={phone}
+              placeholder="9876543210"
+              onChange={(e) => setPhone(e.target.value)}
+            />
+          </Field>
+          <Field label={t('Location / New address (गाव / पत्ता)')}>
+            <Input
+              value={location}
+              placeholder={t('Village or new location')}
+              onChange={(e) => setLocation(e.target.value)}
+            />
+          </Field>
+          <Field label={t('Parent / Guardian name')}>
+            <Input
+              value={guardianName}
+              placeholder={t('Father, mother or guardian')}
+              onChange={(e) => setGuardianName(e.target.value)}
+            />
+          </Field>
+          <Field label={t('Status in External list')}>
+            <Select
+              options={[
+                { value: 'active', label: t('Active (सक्रिय)') },
+                { value: 'follow_up', label: t('Needs Follow-up (पाठपुरावा आवश्यक)') },
+                { value: 'closed', label: t('Closed / Inactive (बंद)') },
+              ]}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            />
+          </Field>
+          <Field label={t('Additional notes / background')} className="sm:col-span-2">
+            <Textarea
+              rows={2}
+              value={notes}
+              placeholder={t('Optional notes on new town, college, husband name, etc.')}
+              onChange={(e) => setNotes(e.target.value)}
+            />
+          </Field>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 export default function GirlDetail() {
   const { id } = useParams()
   const { user } = useAuth()
@@ -236,21 +414,11 @@ export default function GirlDetail() {
   const [merging, setMerging] = useState(false)
   const { data: part } = useFetch(tab === 'participation' ? `/girls/${id}/participation` : null)
   const { data: cases, reload: reloadCases } = useFetch(tab === 'cases' ? `/girls/${id}/cases` : null)
-  const [delReason, setDelReason] = useState('')
-  const [deleting, setDeleting] = useState(false)
+  const [transferring, setTransferring] = useState(false)
 
   if (error) return <ErrorBox message={error} />
   if (!g) return <Spinner />
   const h = g.household || {}
-
-  const doDelete = async () => {
-    try {
-      await api.delete(`/girls/${id}`, { params: { reason: delReason } })
-      nav('/girls')
-    } catch (e) {
-      alert(errorMessage(e))
-    }
-  }
 
   return (
     <div className="space-y-4">
@@ -262,7 +430,14 @@ export default function GirlDetail() {
           <Button variant="secondary" icon={Pencil} onClick={() => setEditing(true)}>{t('Edit')}</Button>
           <Button variant="secondary" icon={Plus} onClick={() => setNewCase(true)}>{t('New case')}</Button>
           {!isVolunteer && <Button variant="ghost" onClick={() => setMerging(true)}>{t('Merge duplicate')}</Button>}
-          {!isVolunteer && <Button variant="ghost" className="text-red-700" onClick={() => setDeleting(true)}>{t('Delete')}</Button>}
+          <Button
+            variant="secondary"
+            className="border-amber-300 text-amber-800 hover:bg-amber-50"
+            icon={ArrowRightLeft}
+            onClick={() => setTransferring(true)}
+          >
+            {t('Transfer to External')}
+          </Button>
         </>}
       />
       <div className="flex flex-wrap gap-2">
@@ -343,11 +518,16 @@ export default function GirlDetail() {
       </Modal>
       <CaseCreateModal open={newCase} onClose={() => setNewCase(false)} girl={g} onCreated={() => { setNewCase(false); reload(); reloadCases() }} />
       {!isVolunteer && <MergeModal open={merging} onClose={() => setMerging(false)} girl={g} onMerged={() => { setMerging(false); reload() }} />}
-      {!isVolunteer && <Modal open={deleting} title={t('Delete {code}?', { code: g.girl_code })} onClose={() => setDeleting(false)}
-        footer={<><Button variant="secondary" onClick={() => setDeleting(false)}>{t('Cancel')}</Button><Button variant="danger" disabled={delReason.length < 3} onClick={doDelete}>{t('Delete')}</Button></>}>
-        <p className="text-sm text-gray-600">{t('The record is hidden from lists but kept for the audit trail.')}</p>
-        <Field label={t('Reason *')}><Input value={delReason} onChange={(e) => setDelReason(e.target.value)} /></Field>
-      </Modal>}
+      <TransferToExternalModal
+        open={transferring}
+        girl={g}
+        onClose={() => setTransferring(false)}
+        onTransferred={() => {
+          setTransferring(false)
+          nav('/external-girls')
+        }}
+      />
+
     </div>
   )
 }

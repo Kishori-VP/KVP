@@ -64,6 +64,8 @@ async def list_external_girls(
             {"location": rx},
             {"guardian_name": rx},
             {"school_or_college": rx},
+            {"transferred_from_girl_code": rx},
+            {"transfer_reason": rx},
         ]
         if "$or" in query:
             query["$and"] = [{"$or": query.pop("$or")}, {"$or": q_or}]

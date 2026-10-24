@@ -8,7 +8,7 @@ from app.utils.dates import today_local
 from app.utils.mongo import ObjectIdStr
 from app.utils.standard import normalise_standard
 
-EnrollmentStatus = Literal["active", "inactive", "migrated", "married", "exited"]
+EnrollmentStatus = Literal["active", "inactive", "migrated", "married", "exited", "transferred"]
 Severity = Literal["critical", "high", "medium", "low"]
 CaseStatus = Literal["open", "in_progress", "escalated", "resolved", "closed"]
 
@@ -88,6 +88,20 @@ class DuplicateCheck(BaseModel):
 class MergeRequest(BaseModel):
     duplicate_id: ObjectIdStr
     reason: str = Field(min_length=3)
+
+
+class TransferToExternalRequest(BaseModel):
+    reason: str = Field(min_length=2, max_length=1000, description="Reason for removal and transfer to external")
+    notes: str | None = Field(None, max_length=2000, description="Additional notes or background")
+    status: Literal["active", "follow_up", "closed"] = "active"
+    phone: str | None = Field(None, max_length=20)
+    alt_phone: str | None = Field(None, max_length=20)
+    location: str | None = Field(None, max_length=250)
+    guardian_name: str | None = Field(None, max_length=150)
+    guardian_relation: str | None = Field(None, max_length=50)
+    education_status: str | None = Field(None, max_length=100)
+    school_or_college: str | None = Field(None, max_length=200)
+    standard: str | None = Field(None, max_length=50)
 
 
 class HealthRecordCreate(BaseModel):

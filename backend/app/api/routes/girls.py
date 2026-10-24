@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.deps import Db, Pagination, Stakeholder, can_access_village, group_villages, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
-from app.schemas.beneficiaries import DuplicateCheck, GirlCreate, GirlUpdate, HealthRecordCreate, MergeRequest
+from app.schemas.beneficiaries import DuplicateCheck, GirlCreate, GirlUpdate, HealthRecordCreate, MergeRequest, TransferToExternalRequest
 from app.services import audit
 from app.services.app_settings import get_setting
 from app.services.beneficiaries import (
@@ -363,14 +363,173 @@ async def update_girl(girl_id: str, body: GirlUpdate, db: Db, user: Annotated[di
     return girl_out(after)
 
 
-@router.delete("/{girl_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_girl(girl_id: str, db: Db, actor: Stakeholder, reason: str = Query(min_length=3)):
-    girl = await get_or_404(db[c.GIRLS], girl_id, "Girl", {"is_deleted": {"$ne": True}})
+async def _execute_transfer_to_external(
+    db: Db,
+    girl: dict,
+    user: dict,
+    reason: str,
+    notes: str | None = None,
+    ext_status: str = "active",
+    phone: str | None = None,
+    alt_phone: str | None = None,
+    location: str | None = None,
+    guardian_name: str | None = None,
+    guardian_relation: str | None = None,
+    education_status: str | None = None,
+    school_or_college: str | None = None,
+    standard: str | None = None,
+) -> dict:
+    """Execute removal from village Kishori database and transfer into External Girls."""
+    now = utcnow()
+    village_name = ""
+    if girl.get("village_id"):
+        v = await db[c.VILLAGES].find_one({"_id": girl["village_id"]})
+        if v:
+            village_name = v.get("name_mr") or v.get("name") or v.get("name_en") or ""
+
+    h = girl.get("household") or {}
+    resolved_phone = phone or girl.get("phone") or h.get("phone")
+    resolved_alt = alt_phone or (h.get("phone") if (resolved_phone and h.get("phone") != resolved_phone) else None)
+
+    resolved_loc = location
+    if not resolved_loc:
+        addr = h.get("address") or h.get("hamlet")
+        resolved_loc = f"{village_name}, {addr}".strip(", ") if addr else village_name
+
+    resolved_guardian = guardian_name or h.get("guardian_name") or h.get("father_name") or h.get("mother_name") or h.get("head_name")
+    resolved_relation = guardian_relation or ("father" if h.get("father_name") else ("mother" if h.get("mother_name") else None))
+
+    age = current_age(girl) or girl.get("age")
+    dob = to_dt(girl.get("dob")) if girl.get("dob") else None
+
+    notes_parts = [
+        f"Transferred from village Kishori group ({girl.get('girl_code')}). Reason: {reason}"
+    ]
+    if notes:
+        notes_parts.append(notes)
+    combined_notes = "\n".join(notes_parts)
+
+    ext_doc = {
+        "name": girl.get("name"),
+        "name_en": girl.get("name_en") or to_latin(girl.get("name", "")),
+        "phone": resolved_phone,
+        "alt_phone": resolved_alt,
+        "age": age,
+        "dob": dob,
+        "location": resolved_loc,
+        "guardian_name": resolved_guardian,
+        "guardian_relation": resolved_relation,
+        "education_status": education_status or girl.get("school_status"),
+        "school_or_college": school_or_college or girl.get("school_name"),
+        "standard": standard or girl.get("standard"),
+        "status": ext_status,
+        "notes": combined_notes,
+        "call_summary": {
+            "total_calls": 0,
+            "last_call_at": None,
+            "last_call_status": None,
+            "last_caller_name": None,
+        },
+        "transferred_from_girl_id": girl["_id"],
+        "transferred_from_girl_code": girl.get("girl_code"),
+        "transferred_from_village_id": girl.get("village_id"),
+        "transferred_from_village_name": village_name,
+        "transferred_at": now,
+        "transferred_by": user["_id"],
+        "transferred_by_name": user.get("name") or user.get("username"),
+        "transfer_reason": reason,
+        "is_deleted": False,
+        "created_by": user["_id"],
+        "created_by_name": user.get("name") or user.get("username"),
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    res_ext = await db[c.EXTERNAL_GIRLS].insert_one(ext_doc)
+    ext_id = res_ext.inserted_id
+
+    # Update girl in main database to be removed from village list
     await db[c.GIRLS].update_one(
         {"_id": girl["_id"]},
-        {"$set": {"is_deleted": True, "deleted_at": utcnow(), "deleted_by": actor["_id"], "delete_reason": reason}},
+        {
+            "$set": {
+                "is_deleted": True,
+                "deleted_at": now,
+                "deleted_by": user["_id"],
+                "delete_reason": f"Transferred to External Girls: {reason}",
+                "transfer_reason": reason,
+                "transferred_to_external_id": ext_id,
+                "transferred_at": now,
+                "transferred_by": user["_id"],
+                "enrollment.status": "transferred",
+                "enrollment.exit_reason": f"Transferred to External: {reason}",
+                "enrollment.exit_date": now,
+                "updated_at": now,
+            }
+        },
     )
-    await audit.log(db, actor, "delete", "girl", girl["_id"], f"Deleted {girl['girl_code']}", meta={"reason": reason})
+
+    await audit.log(
+        db,
+        user,
+        "status_change",
+        "girl",
+        girl["_id"],
+        f"Transferred {girl.get('girl_code')} to External Girls: {reason}",
+        meta={
+            "external_girl_id": str(ext_id),
+            "reason": reason,
+            "transfer_type": "to_external",
+        },
+    )
+    await audit.log(
+        db,
+        user,
+        "create",
+        "external_girl",
+        ext_id,
+        f"Transferred girl {ext_doc['name']} from {girl.get('girl_code')} ({village_name})",
+        meta={"transferred_from_girl_id": str(girl["_id"]), "reason": reason},
+    )
+
+    return ext_doc
+
+
+@router.post("/{girl_id}/transfer", status_code=status.HTTP_200_OK)
+@router.post("/{girl_id}/transfer-to-external", status_code=status.HTTP_200_OK)
+async def transfer_girl_to_external(
+    girl_id: str,
+    body: TransferToExternalRequest,
+    db: Db,
+    user: Annotated[dict, Depends(require_permission("girls", "update"))],
+):
+    """Remove a girl from village Kishori database and transfer her to External Girls with reason.
+
+    She will no longer require in-person volunteer visits, but remains in the system
+    as an External Girl for outreach calls and support.
+    """
+    girl = await get_or_404(db[c.GIRLS], girl_id, "Girl", {"is_deleted": {"$ne": True}, **village_scope(user)})
+    ext_doc = await _execute_transfer_to_external(
+        db=db,
+        girl=girl,
+        user=user,
+        reason=body.reason,
+        notes=body.notes,
+        ext_status=body.status,
+        phone=body.phone,
+        alt_phone=body.alt_phone,
+        location=body.location,
+        guardian_name=body.guardian_name,
+        guardian_relation=body.guardian_relation,
+        education_status=body.education_status,
+        school_or_college=body.school_or_college,
+        standard=body.standard,
+    )
+    return {
+        "message": "Girl transferred to External Girls successfully",
+        "external_girl_id": str(ext_doc["_id"]),
+        "external_girl": serialize(ext_doc),
+    }
 
 
 @router.post("/{girl_id}/merge")

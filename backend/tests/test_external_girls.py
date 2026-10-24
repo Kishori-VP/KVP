@@ -113,3 +113,78 @@ def test_external_girls_and_calls(client, admin):
     # 9. Delete external girl
     res_del_girl = client.delete(f"{API}/external-girls/{girl_id}", headers=admin)
     assert res_del_girl.status_code == 204
+
+
+def test_transfer_girl_to_external(client, admin, mongo):
+    from bson import ObjectId
+
+    # 1. Setup village and girl in mongo
+    v_id = mongo.villages.insert_one({
+        "name": "टेकाडी",
+        "name_mr": "टेकाडी",
+        "name_en": "Tekadi",
+        "code": "09",
+        "taluka_id": ObjectId(),
+    }).inserted_id
+
+    g_id = mongo.girls.insert_one({
+        "name": "सीमा कांबळे",
+        "name_en": "Seema Kamble",
+        "girl_code": "KVP-09-01-050",
+        "girl_seq": 50,
+        "dob": None,
+        "birth_year": 2008,
+        "village_id": v_id,
+        "phone": "9876500001",
+        "household": {"father_name": "प्रकाश कांबळे", "phone": "9876500002", "address": "वॉर्ड २"},
+        "school_status": "in_school",
+        "school_name": "जि. प. शाळा",
+        "standard": "10th",
+        "enrollment": {"status": "active"},
+        "is_deleted": False,
+    }).inserted_id
+
+    # 2. Transfer via POST /girls/{id}/transfer-to-external with removal reason
+    res = client.post(
+        f"{API}/girls/{g_id}/transfer-to-external",
+        headers=admin,
+        json={
+            "reason": "लग्न झाल्यामुळे सासरी गेली",
+            "notes": "फोनवरून समुपदेशन व मार्गदर्शन सुरू ठेवणे",
+            "status": "active",
+        },
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["external_girl"]["name"] == "सीमा कांबळे"
+    assert data["external_girl"]["transferred_from_girl_code"] == "KVP-09-01-050"
+    assert data["external_girl"]["transfer_reason"] == "लग्न झाल्यामुळे सासरी गेली"
+    assert data["external_girl"]["transferred_from_village_name"] == "टेकाडी"
+    assert data["external_girl"]["phone"] == "9876500001"
+    assert data["external_girl"]["alt_phone"] == "9876500002"
+    ext_id = data["external_girl_id"]
+
+    # 3. Check original girl is removed from active village girls list
+    res_girls = client.get(f"{API}/girls", headers=admin)
+    assert not any(g["id"] == str(g_id) for g in res_girls.json()["items"])
+
+    # Verify database document updated
+    doc = mongo.girls.find_one({"_id": g_id})
+    assert doc["is_deleted"] is True
+    assert doc["enrollment"]["status"] == "transferred"
+    assert "लग्न झाल्यामुळे" in doc["delete_reason"]
+
+    # 4. Check external girl is visible in external girls list and searchable by girl_code
+    res_ext = client.get(f"{API}/external-girls", headers=admin)
+    assert res_ext.status_code == 200
+    assert any(g["id"] == str(ext_id) for g in res_ext.json()["items"])
+
+    res_search = client.get(f"{API}/external-girls?q=KVP-09-01-050", headers=admin)
+    assert res_search.status_code == 200
+    assert any(g["id"] == str(ext_id) for g in res_search.json()["items"])
+
+    # 5. Confirm DELETE /girls/{id} is not supported (405 Method Not Allowed)
+    res_del = client.delete(f"{API}/girls/{g_id}", headers=admin)
+    assert res_del.status_code == 405
+
+
