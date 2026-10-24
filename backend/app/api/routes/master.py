@@ -244,6 +244,16 @@ async def update_village(village_id: str, body: VillageUpdate, db: Db, actor: St
 
 # ---------------------------------------------------------------- groups
 
+async def next_group_number(db, village: dict, group_type: str) -> str:
+    """Group numbers follow the village code: 01-12-K03 is the 3rd Kishori group of village 12 in taluka 01,
+    01-12-BP01 its first Bal Panchayat."""
+    taluka = await db[c.TALUKAS].find_one({"_id": village["taluka_id"]}, {"code": 1})
+    prefix = f"{int(taluka.get('code') or 0):02d}-{int(village.get('code') or 0):02d}-{'K' if group_type == 'kishori' else 'BP'}"
+    taken = await db[c.GROUPS].distinct("group_number", {"group_number": {"$regex": f"^{prefix}" + r"\d+$"}})
+    n = max((int(x[len(prefix):]) for x in taken), default=0) + 1
+    return f"{prefix}{n:02d}"
+
+
 async def _member_villages(db, ids: list, home_village_id) -> list:
     """Validate a group's member villages; the home village itself is never listed."""
     members = [v for v in dict.fromkeys(oids(ids)) if v != home_village_id]
@@ -258,6 +268,8 @@ async def create_group(body: GroupCreate, db: Db, actor: Stakeholder):
     vol_id = await _check_responsible(db, body.responsible_volunteer_id, village["_id"])
     members = await _member_villages(db, body.member_village_ids, village["_id"])
     now = utcnow()
+    if not body.group_number:
+        body.group_number = await next_group_number(db, village, body.group_type)
     doc = {
         **body.model_dump(exclude={"village_id", "member_village_ids", "responsible_volunteer_id", "meeting_schedule"}),
         "member_village_ids": members,
@@ -310,7 +322,7 @@ async def list_groups(
         query["responsible_volunteer_id"] = oid(responsible_volunteer_id)
     if not include_inactive:
         query["is_active"] = True
-    return await paginate(db[c.GROUPS], query, pg.page, pg.page_size, sort=[("village_id", 1), ("name", 1)])
+    return await paginate(db[c.GROUPS], query, pg.page, pg.page_size, sort=[("group_number", 1), ("name", 1)])
 
 
 @router.get("/children")

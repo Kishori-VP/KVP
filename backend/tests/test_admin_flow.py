@@ -4,6 +4,7 @@ Tests run in order and share state (ids) through the module-level `S` dict.
 """
 
 import io
+import re
 import zipfile
 from datetime import date, timedelta
 
@@ -499,3 +500,12 @@ def test_bal_panchayat_children(client, admin, mongo):
     detail = ok(client.get(f"{API}/groups/{bp['_id']}", headers=admin))
     assert detail["member_count"] == 2 and S["girl"] in [x["id"] for x in detail["girls"]]
     assert ok(client.get(f"{API}/girls", headers=admin, params={"group_id": str(bp["_id"])}))["total"] == 1
+
+
+def test_group_numbers_follow_village(client, admin):
+    k = ok(client.post(f"{API}/groups", headers=admin, json={"name": "नवीन किशोरी गट", "village_id": S["v2"]}), 201)
+    b = ok(client.post(f"{API}/groups", headers=admin, json={"name": "नवीन बाल पंचायत", "group_type": "bal_panchayat",
+                                                            "village_id": S["v2"]}), 201)
+    assert re.fullmatch(r"\d{2}-\d{2}-K\d{2}", k["group_number"]) and re.fullmatch(r"\d{2}-\d{2}-BP01", b["group_number"])
+    k2 = ok(client.post(f"{API}/groups", headers=admin, json={"name": "आणखी एक गट", "village_id": S["v2"]}), 201)
+    assert int(k2["group_number"][-2:]) == int(k["group_number"][-2:]) + 1
