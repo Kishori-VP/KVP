@@ -250,6 +250,10 @@ def test_events(client, admin):
         "activities_conducted": "बालविवाह कायद्याबद्दल माहिती दिली", "outcomes": "Girls understood the law",
         "follow_up_actions": "Visit 2 families"}))
     assert done["display_status"] == "completed" and done["expenditure"]["total"] == 300.0
+    # The volunteer of the event's village can record its expenditure too.
+    by_vol = ok(client.put(f"{API}/events/{past['id']}/expenditure", headers=S["vol_headers"], json={
+        "items": [{"item": "Snacks", "category": "refreshments", "quantity": 30, "unit_cost": 15}]}))
+    assert by_vol["expenditure"]["total"] == 450.0
 
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
     m1 = ok(client.post(f"{API}/events/{past['id']}/media", headers=admin, files={"file": ("a.png", png, "image/png")},

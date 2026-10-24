@@ -227,14 +227,14 @@ export default function EventDetail() {
       <ErrorBox message={actErr} />
       {smsResult && <div className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">SMS: {Object.entries(smsResult).filter(([, n]) => n).map(([k, n]) => `${n} ${humanize(k).toLowerCase()}`).join(' · ') || t('no recipients')}</div>}
       <div className="flex flex-wrap gap-2"><StatusBadge value={ev.display_status} />{ev.is_historical && <Badge>{t('Back-dated')}</Badge>}{ev.notify_participants && <Badge tone="blue">{t('SMS reminders on')}</Badge>}</div>
-      <Tabs tabs={['overview', 'checklists', 'attendance', 'report', ...(!isVolunteer ? ['expenditure'] : []), 'media']} value={tab} onChange={setTab} />
+      <Tabs tabs={['overview', 'checklists', 'attendance', 'report', 'expenditure', 'media']} value={tab} onChange={setTab} />
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card title={t('Event')}>
             <DefinitionList items={[
               ['Location', ev.location_name], ['Responsible volunteer', ev.responsible_volunteer?.name], ['Invited groups', ev.groups?.map((g) => g.name).join(', ')],
               ['Expected participants', ev.expected_participants], ['Girls present', att.girls_present], ['Other participants', att.other_participants],
-              ...(!isVolunteer ? [['Planned budget', ev.planned_budget ? `₹${ev.planned_budget}` : '—'], ['Spent', `₹${ev.expenditure?.total || 0}`]] : []),
+              ['Planned budget', ev.planned_budget ? `₹${ev.planned_budget}` : '—'], ['Spent', `₹${ev.expenditure?.total || 0}`],
             ]} />
             {ev.objective && <p className="mt-3 text-sm text-gray-700"><b>{t('Objective:')}</b> {ev.objective}</p>}
             {ev.cancel_reason && <p className="mt-3 text-sm text-red-700"><b>{t('Cancelled:')}</b> {ev.cancel_reason}</p>}
@@ -249,7 +249,7 @@ export default function EventDetail() {
       {tab === 'checklists' && <div className="grid gap-4 lg:grid-cols-2"><Checklist ev={ev} which="pre" onSaved={onSaved} /><Checklist ev={ev} which="post" onSaved={onSaved} /></div>}
       {tab === 'attendance' && <Attendance key={ev.updated_at} ev={ev} onSaved={onSaved} />}
       {tab === 'report' && <ReportForm ev={ev} onSaved={onSaved} />}
-      {!isVolunteer && tab === 'expenditure' && <Expenditure ev={ev} onSaved={onSaved} />}
+      {tab === 'expenditure' && <Expenditure ev={ev} onSaved={onSaved} />}
       {tab === 'media' && <Media ev={ev} onChange={reload} />}
       {!isVolunteer && <Modal open={cancel} title={t('Cancel event')} onClose={() => setCancel(false)}
         footer={<><Button variant="secondary" onClick={() => setCancel(false)}>{t('Keep')}</Button><Button variant="danger" busy={busy} disabled={reason.length < 3} onClick={doCancel}>{t('Cancel event')}</Button></>}>

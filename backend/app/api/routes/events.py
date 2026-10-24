@@ -427,7 +427,8 @@ async def submit_report(event_id: str, body: EventReport, db: Db,
 
 
 @router.put("/{event_id}/expenditure")
-async def update_expenditure(event_id: str, body: ExpenditureUpdate, db: Db, actor: Stakeholder):
+async def update_expenditure(event_id: str, body: ExpenditureUpdate, db: Db,
+                             actor: Annotated[dict, Depends(require_permission("events", "update"))]):
     ev = await _load(db, event_id, actor)
     items = [{**i.model_dump(), "amount": round(i.quantity * i.unit_cost, 2)} for i in body.items]
     total = round(sum(i["amount"] for i in items), 2)
