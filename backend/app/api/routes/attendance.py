@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import CurrentUser, Db, Stakeholder
+from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Stakeholder, user_village_ids
 from app.core.permissions import Role
 from app.db import collections as c
 from app.services import audit
@@ -88,7 +88,23 @@ async def get_my_today_attendance(db: Db, user: CurrentUser):
 @router.post("/check-in")
 async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
     """Self-service check-in with NoteCam photo and GPS capture."""
-    today = body.attendance_date or today_local()
+    from app.core.deps import check_not_read_only
+    check_not_read_only(user)
+    is_admin = user.get("role") in ADMIN_ROLES
+    if not is_admin:
+        if body.attendance_date and body.attendance_date != today_local():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Self check-in is only allowed for today's date")
+        if body.village_id:
+            assigned = user_village_ids(user)
+            if assigned and oid(body.village_id) not in assigned:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only check in for your assigned village")
+        if body.gps:
+            if abs(body.gps.lat) < 0.001 and abs(body.gps.lng) < 0.001:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid GPS coordinates (cannot be 0,0)")
+            if not (-90 <= body.gps.lat <= 90 and -180 <= body.gps.lng <= 180):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid GPS coordinates")
+
+    today = today_local() if not is_admin else (body.attendance_date or today_local())
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
 
     # Attendance can only be taken once per day
@@ -107,7 +123,7 @@ async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
 
     now = utcnow()
     now_in_ist = datetime.now(local_tz())
-    check_in_str = body.check_in_time or now_in_ist.strftime("%I:%M %p")
+    check_in_str = (body.check_in_time if is_admin and body.check_in_time else None) or now_in_ist.strftime("%I:%M %p")
 
     # Determine village
     vid = oid(body.village_id) if body.village_id else (user.get("village_id") or (user.get("village_ids")[0] if user.get("village_ids") else None))
@@ -151,7 +167,23 @@ async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
 @router.post("/check-out")
 async def check_out(body: CheckOutRequest, db: Db, user: CurrentUser):
     """Self-service check-out with NoteCam photo and GPS capture."""
-    today = body.attendance_date or today_local()
+    from app.core.deps import check_not_read_only
+    check_not_read_only(user)
+    is_admin = user.get("role") in ADMIN_ROLES
+    if not is_admin:
+        if body.attendance_date and body.attendance_date != today_local():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Self check-out is only allowed for today's date")
+        if body.village_id:
+            assigned = user_village_ids(user)
+            if assigned and oid(body.village_id) not in assigned:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only check out for your assigned village")
+        if body.gps:
+            if abs(body.gps.lat) < 0.001 and abs(body.gps.lng) < 0.001:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid GPS coordinates (cannot be 0,0)")
+            if not (-90 <= body.gps.lat <= 90 and -180 <= body.gps.lng <= 180):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid GPS coordinates")
+
+    today = today_local() if not is_admin else (body.attendance_date or today_local())
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
 
     # Prevent duplicate checkout
@@ -164,7 +196,7 @@ async def check_out(body: CheckOutRequest, db: Db, user: CurrentUser):
 
     now = utcnow()
     now_in_ist = datetime.now(local_tz())
-    check_out_str = body.check_out_time or now_in_ist.strftime("%I:%M %p")
+    check_out_str = (body.check_out_time if is_admin and body.check_out_time else None) or now_in_ist.strftime("%I:%M %p")
 
     gps_dict = body.gps.model_dump() if body.gps else None
     v_name = body.village_name
@@ -237,6 +269,8 @@ async def list_attendance(
 
 @router.post("/batch")
 async def save_attendance(body: AttendanceBatch, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     saved = []
     for entry in body.entries:
         volunteer = await db[c.USERS].find_one({"_id": oid(entry.volunteer_id)})

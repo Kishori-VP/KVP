@@ -48,6 +48,7 @@ const NAV = [
       { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },
       { to: '/cases', label: 'Cases', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },
+      { to: '/field', label: 'Field records', icon: ClipboardList },
     ],
   },
   {
@@ -186,8 +187,12 @@ export default function Layout() {
   const roleLabel =
     user?.role === 'volunteer'
       ? 'Volunteer workspace'
-      : (user?.role === 'stakeholder' || user?.role === 'super_admin')
-      ? 'Stakeholder portal'
+      : (user?.role === 'super_admin' || user?.role === 'stakeholder')
+      ? 'Super Admin portal'
+      : user?.role === 'admin_1'
+      ? 'Admin-1 portal'
+      : user?.role === 'admin_2'
+      ? 'Admin-2 portal'
       : 'Admin portal'
 
   const [open, setOpen] = useState(false)
@@ -296,7 +301,15 @@ export default function Layout() {
                 {user?.name}
               </div>
               <div className="mt-1 text-xs text-white/75">
-                {user?.role === 'volunteer' ? t('Volunteer') : (user?.role === 'stakeholder' || user?.role === 'super_admin') ? t('Stakeholder') : t('Admin')}
+                {user?.role === 'volunteer'
+                  ? t('Volunteer')
+                  : (user?.role === 'super_admin' || user?.role === 'stakeholder')
+                  ? t('Super Admin')
+                  : user?.role === 'admin_1'
+                  ? t('Admin-1')
+                  : user?.role === 'admin_2'
+                  ? t('Admin-2')
+                  : t('Admin')}
               </div>
             </div>
 
@@ -347,7 +360,7 @@ export default function Layout() {
         />
       )}
 
-      {(user?.role === 'admin' || user?.role === 'stakeholder' || user?.role === 'super_admin') && <AdminAssistant />}
+      {(user?.role === 'admin_1' || user?.role === 'admin_2' || user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'stakeholder') && <AdminAssistant />}
     </div>
   )
 }

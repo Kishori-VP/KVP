@@ -307,27 +307,57 @@ async def handover_village(
     targets_transferred = 0
     if transfer_targets:
         now = utcnow()
+        remaining_vids = [v for v in from_village_ids if v != vid]
         targets = await db[c.TARGETS].find({
             "volunteer_id": from_volunteer["_id"],
             "status": "active",
         }).to_list()
         for tg in targets:
-            await db[c.TARGETS].update_one(
-                {"_id": tg["_id"]},
-                {
-                    "$set": {"volunteer_id": to_volunteer["_id"], "updated_at": now},
-                    "$push": {
-                        "revisions": {
-                            "at": now,
-                            "by": actor["_id"],
-                            "by_name": actor.get("name"),
-                            "reason": f"Village handover: {reason}",
-                            "changes": {"volunteer_id": {"from": str(from_volunteer["_id"]), "to": str(to_volunteer["_id"])}},
-                        }
+            tg_vids = tg.get("village_ids") or ([tg["village_id"]] if tg.get("village_id") else [])
+            # If the source volunteer keeps other villages, only transfer targets specific to the handed-over village
+            if remaining_vids:
+                if tg.get("village_id") == vid or (tg_vids and set(tg_vids) == {vid}):
+                    await db[c.TARGETS].update_one(
+                        {"_id": tg["_id"]},
+                        {
+                            "$set": {"volunteer_id": to_volunteer["_id"], "updated_at": now},
+                            "$push": {
+                                "revisions": {
+                                    "at": now,
+                                    "by": actor["_id"],
+                                    "by_name": actor.get("name"),
+                                    "reason": f"Village handover: {reason}",
+                                    "changes": {"volunteer_id": {"from": str(from_volunteer["_id"]), "to": str(to_volunteer["_id"])}},
+                                }
+                            },
+                        },
+                    )
+                    targets_transferred += 1
+                elif vid in tg_vids:
+                    # Update source target to retain remaining villages
+                    updated_vids = [v for v in tg_vids if v != vid]
+                    await db[c.TARGETS].update_one(
+                        {"_id": tg["_id"]},
+                        {"$set": {"village_ids": updated_vids, "updated_at": now}},
+                    )
+            else:
+                # Source volunteer has no remaining villages: transfer all targets to target volunteer
+                await db[c.TARGETS].update_one(
+                    {"_id": tg["_id"]},
+                    {
+                        "$set": {"volunteer_id": to_volunteer["_id"], "updated_at": now},
+                        "$push": {
+                            "revisions": {
+                                "at": now,
+                                "by": actor["_id"],
+                                "by_name": actor.get("name"),
+                                "reason": f"Village handover: {reason}",
+                                "changes": {"volunteer_id": {"from": str(from_volunteer["_id"]), "to": str(to_volunteer["_id"])}},
+                            }
+                        },
                     },
-                },
-            )
-            targets_transferred += 1
+                )
+                targets_transferred += 1
 
     return {
         "assignment": assignment,

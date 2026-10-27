@@ -97,6 +97,9 @@ async def one_setting(key: str, db: Db, _: Stakeholder):
 
 @router.put("/settings/{key}")
 async def update_setting(key: str, value: dict, db: Db, actor: Stakeholder):
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can change configuration settings")
     if key not in SETTING_SCHEMAS:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown setting")
     schema = SETTING_SCHEMAS[key]
@@ -189,6 +192,8 @@ async def upsert_provider(body: ProviderConfigUpsert, db: Db, actor: Stakeholder
 
 @router.delete("/providers/{provider_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_provider(provider_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     doc = await get_or_404(db[c.PROVIDER_CONFIGS], provider_id, "Provider config")
     await db[c.PROVIDER_CONFIGS].delete_one({"_id": doc["_id"]})
     await audit.log(db, actor, "config_change", "provider_config", doc["_id"],

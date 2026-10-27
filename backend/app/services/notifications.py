@@ -54,7 +54,7 @@ async def notify(
 async def notify_stakeholders(db: AsyncDatabase, type_: str, title: str, message: str = "", *,
                               exclude: ObjectId | None = None, **kwargs) -> int:
     created = 0
-    async for u in db[c.USERS].find({"role": Role.STAKEHOLDER.value, "is_active": True}, {"_id": 1}):
+    async for u in db[c.USERS].find({"role": {"$in": [Role.SUPER_ADMIN.value, Role.ADMIN_1.value, Role.ADMIN_2.value, "super_admin", "admin_1", "admin_2", "admin", "stakeholder"]}, "is_active": True}, {"_id": 1}):
         if u["_id"] != exclude and await notify(db, u["_id"], type_, title, message, **kwargs):
             created += 1
     return created

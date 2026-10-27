@@ -192,6 +192,8 @@ export default function EventDetail() {
   const { id } = useParams()
   const { user } = useAuth()
   const isVolunteer = user?.role === 'volunteer'
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
+  const isReadOnly = user?.role === 'admin_2'
   const types = useLookups('event_type')
   const { data: ev, error, reload } = useFetch(`/events/${id}`)
   const [tab, setTab] = useState('overview')
@@ -219,8 +221,8 @@ export default function EventDetail() {
             <Button variant="secondary" size="sm" icon={Download} onClick={() => download(`/events/${id}/export`, { format: 'pdf' })}>{t('PDF')}</Button>
             <Button variant="secondary" size="sm" icon={Download} onClick={() => download(`/events/${id}/export`, { format: 'xlsx' })}>{t('Excel')}</Button>
             {ev.display_status === 'upcoming' || ev.display_status === 'today' ? <Button variant="secondary" size="sm" icon={Send} busy={busy} onClick={notify}>{t('SMS participants')}</Button> : null}
-            {ev.status === 'scheduled' && <Button variant="danger" size="sm" onClick={() => setCancel(true)}>{t('Cancel event')}</Button>}
-            {ev.report && ev.approval?.status === 'pending' && <Button size="sm" onClick={() => setApproval('')}>{t('Review report')}</Button>}
+            {isSuperAdmin && ev.status === 'scheduled' && <Button variant="danger" size="sm" onClick={() => setCancel(true)}>{t('Cancel event')}</Button>}
+            {!isReadOnly && ev.report && ev.approval?.status === 'pending' && <Button size="sm" onClick={() => setApproval('')}>{t('Review report')}</Button>}
           </>}
         </>}
       />
@@ -251,7 +253,7 @@ export default function EventDetail() {
       {tab === 'report' && <ReportForm ev={ev} onSaved={onSaved} />}
       {tab === 'expenditure' && <Expenditure ev={ev} onSaved={onSaved} />}
       {tab === 'media' && <Media ev={ev} onChange={reload} />}
-      {!isVolunteer && <Modal open={cancel} title={t('Cancel event')} onClose={() => setCancel(false)}
+      {!isVolunteer && isSuperAdmin && <Modal open={cancel} title={t('Cancel event')} onClose={() => setCancel(false)}
         footer={<><Button variant="secondary" onClick={() => setCancel(false)}>{t('Keep')}</Button><Button variant="danger" busy={busy} disabled={reason.length < 3} onClick={doCancel}>{t('Cancel event')}</Button></>}>
         <Field label={t('Reason *')}><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
       </Modal>}

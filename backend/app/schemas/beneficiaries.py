@@ -55,6 +55,12 @@ class GirlBase(BaseModel):
     def class_number_only(cls, v):
         return normalise_standard(v)
 
+    @model_validator(mode="after")
+    def dob_not_future(self):
+        if self.dob and self.dob > today_local():
+            raise ValueError("Date of birth cannot be in the future")
+        return self
+
 
 class GirlCreate(GirlBase):
     village_id: ObjectIdStr
@@ -63,12 +69,6 @@ class GirlCreate(GirlBase):
     confirm_not_duplicate: bool = Field(
         False, description="Set true to save even though possible duplicates were found"
     )
-
-    @model_validator(mode="after")
-    def dob_not_future(self):
-        if self.dob and self.dob > today_local():
-            raise ValueError("Date of birth cannot be in the future")
-        return self
 
 
 class GirlUpdate(GirlBase):
@@ -224,6 +224,19 @@ class ActivityReportCreate(BaseModel):
     other_meetings: str | None = Field(None, description="Others met and information received")
     is_historical: bool = False
     client_record_id: str | None = Field(None, min_length=8, max_length=100)
+
+
+class ActivityReportUpdate(BaseModel):
+    """Edit fields for an existing daily activity report."""
+
+    activities: list[str] | None = None
+    health_camp_name: str | None = Field(None, max_length=200)
+    group_ids: list[ObjectIdStr] | None = None
+    girls_present: int | None = Field(None, ge=0)
+    topics_discussed: str | None = None
+    home_visits_count: int | None = Field(None, ge=0)
+    home_visit_girl_ids: list[ObjectIdStr] | None = None
+    other_meetings: str | None = None
 
 
 class ApprovalDecision(BaseModel):

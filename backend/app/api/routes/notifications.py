@@ -59,11 +59,13 @@ async def mark_all_read(db: Db, user: CurrentUser):
 @router.post("/announce", status_code=status.HTTP_201_CREATED)
 async def announce(body: Announcement, db: Db, actor: Stakeholder):
     """Send an in-app message (e.g. a job/assignment instruction) to volunteers or other users."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     query: dict = {"is_active": True}
     if body.audience == "all_volunteers":
         query["role"] = Role.VOLUNTEER.value
     elif body.audience == "all_stakeholders":
-        query["role"] = Role.STAKEHOLDER.value
+        query["role"] = {"$in": [Role.SUPER_ADMIN.value, Role.ADMIN_1.value, Role.ADMIN_2.value, "super_admin", "admin_1", "admin_2", "admin", "stakeholder"]}
     elif body.audience == "users":
         if not body.user_ids:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "user_ids is required for audience 'users'")

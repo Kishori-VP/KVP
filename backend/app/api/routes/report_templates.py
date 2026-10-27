@@ -151,6 +151,8 @@ async def update_template(template_id: str, body: TemplateUpdate, db: Db, actor:
 
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def deactivate_template(template_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     tpl = await get_or_404(db[c.REPORT_TEMPLATES], template_id, "Report template")
     in_use = await db[c.REPORT_SCHEDULES].count_documents({"template_id": tpl["_id"], "is_active": True})
     if in_use:
@@ -235,6 +237,8 @@ async def download_attachment(template_id: str, attachment_id: str, db: Db, _: S
 
 @router.delete("/templates/{template_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def remove_attachment(template_id: str, attachment_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     tpl, entry = await _attachment(db, template_id, attachment_id)
     await db[c.REPORT_TEMPLATES].update_one({"_id": tpl["_id"]}, {"$pull": {"attachments": {"id": attachment_id}},
                                                                   "$set": {"updated_at": utcnow()}})

@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { TalukaSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs } from '../components/ui'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { invalidateRefData, useAction, useFetch, useVillages } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
 
@@ -93,6 +94,8 @@ function GroupModal({ group, onClose, onSaved }) {
 }
 
 function Groups() {
+  const { user } = useAuth()
+  const canAddGroup = user?.role === 'super_admin' || user?.role === 'admin_1' || user?.role === 'stakeholder'
   const [f, setF] = useState({ village_id: '', group_type: '' })
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null)
@@ -103,7 +106,7 @@ function Groups() {
     <Card padded={false} title={t('Kishori & Bal Panchayat groups')} actions={<>
       <VillageSelect value={f.village_id} onChange={(v) => { setF({ ...f, village_id: v }); setPage(1) }} />
       <Select options={[{ value: 'kishori', label: t('Kishori') }, { value: 'bal_panchayat', label: t('Bal Panchayat') }]} placeholder={t('All types')} value={f.group_type} onChange={(e) => { setF({ ...f, group_type: e.target.value }); setPage(1) }} />
-      <Button size="sm" icon={Plus} onClick={() => setModal('new')}>{t('Add group')}</Button>
+      {canAddGroup && <Button size="sm" icon={Plus} onClick={() => setModal('new')}>{t('Add group')}</Button>}
     </>}>
       {!data ? <Spinner /> : (
         <>

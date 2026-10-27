@@ -15,10 +15,28 @@ from typing import Dict, List
 class Role(str, Enum):
     """Application roles."""
 
-    STAKEHOLDER = "stakeholder"  # Top-level monitor (oversight over Admin and Volunteer)
-    ADMIN = "admin"              # Administrator / Program Coordinator
+    SUPER_ADMIN = "super_admin"  # Highest authority: full CRUD everywhere
+    ADMIN_1 = "admin_1"          # Admin-1: can add events, groups, edit, but cannot add volunteers or delete
+    ADMIN_2 = "admin_2"          # Admin-2: read-only monitor over all volunteers
     VOLUNTEER = "volunteer"      # Volunteer (field worker)
-    SUPER_ADMIN = "super_admin"  # Alias for Stakeholder
+
+    # Backward compatibility aliases
+    STAKEHOLDER = "super_admin"
+    ADMIN = "admin_1"
+
+    @classmethod
+    def _missing_(cls, value):
+        if isinstance(value, str):
+            val = value.lower().replace("-", "_").strip()
+            if val in ("stakeholder", "superadmin", "super_admin"):
+                return cls.SUPER_ADMIN
+            if val in ("admin", "admin_1", "admin1"):
+                return cls.ADMIN_1
+            if val in ("admin_2", "admin2"):
+                return cls.ADMIN_2
+            if val == "volunteer":
+                return cls.VOLUNTEER
+        return super()._missing_(value)
 
 
 # Resources supported by the permission system.
@@ -92,8 +110,18 @@ def full_matrix(
     Unknown actions are ignored. Resources not present in the supplied
     Volunteer permissions receive no permissions unless explicitly configured.
     """
-    stakeholder_permissions = {
+    super_admin_permissions = {
         resource: list(ACTIONS)
+        for resource in RESOURCES
+    }
+
+    admin_1_permissions = {
+        resource: [a for a in ACTIONS if a != "delete"]
+        for resource in RESOURCES
+    }
+
+    admin_2_permissions = {
+        resource: ["read"]
         for resource in RESOURCES
     }
 
@@ -112,8 +140,8 @@ def full_matrix(
             ]
 
     return {
-        Role.STAKEHOLDER: stakeholder_permissions,
-        Role.ADMIN: stakeholder_permissions,
-        Role.SUPER_ADMIN: stakeholder_permissions,
+        Role.SUPER_ADMIN: super_admin_permissions,
+        Role.ADMIN_1: admin_1_permissions,
+        Role.ADMIN_2: admin_2_permissions,
         Role.VOLUNTEER: volunteer_matrix,
     }

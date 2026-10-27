@@ -6,6 +6,7 @@ import { GroupMultiSelect, VillageSelect, VolunteerSelect } from '../components/
 import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, ProgressBar, Select, Spinner, StatTile, StatusBadge, Table, Tabs } from '../components/ui'
 import HandoverModal from '../components/HandoverModal'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
@@ -155,6 +156,8 @@ function History({ id }) {
 }
 
 export default function VolunteerDetail() {
+  const { user: me } = useAuth()
+  const isReadOnly = me?.role === 'admin_2'
   const { id } = useParams()
   const { data: v, error, reload } = useFetch(`/volunteers/${id}`)
   const { data: hist, reload: reloadHist } = useFetch(`/volunteers/${id}/assignments`)
@@ -168,7 +171,7 @@ export default function VolunteerDetail() {
       <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Volunteers')}</Link>
       <PageHeader title={v.name}
         subtitle={<>{v.phone || t('No mobile yet')}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
-        actions={unassigned
+        actions={isReadOnly ? null : unassigned
           ? <Button icon={MapPin} onClick={() => setModal('assign')}>{t('Assign village')}</Button>
           : <>
               <Button variant="secondary" icon={MapPin} onClick={() => setModal('assign')}>{t('Assign another village')}</Button>

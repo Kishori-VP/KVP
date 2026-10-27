@@ -5,6 +5,7 @@ import { GroupMultiSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, ProgressBar, Select, Spinner, Table, Tabs } from '../components/ui'
 import HandoverModal from '../components/HandoverModal'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { fmtDate } from '../lib/format'
 import { invalidateRefData, useAction, useFetch } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
@@ -15,7 +16,7 @@ function AddTai({ onClose, onSaved }) {
   const save = () => run(async () => {
     const r = await api.post('/users', {
       role: 'volunteer', name: f.name, phone: f.phone || null, email: f.email || null, password: f.password,
-      designation: f.designation || null, village_id: f.village_id || null, group_ids: f.village_id ? f.group_ids : [],
+      village_id: f.village_id || null, group_ids: f.village_id ? f.group_ids : [],
     })
     invalidateRefData()
     onSaved(r.data)
@@ -28,8 +29,7 @@ function AddTai({ onClose, onSaved }) {
         <Field label={t('Name *')}><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label={t('Mobile (used to log in; can be added later)')}><Input value={f.phone || ''} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
         <Field label={t('Email')}><Input type="email" value={f.email || ''} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
-        <Field label={t('Designation')}><Input placeholder={t('e.g. Field worker')} value={f.designation || ''} onChange={(e) => setF({ ...f, designation: e.target.value })} /></Field>
-        <Field label={t('Initial password * (min 8)')} className="sm:col-span-2"><Input type="password" value={f.password || ''} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
+        <Field label={t('Initial password * (min 8)')}><Input type="password" value={f.password || ''} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
       </div>
       <Field label={t('Village (optional)')} hint={t('Assign a village to this Volunteer. Multiple villages can also be assigned from Volunteer details.')}>
         <VillageSelect value={f.village_id} onChange={(v) => setF({ ...f, village_id: v, group_ids: [] })} placeholder={t('Assign later')} />
@@ -40,6 +40,9 @@ function AddTai({ onClose, onSaved }) {
 }
 
 function Roster() {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
+  const isReadOnly = user?.role === 'admin_2'
   const nav = useNavigate()
   const [assigned, setAssigned] = useState('')
   const [adding, setAdding] = useState(false)
@@ -51,8 +54,8 @@ function Roster() {
     <Card padded={false} title={t('{n} Volunteer(s)', { n: data.length })} actions={<>
       <Select options={[{ value: 'true', label: t('Assigned to a village') }, { value: 'false', label: t('Not yet assigned') }]} placeholder={t('All Volunteers')}
         value={assigned} onChange={(e) => setAssigned(e.target.value)} />
-      <Button size="sm" variant="secondary" icon={ArrowRightLeft} onClick={() => setHandingOver(true)}>{t('Handover village')}</Button>
-      <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>{t('Add Volunteer')}</Button>
+      {!isReadOnly && <Button size="sm" variant="secondary" icon={ArrowRightLeft} onClick={() => setHandingOver(true)}>{t('Handover village')}</Button>}
+      {isSuperAdmin && <Button size="sm" icon={Plus} onClick={() => setAdding(true)}>{t('Add Volunteer')}</Button>}
     </>}>
       <Table onRowClick={(r) => nav(`/volunteers/${r.id}`)} columns={[
         { key: 'name', label: t('Volunteer'), className: 'font-medium' },

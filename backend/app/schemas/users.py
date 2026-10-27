@@ -61,7 +61,7 @@ class UserCreate(BaseModel):
             self.village_id = self.village_ids[0]
         if self.group_ids and not self.village_ids:
             raise ValueError("Groups can only be assigned together with a village")
-        if self.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and (self.village_ids or self.group_ids):
+        if self.role in (Role.SUPER_ADMIN, Role.ADMIN_1, Role.ADMIN_2) and (self.village_ids or self.group_ids):
             raise ValueError("Admins and Super Admins are not mapped to a village")
         return self
 

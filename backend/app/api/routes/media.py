@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 
-from app.core.deps import CurrentUser, Db, Stakeholder, require_permission, village_scope
+from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Stakeholder, require_permission, village_scope
 from app.core.permissions import Role
 from app.db import collections as c
 from app.services import audit, storage
@@ -21,7 +21,7 @@ PERMISSION_RESOURCE = {"event": "events", "home_visit": "home_visits", "case": "
 
 
 async def _can_access(db, user: dict, media: dict) -> None:
-    if user["role"] == Role.STAKEHOLDER:
+    if user["role"] in ADMIN_ROLES:
         return
     if media.get("sensitive"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Sensitive media is restricted")
@@ -52,6 +52,8 @@ async def upload(
     await require_permission(PERMISSION_RESOURCE[entity_type], "update")(db, user)
     coll = storage.ENTITY_COLLECTIONS[entity_type]
     record = await get_or_404(db[coll], entity_id, entity_type.replace("_", " ").title(), village_scope(user))
+    if entity_type == "event" and record.get("status") == "cancelled":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Event is cancelled")
     doc, created = await storage.save_upload(
         db, file, entity_type, record["_id"], user, lat=lat, lng=lng, accuracy_m=accuracy_m,
         captured_at=captured_at, caption=caption, sensitive=sensitive or entity_type in ("case", "girl"),
@@ -109,6 +111,8 @@ async def download(media_id: str, db: Db, user: CurrentUser):
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_media(media_id: str, db: Db, actor: Stakeholder, reason: Annotated[str, Query(min_length=3)]):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     media = await get_or_404(db[c.MEDIA], media_id, "Media")
     coll = storage.ENTITY_COLLECTIONS.get(media["entity_type"])
     if coll:

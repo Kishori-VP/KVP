@@ -549,6 +549,8 @@ async def assignment_history(volunteer_id: str, db: Db, _: Stakeholder):
 @router.post("/{volunteer_id}/assign")
 async def assign(volunteer_id: str, body: AssignRequest, db: Db, actor: Stakeholder):
     """Add a village to a volunteer. Her other villages stay as they are; use /reassign to move her."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     v = await _volunteer(db, volunteer_id)
     if not v["is_active"]:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cannot assign an inactive volunteer")
@@ -570,6 +572,8 @@ async def assign(volunteer_id: str, body: AssignRequest, db: Db, actor: Stakehol
 async def remove_village(volunteer_id: str, village_id: ObjectIdStr, body: RemoveVillageRequest, db: Db,
                          actor: Stakeholder):
     """Stop a volunteer working in one village. Her other villages and her targets are unaffected."""
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     v = await _volunteer(db, volunteer_id)
     village = await get_or_404(db[c.VILLAGES], village_id, "Village")
     before = user_village_ids(v)
@@ -586,6 +590,8 @@ async def remove_village(volunteer_id: str, village_id: ObjectIdStr, body: Remov
 async def reassign(volunteer_id: str, body: ReassignRequest, db: Db, actor: Stakeholder):
     """Move a volunteer from one of her villages (from_village_id) to another village, set the groups
     in the new village, and decide what happens to her open targets."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     v = await _volunteer(db, volunteer_id)
     if not v["is_active"]:
         raise HTTPException(status.HTTP_409_CONFLICT, "Cannot reassign an inactive volunteer")
@@ -625,6 +631,8 @@ async def reassign(volunteer_id: str, body: ReassignRequest, db: Db, actor: Stak
 
 @router.put("/{volunteer_id}/groups")
 async def set_groups(volunteer_id: str, body: GroupAssignment, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     v = await _volunteer(db, volunteer_id)
     groups = await assignments.set_groups(db, v, body.group_ids)
     await audit.log(db, actor, "update", "user", v["_id"], f"Updated groups for {v['name']}",
@@ -773,6 +781,8 @@ async def field_coverage(volunteer_id: str, db: Db, _: Stakeholder,
 @router.post("/{volunteer_id}/unassign/{village_id}")
 async def unassign_volunteer_village(volunteer_id: str, village_id: str, db: Db, actor: Stakeholder, reason: str = "Unassignment"):
     """Remove one assigned village from a Volunteer."""
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     v = await _volunteer(db, volunteer_id)
     await assignments.unassign_village(db, v, village_id, actor, reason)
     await audit.log(db, actor, "unassign", "user", v["_id"], f"Unassigned {v['name']} from village {village_id}")
@@ -782,6 +792,8 @@ async def unassign_volunteer_village(volunteer_id: str, village_id: str, db: Db,
 @router.post("/handover")
 async def handover_village(body: HandoverRequest, db: Db, actor: Stakeholder):
     """Hand over a village from one Volunteer to another Volunteer."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     from_vol = await _volunteer(db, body.from_volunteer_id)
     to_vol = await _volunteer(db, body.to_volunteer_id)
 

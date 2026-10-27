@@ -23,7 +23,7 @@ def ok(r, code=200):
 
 def test_auth(client, admin):
     me = ok(client.get(f"{API}/auth/me", headers=admin))
-    assert me["role"] == "stakeholder"
+    assert me["role"] in ("super_admin", "stakeholder")
     assert "password_hash" not in me
     assert client.post(f"{API}/auth/login", json={"identifier": "9000000001", "password": "wrong"}).status_code == 401
     assert client.get(f"{API}/users").status_code == 401

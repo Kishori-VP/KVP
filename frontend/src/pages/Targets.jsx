@@ -60,6 +60,8 @@ function CreateModal({ open, onClose, onSaved }) {
 }
 
 function DetailModal({ target, onClose, onChanged }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [rev, setRev] = useState({ target_value: target.target_value, period_end: (target.period_end || '').slice(0, 10), reason: '' })
   const [cancelReason, setCancelReason] = useState('')
   const { busy, error, run } = useAction()
@@ -90,7 +92,7 @@ function DetailModal({ target, onClose, onChanged }) {
           { key: 'changes', label: t('Changes'), render: (r) => Object.entries(r.changes || {}).map(([k, c]) => `${humanize(k)}: ${c.from} → ${c.to}`).join('; ') },
         ]} rows={target.revisions} empty={t('Never revised.')} />
       </div>
-      {target.status === 'active' && (
+      {isSuperAdmin && target.status === 'active' && (
         <div className="flex items-end gap-2 border-t border-gray-100 pt-3">
           <Field label={t('Cancel target — reason')} className="flex-1"><Input value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} /></Field>
           <Button variant="danger" size="sm" busy={busy} disabled={cancelReason.length < 3} onClick={cancel}>{t('Cancel target')}</Button>
@@ -202,6 +204,8 @@ function DefaultTargetsCard({ onApplied }) {
 export default function Targets() {
   const { user } = useAuth()
   const isVolunteer = user?.role === 'volunteer'
+  const isReadOnly = user?.role === 'admin_2'
+  const canAssign = !isVolunteer && !isReadOnly
   const [f, setF] = useState({ when: 'current', volunteer_id: '', target_type: '', status: '' })
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
@@ -210,8 +214,8 @@ export default function Targets() {
   const set = (k, v) => { setF({ ...f, [k]: v }); setPage(1) }
   return (
     <div>
-      <PageHeader title={t(isVolunteer ? 'My targets' : 'Targets')} subtitle={t('Live progress against assigned jobs and targets')} actions={!isVolunteer && <Button icon={Plus} onClick={() => setCreating(true)}>{t('Assign targets')}</Button>} />
-      {!isVolunteer && <DefaultTargetsCard onApplied={reload} />}
+      <PageHeader title={t(isVolunteer ? 'My targets' : 'Targets')} subtitle={t('Live progress against assigned jobs and targets')} actions={canAssign && <Button icon={Plus} onClick={() => setCreating(true)}>{t('Assign targets')}</Button>} />
+      {canAssign && <DefaultTargetsCard onApplied={reload} />}
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-4">
           <Select options={['current', 'upcoming', 'past', 'all']} value={f.when} onChange={(e) => set('when', e.target.value)} />
@@ -236,8 +240,8 @@ export default function Targets() {
           </>
         )}
       </Card>
-      {!isVolunteer && creating && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
-      {selected && (isVolunteer ? <ModalReadOnlyTarget target={selected} onClose={() => setSelected(null)} /> : <DetailModal target={selected} onClose={() => setSelected(null)} onChanged={() => { setSelected(null); reload() }} />)}
+      {canAssign && creating && <CreateModal key={String(creating)} open={creating} onClose={() => setCreating(false)} onSaved={reload} />}
+      {selected && ((isVolunteer || isReadOnly) ? <ModalReadOnlyTarget target={selected} onClose={() => setSelected(null)} /> : <DetailModal target={selected} onClose={() => setSelected(null)} onChanged={() => { setSelected(null); reload() }} />)}
     </div>
   )
 }

@@ -14,7 +14,7 @@ from pymongo.errors import DuplicateKeyError
 from app.core.deps import Db, Pagination, Stakeholder, ADMIN_ROLES, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
-from app.schemas.beneficiaries import ActivityReportCreate, ApprovalDecision, HomeVisitCreate, HomeVisitUpdate
+from app.schemas.beneficiaries import ActivityReportCreate, ActivityReportUpdate, ApprovalDecision, HomeVisitCreate, HomeVisitUpdate
 from app.services import audit
 from app.services.beneficiaries import touch_participation
 from app.services.lookups import ensure_code
@@ -156,8 +156,6 @@ async def list_home_visits(
 @router.get("/home-visits/{visit_id}")
 async def get_home_visit(visit_id: str, db: Db, user: Annotated[dict, Depends(require_permission("home_visits", "read"))]):
     visit = await get_or_404(db[c.HOME_VISITS], visit_id, "Home visit", village_scope(user))
-    if user["role"] == Role.VOLUNTEER and visit.get("volunteer_id") != user["_id"]:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Home visit not found")
     out = serialize(visit)
     out["girls"] = serialize(await db[c.GIRLS].find({"_id": {"$in": visit.get("girl_ids", [])}},
                                                    {"girl_code": 1, "name": 1}).to_list())
@@ -169,8 +167,8 @@ async def get_home_visit(visit_id: str, db: Db, user: Annotated[dict, Depends(re
 async def update_home_visit(visit_id: str, body: HomeVisitUpdate, db: Db,
                             user: Annotated[dict, Depends(require_permission("home_visits", "update"))]):
     before = await get_or_404(db[c.HOME_VISITS], visit_id, "Home visit", village_scope(user))
-    if user["role"] == Role.VOLUNTEER and before.get("volunteer_id") != user["_id"]:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Home visit not found")
+    if user["role"] == Role.VOLUNTEER.value and before.get("volunteer_id") != user["_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You cannot modify another volunteer's home visit")
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return serialize(before)
@@ -198,6 +196,8 @@ async def approve_home_visit(visit_id: str, body: ApprovalDecision, db: Db, acto
 
 @router.delete("/home-visits/{visit_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_home_visit(visit_id: str, db: Db, actor: Stakeholder, reason: str = Query(min_length=3)):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     visit = await get_or_404(db[c.HOME_VISITS], visit_id, "Home visit")
     await db[c.HOME_VISITS].delete_one({"_id": visit["_id"]})
     await audit.log(db, actor, "delete", "home_visit", visit["_id"], "Deleted home visit",
@@ -304,8 +304,48 @@ async def get_activity_report(report_id: str, db: Db,
     return serialize(doc)
 
 
+@router.patch("/activity-reports/{report_id}")
+async def update_activity_report(
+    report_id: str,
+    body: ActivityReportUpdate,
+    db: Db,
+    user: Annotated[dict, Depends(require_permission("activity_reports", "update"))],
+):
+    before = await get_or_404(db[c.ACTIVITY_REPORTS], report_id, "Activity report")
+    if user["role"] == Role.VOLUNTEER.value and before.get("volunteer_id") != user["_id"] and before.get("submitted_by") != user["_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only edit your own activity reports")
+
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        return serialize(before)
+
+    if "activities" in updates and updates["activities"]:
+        for code in updates["activities"]:
+            await ensure_code(db, "activity_type", code, "activity")
+        if "health_camp" in updates["activities"] and not (updates.get("health_camp_name") or before.get("health_camp_name") or "").strip():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Say which health camp it was")
+
+    if "group_ids" in updates and updates["group_ids"] is not None:
+        group_ids = oids(updates["group_ids"])
+        in_village = {"$or": [{"village_id": before["village_id"]}, {"member_village_ids": before["village_id"]}]}
+        if group_ids and await db[c.GROUPS].count_documents({"_id": {"$in": group_ids}, **in_village}) != len(set(group_ids)):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Groups must belong to the volunteer's village")
+        updates["group_ids"] = group_ids
+
+    if "home_visit_girl_ids" in updates and updates["home_visit_girl_ids"] is not None:
+        updates["home_visit_girl_ids"] = await _girls_in_village(db, updates["home_visit_girl_ids"], before["village_id"])
+
+    updates["updated_at"] = utcnow()
+    await db[c.ACTIVITY_REPORTS].update_one({"_id": before["_id"]}, {"$set": updates})
+    after = await db[c.ACTIVITY_REPORTS].find_one({"_id": before["_id"]})
+    await audit.log(db, user, "update", "activity_report", before["_id"], "Updated activity report", diff(before, after))
+    return serialize(after)
+
+
 @router.delete("/activity-reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_activity_report(report_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by coordinator", min_length=3)):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     report = await get_or_404(db[c.ACTIVITY_REPORTS], report_id, "Activity report")
     await db[c.ACTIVITY_REPORTS].delete_one({"_id": report["_id"]})
     await audit.log(db, actor, "delete", "activity_report", report["_id"], "Deleted activity report",

@@ -42,9 +42,8 @@ async def create_user(body: UserCreate, db: Db, actor: Stakeholder):
         "updated_at": now,
         "last_login_at": None,
     }
-    from app.core.deps import OVERSIGHT_ROLES
-    if body.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and actor.get("role") not in OVERSIGHT_ROLES:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Stakeholder can create another Stakeholder")
+    from app.core.deps import check_can_add_volunteer
+    check_can_add_volunteer(actor)
 
     if body.role == Role.VOLUNTEER and body.village_ids:
         # Validate before inserting so a bad village/group never leaves an orphan user.
@@ -112,6 +111,10 @@ async def get_user(user_id: str, db: Db, _: Stakeholder):
 @router.patch("/{user_id}")
 async def update_user(user_id: str, body: UserUpdate, db: Db, actor: Stakeholder):
     before = await get_or_404(db[c.USERS], user_id, "User")
+    from app.core.deps import check_not_read_only, is_super_admin
+    check_not_read_only(actor)
+    if before["_id"] != actor["_id"] and not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can modify other user profiles")
     updates = body.model_dump(exclude_unset=True)
     if "email" in updates and updates["email"]:
         updates["email"] = updates["email"].lower()
@@ -132,14 +135,9 @@ async def change_role(user_id: str, body: RoleChange, db: Db, actor: Stakeholder
     user = await get_or_404(db[c.USERS], user_id, "User")
     if user["role"] == body.role:
         raise HTTPException(status.HTTP_409_CONFLICT, f"User is already a {body.role.value}")
-    # SEDT rule: an administrative Stakeholder account must not be converted into a field Volunteer.
-    from app.core.deps import OVERSIGHT_ROLES
-    if user.get("role") in OVERSIGHT_ROLES and actor.get("role") not in OVERSIGHT_ROLES:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Stakeholder can modify a Stakeholder account")
-    if body.role in (Role.STAKEHOLDER, Role.SUPER_ADMIN) and actor.get("role") not in OVERSIGHT_ROLES:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a Stakeholder can promote a user to Stakeholder")
-    if user["role"] in (Role.STAKEHOLDER, Role.SUPER_ADMIN, Role.ADMIN) and body.role == Role.VOLUNTEER and actor.get("role") not in OVERSIGHT_ROLES:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Stakeholder/Admin accounts cannot be converted to Volunteers. Create a separate Volunteer account.")
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can change user roles")
     if user["_id"] == actor["_id"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot change your own role")
     reason = body.reason or "Role change"
@@ -160,6 +158,9 @@ async def change_role(user_id: str, body: RoleChange, db: Db, actor: Stakeholder
 @router.patch("/{user_id}/status")
 async def change_status(user_id: str, body: StatusChange, db: Db, actor: Stakeholder):
     user = await get_or_404(db[c.USERS], user_id, "User")
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can activate or deactivate accounts")
     if user["_id"] == actor["_id"] and not body.is_active:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot deactivate yourself")
     await db[c.USERS].update_one({"_id": user["_id"]}, {"$set": {"is_active": body.is_active, "updated_at": utcnow()}})
@@ -174,6 +175,9 @@ async def change_status(user_id: str, body: StatusChange, db: Db, actor: Stakeho
 @router.post("/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)
 async def reset_password(user_id: str, body: PasswordReset, db: Db, actor: Stakeholder):
     user = await get_or_404(db[c.USERS], user_id, "User")
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor) and user["_id"] != actor["_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can reset user passwords")
     await db[c.USERS].update_one(
         {"_id": user["_id"]}, {"$set": {"password_hash": hash_password(body.new_password), "updated_at": utcnow()}}
     )

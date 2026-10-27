@@ -51,6 +51,9 @@ async def _update(db, coll: str, id_: str, label: str, updates: dict, actor: dic
 
 @router.post("/talukas", status_code=status.HTTP_201_CREATED)
 async def create_taluka(body: TalukaCreate, db: Db, actor: Stakeholder):
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can manage talukas")
     now = utcnow()
     doc = {**body.model_dump(), "code": await next_code(db, c.TALUKAS, {}), "created_at": now, "updated_at": now}
     try:
@@ -89,6 +92,9 @@ async def list_districts(db: Db, _: CurrentUser):
 
 @router.patch("/talukas/{taluka_id}")
 async def update_taluka(taluka_id: str, body: TalukaUpdate, db: Db, actor: Stakeholder):
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can manage talukas")
     updates = body.model_dump(exclude_unset=True)
     result = await _update(db, c.TALUKAS, taluka_id, "Taluka", updates, actor, "taluka")
     if "district" in updates:
@@ -100,6 +106,9 @@ async def update_taluka(taluka_id: str, body: TalukaUpdate, db: Db, actor: Stake
 
 @router.post("/villages", status_code=status.HTTP_201_CREATED)
 async def create_village(body: VillageCreate, db: Db, actor: Stakeholder):
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can manage villages")
     taluka = await get_or_404(db[c.TALUKAS], body.taluka_id, "Taluka")
     now = utcnow()
     doc = {
@@ -148,7 +157,14 @@ async def list_villages(
 
     girls = await count_by(c.GIRLS, {"is_deleted": {"$ne": True}})
     groups = await count_by(c.GROUPS, {"group_type": "kishori", "is_active": True})
-    vols = await count_by(c.USERS, {"role": Role.VOLUNTEER.value, "is_active": True})
+    vol_pipeline = [
+        {"$match": {"role": Role.VOLUNTEER.value, "is_active": True}},
+        {"$project": {"vids": {"$cond": [{"$gt": [{"$size": {"$ifNull": ["$village_ids", []]}}, 0]}, "$village_ids", ["$village_id"]]}}},
+        {"$unwind": "$vids"},
+        {"$match": {"vids": {"$in": ids}}},
+        {"$group": {"_id": "$vids", "n": {"$sum": 1}}},
+    ]
+    vols = {d["_id"]: d["n"] async for d in await db[c.USERS].aggregate(vol_pipeline)}
     talukas = {t["_id"]: t for t in await db[c.TALUKAS].find().to_list()}
     return [
         {
@@ -165,6 +181,9 @@ async def list_villages(
 @router.put("/villages/locations")
 async def bulk_update_locations(body: VillageLocationsUpdate, db: Db, actor: Stakeholder):
     """Set coordinates (and PIN codes) for many villages at once, for the village map."""
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can update village locations")
     ids = [oid(i.village_id) for i in body.items]
     found = {v["_id"]: v async for v in db[c.VILLAGES].find({"_id": {"$in": ids}})}
     missing = [str(i) for i in ids if i not in found]
@@ -192,7 +211,8 @@ async def get_village(village_id: str, db: Db, user: CurrentUser):
     groups = await db[c.GROUPS].find({"$or": [{"village_id": vid}, {"member_village_ids": vid}]}).sort(
         [("group_type", 1), ("name", 1)]).to_list()
     volunteers = await db[c.USERS].find(
-        {"village_id": vid, "role": Role.VOLUNTEER.value}, {"name": 1, "phone": 1, "is_active": 1, "group_ids": 1}
+        {"$or": [{"village_ids": vid}, {"village_id": vid}], "role": Role.VOLUNTEER.value},
+        {"name": 1, "phone": 1, "is_active": 1, "group_ids": 1}
     ).to_list()
     contacts = await db[c.CONTACTS].find({"village_id": vid, "is_active": True}).to_list()
     present = {ct["category"] for ct in contacts}
@@ -226,6 +246,9 @@ async def get_village(village_id: str, db: Db, user: CurrentUser):
 
 @router.patch("/villages/{village_id}")
 async def update_village(village_id: str, body: VillageUpdate, db: Db, actor: Stakeholder):
+    from app.core.deps import is_super_admin
+    if not is_super_admin(actor):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Super Admin can update villages")
     updates = body.model_dump(exclude_unset=True)
     if "taluka_id" in updates:
         taluka = await get_or_404(db[c.TALUKAS], updates["taluka_id"], "Taluka")
@@ -237,8 +260,17 @@ async def update_village(village_id: str, body: VillageUpdate, db: Db, actor: St
     if "taluka_id" in updates:
         # Keep denormalised taluka references in sync.
         vid = oid(village_id)
-        for coll in (c.GIRLS, c.USERS, c.CONTACTS):
-            await db[coll].update_many({"village_id": vid}, {"$set": {"taluka_id": updates["taluka_id"]}})
+        new_taluka = updates["taluka_id"]
+        for coll in (c.GIRLS, c.CONTACTS, c.CASES, c.EVENTS, c.HOME_VISITS, c.ACTIVITY_REPORTS, c.GROUPS):
+            await db[coll].update_many({"village_id": vid}, {"$set": {"taluka_id": new_taluka}})
+        await db[c.USERS].update_many(
+            {"$or": [{"village_id": vid}, {"village_ids": vid}]},
+            {"$set": {"taluka_id": new_taluka}}
+        )
+        await db[c.TARGETS].update_many(
+            {"$or": [{"village_id": vid}, {"village_ids": vid}]},
+            {"$set": {"taluka_id": new_taluka}}
+        )
     return result
 
 
@@ -264,6 +296,8 @@ async def _member_villages(db, ids: list, home_village_id) -> list:
 
 @router.post("/groups", status_code=status.HTTP_201_CREATED)
 async def create_group(body: GroupCreate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     village = await get_or_404(db[c.VILLAGES], body.village_id, "Village")
     vol_id = await _check_responsible(db, body.responsible_volunteer_id, village["_id"])
     members = await _member_villages(db, body.member_village_ids, village["_id"])
@@ -379,6 +413,8 @@ async def get_group(group_id: str, db: Db, user: CurrentUser):
 
 @router.patch("/groups/{group_id}")
 async def update_group(group_id: str, body: GroupUpdate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     group = await get_or_404(db[c.GROUPS], group_id, "Group")
     updates = body.model_dump(exclude_unset=True)
     if "responsible_volunteer_id" in updates:

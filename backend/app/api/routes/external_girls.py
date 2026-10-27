@@ -29,6 +29,33 @@ from app.utils.translit import to_latin
 router = APIRouter(tags=["external girls"])
 
 
+async def recompute_call_summary(db, girl_id):
+    now = utcnow()
+    gid = oid(girl_id)
+    executed_filter = {"external_girl_id": gid, "status": {"$ne": "planned"}}
+    total_calls = await db[c.EXTERNAL_CALLS].count_documents(executed_filter)
+    cursor = db[c.EXTERNAL_CALLS].find(
+        {"external_girl_id": gid, "status": {"$ne": "planned"}, "call_date": {"$lte": now}}
+    ).sort([("call_date", -1), ("created_at", -1)]).limit(1)
+    calls = await cursor.to_list(1)
+    if calls:
+        latest = calls[0]
+        summary = {
+            "total_calls": total_calls,
+            "last_call_at": latest["call_date"],
+            "last_call_status": latest["status"],
+            "last_caller_name": latest.get("caller_name"),
+        }
+    else:
+        summary = {
+            "total_calls": total_calls,
+            "last_call_at": None,
+            "last_call_status": None,
+            "last_caller_name": None,
+        }
+    await db[c.EXTERNAL_GIRLS].update_one({"_id": gid}, {"$set": {"call_summary": summary, "updated_at": now}})
+
+
 # ---------------------------------------------------------------- External Girls
 
 
@@ -124,6 +151,8 @@ async def get_external_girl(
 ):
     """Get single external girl with recent calls."""
     girl = await get_or_404(db[c.EXTERNAL_GIRLS], girl_id, "External girl")
+    if girl.get("is_deleted"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "External girl not found")
     out = serialize(girl)
     calls = await db[c.EXTERNAL_CALLS].find(
         {"external_girl_id": girl["_id"]}
@@ -141,6 +170,8 @@ async def update_external_girl(
 ):
     """Update external girl profile."""
     before = await get_or_404(db[c.EXTERNAL_GIRLS], girl_id, "External girl")
+    if before.get("is_deleted"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "External girl not found")
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return serialize(before)
@@ -174,6 +205,8 @@ async def delete_external_girl(
 ):
     """Soft delete an external girl."""
     girl = await get_or_404(db[c.EXTERNAL_GIRLS], girl_id, "External girl")
+    from app.core.deps import check_can_delete
+    check_can_delete(user)
     now = utcnow()
     await db[c.EXTERNAL_GIRLS].update_one(
         {"_id": girl["_id"]},
@@ -259,19 +292,8 @@ async def create_external_call(
     }
     res = await db[c.EXTERNAL_CALLS].insert_one(doc)
 
-    # Update summary on the girl's document
-    await db[c.EXTERNAL_GIRLS].update_one(
-        {"_id": girl["_id"]},
-        {
-            "$inc": {"call_summary.total_calls": 1},
-            "$set": {
-                "call_summary.last_call_at": call_dt,
-                "call_summary.last_call_status": body.status,
-                "call_summary.last_caller_name": user.get("name") or user.get("username"),
-                "updated_at": now,
-            },
-        },
-    )
+    # Recompute summary on the girl's document
+    await recompute_call_summary(db, girl["_id"])
 
     await audit.log(
         db,
@@ -304,6 +326,9 @@ async def update_external_call(
 ):
     """Update call record."""
     before = await get_or_404(db[c.EXTERNAL_CALLS], call_id, "External call")
+    from app.core.deps import ADMIN_ROLES
+    if user.get("role") not in ADMIN_ROLES and before.get("caller_id") != user["_id"] and before.get("created_by") != user["_id"]:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only admins or the caller can modify this call record")
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return serialize(before)
@@ -313,6 +338,7 @@ async def update_external_call(
     updates["updated_at"] = utcnow()
 
     await db[c.EXTERNAL_CALLS].update_one({"_id": before["_id"]}, {"$set": updates})
+    await recompute_call_summary(db, before["external_girl_id"])
     after = await db[c.EXTERNAL_CALLS].find_one({"_id": before["_id"]})
     await audit.log(
         db,
@@ -334,12 +360,10 @@ async def delete_external_call(
 ):
     """Delete a call record."""
     call = await get_or_404(db[c.EXTERNAL_CALLS], call_id, "External call")
+    from app.core.deps import check_can_delete
+    check_can_delete(user)
     await db[c.EXTERNAL_CALLS].delete_one({"_id": call["_id"]})
-    # Decrement total calls count on external girl
-    await db[c.EXTERNAL_GIRLS].update_one(
-        {"_id": call["external_girl_id"]},
-        {"$inc": {"call_summary.total_calls": -1}},
-    )
+    await recompute_call_summary(db, call["external_girl_id"])
     await audit.log(
         db,
         user,

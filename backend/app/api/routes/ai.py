@@ -33,14 +33,13 @@ router = APIRouter(prefix="/ai", tags=["AI assistant"])
 log = logging.getLogger(__name__)
 
 # Complete list of database collections containing knowledge, operational, and reference data
+# Note: Sensitive collections like cases and health records of minors are excluded for privacy & child protection.
 RAG_COLLECTIONS = [
     c.TALUKAS,
     c.VILLAGES,
     c.GROUPS,
     c.CONTACTS,
     c.GIRLS,
-    c.HEALTH_RECORDS,
-    c.CASES,
     c.HOME_VISITS,
     c.ACTIVITY_REPORTS,
     c.EVENTS,
@@ -60,6 +59,8 @@ SENSITIVE_KEYS = {
     "credentials_encryption_key", "jwt_secret_key", "smtp_password",
     "private_key", "vapid_private_key", "endpoint", "file_path",
     "storage_path", "upload_path", "connection_string", "mongodb_uri",
+    "check_in_photo", "check_out_photo", "photo", "face_descriptor",
+    "fingerprint", "aadhaar_number", "aadhaar", "aadhaar_front", "aadhaar_back", "id_proof",
 }
 
 
@@ -139,7 +140,12 @@ def _safe(value: Any) -> Any:
     if isinstance(value, bytes):
         return "[binary omitted]"
 
-    if isinstance(value, (str, int, float, bool)) or value is None:
+    if isinstance(value, str):
+        if value.startswith("data:image/") or (len(value) > 500 and "base64" in value[:30]):
+            return "[image omitted]"
+        return value
+
+    if isinstance(value, (int, float, bool)) or value is None:
         return value
 
     return str(value)
@@ -704,6 +710,11 @@ async def _run_reindex_task(db: Db, force: bool = False):
 @router.post("/reindex", response_model=ReindexResponse)
 async def reindex(db: Db, _: Stakeholder, force: bool = Query(default=False, description="Force a full rebuild from scratch")):
     """Check database records and add newly added or modified data to the knowledge base."""
+    if not (settings.gemini_api_key or "").strip():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "AI is not configured. Set GEMINI_API_KEY in backend/.env and restart the backend.",
+        )
     if reindex_state.is_running:
         return ReindexResponse(
             indexed_records=reindex_state.progress,

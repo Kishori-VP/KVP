@@ -30,103 +30,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ---------------------------------------------------------
-# TEMPORARY LOCAL-DEVELOPMENT LOGIN
-# ---------------------------------------------------------
-# These credentials are for local testing only.
-# They must never be used as production credentials.
-#
-# The fallback is disabled automatically when
-# ENVIRONMENT is not "development".
-
-LOCAL_DEMO_NAME = "Programme Coordinator"
-LOCAL_DEMO_EMAIL = "pc@example.org"
-LOCAL_DEMO_PHONE = "9876543210"
-LOCAL_DEMO_PASSWORD = "KvpDemo@123"
-
-
-async def _create_local_demo_user(db, identifier: str, password: str):
-    """
-    Create the demo Stakeholder on the first valid local demo login.
-
-    The account is stored in MongoDB, and its password is hashed.
-    Existing accounts are never overwritten by this helper.
-    """
-    if settings.environment.lower() != "development":
-        return None
-
-    identifier = identifier.strip()
-
-    email_matches = identifier.lower() == LOCAL_DEMO_EMAIL.lower()
-    phone_matches = identifier == LOCAL_DEMO_PHONE
-
-    if not (email_matches or phone_matches):
-        return None
-
-    if not hmac.compare_digest(password, LOCAL_DEMO_PASSWORD):
-        return None
-
-    # Reuse an existing account only if it belongs to the configured
-    # demo email or phone. Normal password verification still applies.
-    existing = await db[c.USERS].find_one(
-        {
-            "$or": [
-                {"email": LOCAL_DEMO_EMAIL.lower()},
-                {"phone": LOCAL_DEMO_PHONE},
-            ]
-        }
-    )
-
-    if existing is not None:
-        return existing
-
-    now = utcnow()
-
-    document = {
-        "name": LOCAL_DEMO_NAME,
-        "email": LOCAL_DEMO_EMAIL.lower(),
-        "phone": LOCAL_DEMO_PHONE,
-        "password_hash": hash_password(LOCAL_DEMO_PASSWORD),
-        "role": Role.ADMIN.value,
-        "village_id": None,
-        "taluka_id": None,
-        "group_ids": [],
-        "designation": "Programme Coordinator",
-        "contact": {},
-        "is_active": True,
-        "created_by": None,
-        "created_at": now,
-        "updated_at": now,
-        "last_login_at": None,
-    }
-
-    try:
-        result = await db[c.USERS].insert_one(document)
-        document["_id"] = result.inserted_id
-
-        await audit.log(
-            db,
-            None,
-            "create",
-            "user",
-            result.inserted_id,
-            summary="Temporary local demo Stakeholder created",
-        )
-
-        return document
-
-    except DuplicateKeyError:
-        # Another request may have created the account concurrently.
-        return await db[c.USERS].find_one(
-            {
-                "$or": [
-                    {"email": LOCAL_DEMO_EMAIL.lower()},
-                    {"phone": LOCAL_DEMO_PHONE},
-                ]
-            }
-        )
-
-
-# ---------------------------------------------------------
 # AUTHENTICATION
 # ---------------------------------------------------------
 
@@ -148,15 +51,6 @@ async def _authenticate(
     )
 
     user = await db[c.USERS].find_one(query)
-
-    # Allow the temporary demo account to be created in development
-    # if the account does not already exist.
-    if user is None:
-        user = await _create_local_demo_user(
-            db,
-            identifier,
-            password,
-        )
 
     if user is None or not verify_password(
         password,

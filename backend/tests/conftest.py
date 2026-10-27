@@ -2,6 +2,7 @@ import os
 import tempfile
 
 # Configure before the app (and its settings) are imported.
+os.environ["MONGODB_URI"] = os.environ.get("TEST_MONGODB_URI", "mongodb://localhost:27017")
 os.environ["MONGODB_DB_NAME"] = "kishori_vikas_test"
 os.environ["SCHEDULER_ENABLED"] = "false"
 # Keep tests independent of the developer's local .env (push, email).
@@ -27,13 +28,15 @@ ADMIN_PHONE, ADMIN_PASSWORD = "9000000001", "admin-pass-123"
 
 
 def _bootstrap():
+    if "mongodb.net" in settings.mongodb_uri or "atlas" in settings.mongodb_uri.lower():
+        raise RuntimeError("Refusing to run tests against remote MongoDB cluster! Set TEST_MONGODB_URI.")
     client = MongoClient(settings.mongodb_uri)
     client.drop_database(settings.mongodb_db_name)
     db = client[settings.mongodb_db_name]
     now = utcnow()
     db.users.insert_one({
         "name": "Test Coordinator", "email": "admin@test.org", "phone": ADMIN_PHONE,
-        "password_hash": hash_password(ADMIN_PASSWORD), "role": "stakeholder", "village_id": None, "taluka_id": None,
+        "password_hash": hash_password(ADMIN_PASSWORD), "role": "super_admin", "village_id": None, "taluka_id": None,
         "group_ids": [], "contact": {}, "is_active": True, "created_at": now, "updated_at": now,
     })
     for type_, items in DEFAULT_LOOKUPS.items():

@@ -57,6 +57,8 @@ api.interceptors.response.use(
     }
 
     const config = err.config || {}
+    const method = (config.method || 'get').toLowerCase()
+    const isIdempotent = method === 'get' || method === 'head' || method === 'options'
     const isColdStart =
       !err.response ||
       err.response.status === 502 ||
@@ -64,8 +66,8 @@ api.interceptors.response.use(
       err.response.status === 504 ||
       err.code === 'ECONNABORTED'
 
-    // Automatically retry up to 2 times for cold-start wake-up errors
-    if (isColdStart && (config._retryCount || 0) < 2) {
+    // Automatically retry up to 2 times for cold-start wake-up errors (idempotent read requests only)
+    if (isIdempotent && isColdStart && (config._retryCount || 0) < 2) {
       config._retryCount = (config._retryCount || 0) + 1
       window.dispatchEvent(new CustomEvent('kvp:backend-waking', { detail: { waking: true } }))
       await new Promise((resolve) => setTimeout(resolve, 3000))
@@ -86,12 +88,23 @@ api.interceptors.response.use(
 export function errorMessage(err) {
   const detail = err?.response?.data?.detail
   if (!detail) return err?.message || t('Something went wrong')
-  if (typeof detail === 'string') return detail
-  if (Array.isArray(detail)) {
-    return detail.map((d) => `${(d.loc || []).slice(1).join('.') || 'field'}: ${d.msg}`).join('; ')
+
+  const cleanMsg = (msg) => {
+    if (typeof msg === 'string' && msg.includes("String should match pattern '^[6-9]")) {
+      return 'Mobile number must be a valid 10-digit number starting with 6, 7, 8, or 9'
+    }
+    return msg
   }
-  if (detail.validation_errors) return detail.validation_errors.join('; ')
-  if (detail.message) return detail.message
+
+  if (typeof detail === 'string') return cleanMsg(detail)
+  if (Array.isArray(detail)) {
+    return detail.map((d) => {
+      const field = (d.loc || []).slice(1).join('.') || 'field'
+      return `${field}: ${cleanMsg(d.msg)}`
+    }).join('; ')
+  }
+  if (detail.validation_errors) return detail.validation_errors.map(cleanMsg).join('; ')
+  if (detail.message) return cleanMsg(detail.message)
   return JSON.stringify(detail)
 }
 

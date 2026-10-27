@@ -171,6 +171,8 @@ async def verify_contact(contact_id: str, db: Db, actor: Stakeholder):
 
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_contact(contact_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     contact = await get_or_404(db[c.CONTACTS], contact_id, "Contact")
     await db[c.CONTACTS].update_one({"_id": contact["_id"]}, {"$set": {"is_active": False, "updated_at": utcnow()}})
     await audit.log(db, actor, "delete", "contact", contact["_id"], f"Deactivated contact {contact['name']}")

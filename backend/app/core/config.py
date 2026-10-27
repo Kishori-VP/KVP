@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = "Kishori Vikas Program"
-    environment: str = "development"
+    environment: str = "production"
     api_v1_prefix: str = "/api/v1"
     timezone: str = "Asia/Kolkata"
 

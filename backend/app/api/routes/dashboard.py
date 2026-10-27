@@ -148,11 +148,12 @@ async def village_status(db: Db, _: Stakeholder, taluka_id: ObjectIdStr | None =
     # A volunteer can work in several villages: count her in each of them.
     vols: dict = {}
     async for row in await db[c.USERS].aggregate([
-        {"$match": {"village_ids": {"$in": ids}, "role": "volunteer", "is_active": True}},
-        {"$unwind": "$village_ids"}, {"$match": {"village_ids": {"$in": ids}}},
-        {"$group": {"_id": "$village_ids", "n": {"$sum": 1}}},
+        {"$match": {"$or": [{"village_ids": {"$in": ids}}, {"village_id": {"$in": ids}}], "role": "volunteer", "is_active": True}},
+        {"$project": {"vids": {"$cond": [{"$gt": [{"$size": {"$ifNull": ["$village_ids", []]}}, 0]}, "$village_ids", ["$village_id"]]}}},
+        {"$unwind": "$vids"}, {"$match": {"vids": {"$in": ids}}},
+        {"$group": {"_id": "$vids", "n": {"$sum": 1}}},
     ]):
-        vols[row["_id"]] = row["n"]
+        vols[str(row["_id"])] = row["n"]
     month_start, _e = period_bounds("monthly")
     rows = []
     for v in villages:

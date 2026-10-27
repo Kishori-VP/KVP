@@ -30,6 +30,8 @@ def _periods(body: TargetCreate) -> list[tuple[date, date]]:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_targets(body: TargetCreate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     ttype = await get_lookup(db, "target_type", body.target_type)
     if not ttype or not ttype.get("is_active"):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown target type '{body.target_type}'")
@@ -175,6 +177,8 @@ async def get_target_defaults(db: Db, _: Stakeholder):
 @router.put("/defaults")
 async def update_target_defaults(body: TaiTargetDefaults, db: Db, actor: Stakeholder):
     """Update default weekly and monthly visit targets for Volunteers (Admin configurable)."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     now = utcnow()
     doc = {
         "key": "tai_targets",
@@ -189,6 +193,8 @@ async def update_target_defaults(body: TaiTargetDefaults, db: Db, actor: Stakeho
 @router.post("/apply-defaults")
 async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stakeholder):
     """Apply default weekly (20) and monthly (400) visit targets to active Volunteers."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     from app.services.app_settings import get_setting
     setting = await get_setting(db, "tai_targets")
     weekly_visits = body.weekly_visits if body.weekly_visits is not None else setting.get("weekly_visits", 20)
@@ -210,9 +216,12 @@ async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stake
         }
         await db[c.APP_SETTINGS].update_one({"key": "tai_targets"}, {"$set": doc}, upsert=True)
 
-    vq: dict = {"role": Role.VOLUNTEER.value, "is_active": True}
-    if not body.all_active and body.volunteer_ids:
-        vq["_id"] = {"$in": oids(body.volunteer_ids)}
+    if not body.all_active:
+        if not body.volunteer_ids:
+            return {"applied_to": 0, "created": [], "skipped": []}
+        vq = {"_id": {"$in": oids(body.volunteer_ids)}, "role": Role.VOLUNTEER.value, "is_active": True}
+    else:
+        vq = {"role": Role.VOLUNTEER.value, "is_active": True}
     volunteers = await db[c.USERS].find(vq).to_list()
     
     created = []
@@ -242,10 +251,26 @@ async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stake
                 "period_end": {"$gte": to_dt(start)},
             })
             if clash:
-                await db[c.TARGETS].update_one(
-                    {"_id": clash["_id"]},
-                    {"$set": {"target_value": value, "title": title, "updated_at": now}}
-                )
+                if clash.get("target_value") != value:
+                    revision = {
+                        "at": now,
+                        "by": actor["_id"],
+                        "by_name": actor.get("name"),
+                        "reason": f"Applied default targets ({value})",
+                        "changes": {"target_value": {"from": clash.get("target_value"), "to": value}},
+                    }
+                    await db[c.TARGETS].update_one(
+                        {"_id": clash["_id"]},
+                        {
+                            "$set": {"target_value": value, "title": title, "updated_at": now},
+                            "$push": {"revisions": revision},
+                        }
+                    )
+                else:
+                    await db[c.TARGETS].update_one(
+                        {"_id": clash["_id"]},
+                        {"$set": {"title": title, "updated_at": now}}
+                    )
                 created.append({**clash, "target_value": value, "title": title})
                 await audit.log(db, actor, "update", "target", clash["_id"], f"Updated default {period_type} target to {value} for {vol['name']}")
                 continue
@@ -289,6 +314,8 @@ async def get_target(target_id: str, db: Db, user: Annotated[dict, Depends(requi
 @router.patch("/{target_id}")
 async def revise_target(target_id: str, body: TargetRevise, db: Db, actor: Stakeholder):
     """Revise a target. Every revision is kept in the target's history and the audit log."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     t = await get_or_404(db[c.TARGETS], target_id, "Target")
     if t["status"] != "active":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only active targets can be revised")
@@ -317,6 +344,8 @@ async def revise_target(target_id: str, body: TargetRevise, db: Db, actor: Stake
 
 @router.post("/{target_id}/cancel")
 async def cancel_target(target_id: str, body: TargetCancel, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     t = await get_or_404(db[c.TARGETS], target_id, "Target")
     if t["status"] != "active":
         raise HTTPException(status.HTTP_409_CONFLICT, "Target is not active")

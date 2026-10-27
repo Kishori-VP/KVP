@@ -64,7 +64,10 @@ async def _responsible(db, volunteer_id, village_id):
 
 async def _groups(db, group_ids, village_id):
     ids = oids(group_ids)
-    if ids and await db[c.GROUPS].count_documents({"_id": {"$in": ids}, "village_id": village_id}) != len(set(ids)):
+    if ids and await db[c.GROUPS].count_documents({
+        "_id": {"$in": ids},
+        "$or": [{"village_id": village_id}, {"member_village_ids": village_id}],
+    }) != len(set(ids)):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invited groups must belong to the event's village")
     return list(dict.fromkeys(ids))
 
@@ -84,6 +87,8 @@ def _require_open(ev: dict):
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_event(body: EventCreate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     village = await get_or_404(db[c.VILLAGES], body.village_id, "Village")
     await ensure_code(db, "event_type", body.event_type, "event_type")
     vol = await _responsible(db, body.responsible_volunteer_id, village["_id"])
@@ -283,6 +288,8 @@ async def get_event(event_id: str, db: Db, user: Annotated[dict, Depends(require
 
 @router.patch("/{event_id}")
 async def update_event(event_id: str, body: EventUpdate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
     before = await _load(db, event_id, actor)
     _require_open(before)
     updates = body.model_dump(exclude_unset=True, exclude={"reschedule_reason"})
@@ -328,6 +335,8 @@ async def update_event(event_id: str, body: EventUpdate, db: Db, actor: Stakehol
 
 @router.post("/{event_id}/cancel")
 async def cancel_event(event_id: str, body: CancelRequest, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     ev = await _load(db, event_id, actor)
     if ev["status"] != "scheduled":
         raise HTTPException(status.HTTP_409_CONFLICT, f"Only scheduled events can be cancelled (event is {ev['status']})")
@@ -377,7 +386,10 @@ async def update_attendance(event_id: str, body: AttendanceUpdate, db: Db,
     requested = {oid(e.girl_id): e.present for e in body.entries}
     group_ids = await _groups(db, body.mark_groups_present, ev["village_id"])
     if group_ids:
-        async for g in db[c.GIRLS].find({"group_id": {"$in": group_ids}, "is_deleted": {"$ne": True}}, {"_id": 1}):
+        async for g in db[c.GIRLS].find({
+            "$or": [{"group_id": {"$in": group_ids}}, {"bal_panchayat_id": {"$in": group_ids}}],
+            "is_deleted": {"$ne": True},
+        }, {"_id": 1}):
             requested.setdefault(g["_id"], True)
     if requested:
         girls = {g["_id"]: g async for g in db[c.GIRLS].find(
@@ -430,6 +442,7 @@ async def submit_report(event_id: str, body: EventReport, db: Db,
 async def update_expenditure(event_id: str, body: ExpenditureUpdate, db: Db,
                              actor: Annotated[dict, Depends(require_permission("events", "update"))]):
     ev = await _load(db, event_id, actor)
+    _require_open(ev)
     items = [{**i.model_dump(), "amount": round(i.quantity * i.unit_cost, 2)} for i in body.items]
     total = round(sum(i["amount"] for i in items), 2)
     exp = {"items": items, "total": total, "resources_used": body.resources_used}
@@ -452,6 +465,7 @@ async def upload_event_media(
     caption: str | None = Form(None),
 ):
     ev = await _load(db, event_id, user)
+    _require_open(ev)
     doc, created = await storage.save_upload(db, file, "event", ev["_id"], user, lat=lat, lng=lng,
                                              accuracy_m=accuracy_m, captured_at=captured_at, caption=caption)
     if created:

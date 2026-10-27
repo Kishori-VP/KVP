@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import ADMIN_ROLES, Db, Pagination, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import CaseAssign, CaseCreate, CaseNote, CaseStatusChange, CaseUpdate
@@ -186,10 +186,16 @@ async def add_note(case_id: str, body: CaseNote, db: Db, user: Annotated[dict, D
     case = await get_or_404(db[c.CASES], case_id, "Case", _case_scope(user))
     media_ids = oids(body.media_ids)
     if media_ids:
-        found = await db[c.MEDIA].count_documents({"_id": {"$in": media_ids}})
+        found = await db[c.MEDIA].count_documents({
+            "_id": {"$in": media_ids},
+            "entity_type": "case",
+            "entity_id": case["_id"],
+        })
         if found != len(media_ids):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unknown media ids")
-        await db[c.MEDIA].update_many({"_id": {"$in": media_ids}}, {"$set": {"entity_type": "case", "entity_id": case["_id"]}})
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                "Media ids must belong to this case",
+            )
     sets: dict = {"last_activity_at": utcnow(), "updated_at": utcnow()}
     if body.next_action:
         sets["next_action"] = body.next_action
@@ -209,8 +215,8 @@ async def change_status(case_id: str, body: CaseStatusChange, db: Db,
         raise HTTPException(status.HTTP_409_CONFLICT, f"Case is already {body.status}")
     if body.status not in TRANSITIONS[case["status"]]:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Cannot move a case from {case['status']} to {body.status}")
-    if body.status == "closed" and user["role"] != Role.STAKEHOLDER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders can close cases")
+    if body.status == "closed" and user["role"] not in ADMIN_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders and Admins can close cases")
     now = utcnow()
     sets: dict = {"status": body.status, "last_activity_at": now, "updated_at": now}
     if body.status == "resolved":
@@ -240,8 +246,8 @@ async def change_status(case_id: str, body: CaseStatusChange, db: Db,
 @router.post("/{case_id}/assign")
 async def assign_case(case_id: str, body: CaseAssign, db: Db, user: Annotated[dict, Depends(require_permission("cases", "update"))]):
     case = await get_or_404(db[c.CASES], case_id, "Case", _case_scope(user))
-    if user["role"] != Role.STAKEHOLDER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders can assign cases")
+    if user["role"] not in ADMIN_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders and Admins can assign cases")
     assignee = await _check_assignee(db, body.assigned_to, case["village_id"])
     sets: dict = {"assigned_to": assignee["_id"], "last_activity_at": utcnow(), "updated_at": utcnow()}
     if body.due_date:

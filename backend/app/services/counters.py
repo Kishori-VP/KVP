@@ -18,9 +18,10 @@ async def ensure_sequence_at_least(db: AsyncDatabase, name: str, value: int) -> 
 GIRL_CODE_PREFIX = "KVP"
 
 
-def girl_code(taluka_code: int, village_code: int, seq: int) -> str:
-    """KVP-<taluka no.>-<village no.>-<girl no. within the village>, e.g. KVP-01-03-045."""
-    return f"{GIRL_CODE_PREFIX}-{taluka_code:02d}-{village_code:02d}-{seq:03d}"
+def girl_code(taluka_code: int, village_code: int, seq: int, prefix: str = "KVP", pad: int = 3) -> str:
+    """<prefix>-<taluka no.>-<village no.>-<girl no. within the village>, e.g. KVP-01-03-045."""
+    clean_prefix = (prefix or "KVP").rstrip("-")
+    return f"{clean_prefix}-{taluka_code:02d}-{village_code:02d}-{seq:0{pad}d}"
 
 
 def village_counter(village_id) -> str:
@@ -42,8 +43,11 @@ async def next_girl_code(db: AsyncDatabase, village: dict) -> tuple[str, int]:
     if village.get("code") is None:
         village["code"] = await next_code(db, c.VILLAGES, {"taluka_id": village["taluka_id"]})
         await db[c.VILLAGES].update_one({"_id": village["_id"]}, {"$set": {"code": village["code"]}})
+    setting = await db[c.APP_SETTINGS].find_one({"key": "girl_id"})
+    prefix = (setting.get("value") or {}).get("prefix", "KVP") if setting else "KVP"
+    pad = (setting.get("value") or {}).get("pad", 3) if setting else 3
     seq = await next_sequence(db, village_counter(village["_id"]))
-    return girl_code(taluka["code"], village["code"], seq), seq
+    return girl_code(taluka["code"], village["code"], seq, prefix=prefix, pad=pad), seq
 
 
 async def next_case_code(db: AsyncDatabase) -> str:

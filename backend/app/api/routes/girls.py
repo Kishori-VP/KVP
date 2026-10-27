@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import Db, Pagination, Stakeholder, can_access_village, group_villages, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import ADMIN_ROLES, Db, Pagination, Stakeholder, can_access_village, group_villages, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import DuplicateCheck, GirlCreate, GirlUpdate, HealthRecordCreate, MergeRequest, TransferToExternalRequest
@@ -336,8 +336,8 @@ async def update_girl(girl_id: str, body: GirlUpdate, db: Db, user: Annotated[di
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return girl_out(before)
-    if "village_id" in updates and user["role"] != Role.STAKEHOLDER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders can move a girl to another village")
+    if "village_id" in updates and user["role"] not in ADMIN_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Stakeholders and Admins can move a girl to another village")
     if "village_id" in updates and "group_id" not in updates and before.get("group_id"):
         updates["group_id"] = None  # old group belongs to the old village
     if "village_id" in updates and "bal_panchayat_id" not in updates and before.get("bal_panchayat_id"):
@@ -535,6 +535,8 @@ async def transfer_girl_to_external(
 @router.post("/{girl_id}/merge")
 async def merge_duplicate(girl_id: str, body: MergeRequest, db: Db, actor: Stakeholder):
     """Merge a duplicate record into this (primary) girl, re-linking all history."""
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     primary = await get_or_404(db[c.GIRLS], girl_id, "Girl", {"is_deleted": {"$ne": True}})
     dup = await get_or_404(db[c.GIRLS], body.duplicate_id, "Duplicate girl", {"is_deleted": {"$ne": True}})
     if primary["_id"] == dup["_id"]:

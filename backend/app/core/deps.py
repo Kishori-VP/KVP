@@ -42,25 +42,73 @@ async def get_current_user(db: Db, token: Annotated[str, Depends(oauth2_scheme)]
 
 
 ADMIN_ROLES = (
-    Role.ADMIN.value,
-    Role.STAKEHOLDER.value,
     Role.SUPER_ADMIN.value,
+    Role.ADMIN_1.value,
+    Role.ADMIN_2.value,
+    "super_admin",
+    "admin_1",
+    "admin_2",
     "admin",
     "stakeholder",
-    "super_admin",
 )
-OVERSIGHT_ROLES = (
-    Role.STAKEHOLDER.value,
+SUPER_ADMIN_ROLES = (
     Role.SUPER_ADMIN.value,
-    "stakeholder",
     "super_admin",
+    "stakeholder",
 )
+ADMIN_1_ROLES = (
+    Role.SUPER_ADMIN.value,
+    Role.ADMIN_1.value,
+    "super_admin",
+    "admin_1",
+)
+OVERSIGHT_ROLES = SUPER_ADMIN_ROLES
+
+
+def is_super_admin(user: dict) -> bool:
+    return user.get("role") in SUPER_ADMIN_ROLES
+
+
+def is_admin_1(user: dict) -> bool:
+    return user.get("role") in (Role.ADMIN_1.value, "admin_1", "admin")
+
+
+def is_admin_2(user: dict) -> bool:
+    return user.get("role") in (Role.ADMIN_2.value, "admin_2")
+
+
+def check_not_read_only(user: dict) -> None:
+    """Admin-2 has read-only monitor access and cannot create, modify, or delete records."""
+    if is_admin_2(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Admin-2 has read-only monitor access and cannot create or modify records",
+        )
+
+
+def check_can_delete(user: dict) -> None:
+    """Only Super Admin can delete or remove records."""
+    if not is_super_admin(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only Super Admin has authority to delete or remove records",
+        )
+
+
+def check_can_add_volunteer(user: dict) -> None:
+    """Only Super Admin can create volunteer accounts or users."""
+    if not is_super_admin(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only Super Admin has authority to create users or add volunteers",
+        )
+
 
 CurrentUser = Annotated[dict, Depends(get_current_user)]
 
 
 async def require_stakeholder(user: CurrentUser) -> dict:
-    """Allows Admin, Stakeholder, and Super Admin."""
+    """Allows Super Admin, Admin-1, and Admin-2."""
     if user.get("role") not in ADMIN_ROLES:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
     return user
@@ -71,9 +119,9 @@ Admin = Stakeholder
 
 
 async def require_super_admin(user: CurrentUser) -> dict:
-    """Allows top-level oversight: Stakeholder (formerly Super Admin)."""
-    if user.get("role") not in OVERSIGHT_ROLES:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Stakeholder oversight access required")
+    """Allows top-level oversight: Super Admin."""
+    if not is_super_admin(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Super Admin access required")
     return user
 
 
@@ -99,6 +147,16 @@ def can_access_village(user: dict, village_id) -> bool:
 
 def require_permission(resource: str, action: str):
     async def checker(db: Db, user: CurrentUser) -> dict:
+        if is_super_admin(user):
+            return user
+        if is_admin_2(user):
+            if action != "read":
+                raise HTTPException(status.HTTP_403_FORBIDDEN, f"Admin-2 is read-only: cannot {action} {resource}")
+            return user
+        if is_admin_1(user):
+            if action == "delete":
+                raise HTTPException(status.HTTP_403_FORBIDDEN, f"Admin-1 cannot delete {resource}")
+            return user
         if user.get("role") in ADMIN_ROLES:
             return user
         perms = await get_setting(db, "permissions")

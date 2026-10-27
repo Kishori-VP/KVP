@@ -89,10 +89,17 @@ function RoleSwitch({ stakeholder, volunteer }) {
   return user?.role === 'volunteer' ? volunteer : stakeholder
 }
 
-function StakeholderOnly({ children }) {
+function AdminOnly({ children }) {
   const { user } = useAuth()
-  return (user?.role === 'admin' || user?.role === 'stakeholder' || user?.role === 'super_admin') ? children : <Navigate to="/" replace />
+  return (user?.role === 'admin_1' || user?.role === 'admin_2' || user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'stakeholder') ? children : <Navigate to="/" replace />
 }
+
+function SuperAdminOnly({ children }) {
+  const { user } = useAuth()
+  return (user?.role === 'super_admin' || user?.role === 'stakeholder') ? children : <Navigate to="/" replace />
+}
+
+const StakeholderOnly = AdminOnly
 
 function VolunteerOnly({ children }) {
   const { user } = useAuth()
@@ -127,7 +134,7 @@ export default function App() {
             <Route path="cases/:id" element={<CaseDetail />} />
             <Route path="events" element={<Events />} />
             <Route path="events/:id" element={<EventDetail />} />
-            <Route path="field" element={<VolunteerOnly><VolunteerFieldRecords /></VolunteerOnly>} />
+            <Route path="field" element={<RoleSwitch stakeholder={<FieldRecords />} volunteer={<VolunteerFieldRecords />} />} />
             <Route path="volunteers" element={<StakeholderOnly><Volunteers /></StakeholderOnly>} />
             <Route path="volunteers/:id" element={<StakeholderOnly><VolunteerDetail /></StakeholderOnly>} />
             <Route path="targets" element={<Targets />} />
@@ -141,7 +148,7 @@ export default function App() {
             <Route path="reports" element={<RoleSwitch stakeholder={<Reports />} volunteer={<VolunteerReports />} />} />
             <Route path="notifications" element={<Notifications />} />
             <Route path="messages" element={<StakeholderOnly><Messages /></StakeholderOnly>} />
-            <Route path="settings" element={<StakeholderOnly><Settings /></StakeholderOnly>} />
+            <Route path="settings" element={<SuperAdminOnly><Settings /></SuperAdminOnly>} />
             <Route path="audit" element={<StakeholderOnly><AuditLog /></StakeholderOnly>} />
             <Route path="attendance" element={<StakeholderOnly><VolunteerAttendance /></StakeholderOnly>} />
             <Route path="*" element={<Navigate to="/" replace />} />

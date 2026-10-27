@@ -146,6 +146,8 @@ async def update_schedule(schedule_id: str, body: ScheduleUpdate, db: Db, actor:
 
 @router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_schedule(schedule_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
     sch = await get_or_404(db[c.REPORT_SCHEDULES], schedule_id, "Schedule")
     await db[c.REPORT_SCHEDULES].delete_one({"_id": sch["_id"]})
     await audit.log(db, actor, "config_change", "report_schedule", sch["_id"], f"Deleted report schedule '{sch['name']}'")
