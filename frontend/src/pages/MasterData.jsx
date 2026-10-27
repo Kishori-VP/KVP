@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { TalukaSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs } from '../components/ui'
@@ -10,6 +10,8 @@ import { localName, t } from '../lib/i18n'
 const hasCoord = (v) => v !== '' && v !== null && v !== undefined && !Number.isNaN(Number(v))
 
 export function VillageModal({ village, onClose, onSaved }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [f, setF] = useState(village ? { ...village, hamlets: (village.hamlets || []).join(', '), aliases: (village.aliases || []).join(', '), lat: village.location?.lat ?? '', lng: village.location?.lng ?? '' } : { status: 'active', lat: '', lng: '' })
   const { busy, error, run } = useAction()
   const save = () => run(async () => {
@@ -24,9 +26,31 @@ export function VillageModal({ village, onClose, onSaved }) {
     invalidateRefData()
     onSaved()
   }).catch(() => {})
+
+  const remove = () => run(async () => {
+    if (!window.confirm(t('Are you sure you want to delete {name}?', { name: village.name }))) return
+    await api.delete(`/villages/${village.id}`)
+    invalidateRefData()
+    onSaved()
+  }).catch(() => {})
+
   return (
     <Modal open title={village ? t('Edit {code}', { code: village.name }) : t('Add village')} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.taluka_id} onClick={save}>{t('Save')}</Button></>}>
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <div>
+            {village && isSuperAdmin && (
+              <Button variant="danger" icon={Trash2} busy={busy} onClick={remove}>
+                {t('Delete')}
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button>
+            <Button busy={busy} disabled={!f.name || !f.taluka_id} onClick={save}>{t('Save')}</Button>
+          </div>
+        </div>
+      }>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Name (English) *')}><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
@@ -44,10 +68,22 @@ export function VillageModal({ village, onClose, onSaved }) {
 }
 
 function Talukas() {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const { data, reload } = useFetch('/talukas', { include_inactive: true })
   const [f, setF] = useState({ name: '', name_mr: '', district: 'Parbhani' })
   const { busy, error, run } = useAction()
   const add = () => run(async () => { await api.post('/talukas', f); invalidateRefData(); setF({ name: '', name_mr: '', district: f.district }); reload() }).catch(() => {})
+  const deleteTaluka = async (row) => {
+    if (!window.confirm(t('Are you sure you want to delete taluka {name}?', { name: row.name }))) return
+    try {
+      await api.delete(`/talukas/${row.id}`)
+      invalidateRefData()
+      reload()
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message)
+    }
+  }
   return (
     <Card title={t('Talukas & districts')}>
       <ErrorBox message={error} />
@@ -60,12 +96,19 @@ function Talukas() {
       <Table columns={[
         { key: 'name', label: t('Taluka'), className: 'font-medium' }, { key: 'name_mr', label: 'तालुका' }, { key: 'district', label: t('District') },
         { key: 'village_count', label: t('Villages'), className: 'tabular text-right' }, { key: 'is_active', label: t('Status'), render: (row) => <StatusBadge value={row.is_active ? 'active' : 'inactive'} /> },
+        ...(isSuperAdmin ? [{
+          key: 'del', label: '', render: (row) => (
+            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-800" icon={Trash2} onClick={() => deleteTaluka(row)} />
+          )
+        }] : []),
       ]} rows={data} />
     </Card>
   )
 }
 
 function GroupModal({ group, onClose, onSaved }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [f, setF] = useState(group ? { ...group, ...(group.meeting_schedule || {}) } : { group_type: 'kishori', frequency: 'monthly' })
   const { busy, error, run } = useAction()
   const save = () => run(async () => {
@@ -75,9 +118,30 @@ function GroupModal({ group, onClose, onSaved }) {
     else await api.post('/groups', { ...body, group_type: f.group_type, village_id: f.village_id })
     onSaved()
   }).catch(() => {})
+
+  const remove = () => run(async () => {
+    if (!window.confirm(t('Are you sure you want to delete group {name}?', { name: group.name }))) return
+    await api.delete(`/groups/${group.id}`)
+    onSaved()
+  }).catch(() => {})
+
   return (
     <Modal open title={group ? t('Edit {code}', { code: group.name }) : t('Add group')} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.village_id} onClick={save}>{t('Save')}</Button></>}>
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <div>
+            {group && isSuperAdmin && (
+              <Button variant="danger" icon={Trash2} busy={busy} onClick={remove}>
+                {t('Delete')}
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button>
+            <Button busy={busy} disabled={!f.name || !f.village_id} onClick={save}>{t('Save')}</Button>
+          </div>
+        </div>
+      }>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Group name *')}><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>

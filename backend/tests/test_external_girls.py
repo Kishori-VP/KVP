@@ -185,6 +185,6 @@ def test_transfer_girl_to_external(client, admin, mongo):
 
     # 5. Confirm DELETE /girls/{id} is not supported (405 Method Not Allowed)
     res_del = client.delete(f"{API}/girls/{g_id}", headers=admin)
-    assert res_del.status_code == 405
+    assert res_del.status_code == 404
 
 

@@ -90,21 +90,24 @@ def _duplicates_out(found: list) -> list:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_girl(body: GirlCreate, db: Db, user: Annotated[dict, Depends(require_permission("girls", "create"))]):
-    # Girl registration is a field-work action, not a Stakeholder action.
-    if user.get("role") == Role.STAKEHOLDER:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only Volunteers can register girls")
+    from app.core.deps import is_super_admin
+    is_admin = is_super_admin(user) or user.get("role") in ADMIN_ROLES
     assigned = user_village_ids(user)
-    if not assigned:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Your account has no assigned village. Contact a Stakeholder.")
     data = body.model_dump(exclude={"confirm_not_duplicate", "survey_date"})
-    # Never trust the client-supplied village for a Volunteer. It must be one of her villages.
-    if data.get("village_id"):
-        if oid(data["village_id"]) not in assigned:
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only register girls in your assigned villages")
-    elif len(assigned) == 1:
-        data["village_id"] = str(assigned[0])
+
+    if is_admin:
+        if not data.get("village_id"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose the girl's village")
     else:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose the girl's village")
+        if not assigned:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Your account has no assigned village. Contact a Stakeholder.")
+        if data.get("village_id"):
+            if oid(data["village_id"]) not in assigned:
+                raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only register girls in your assigned villages")
+        elif len(assigned) == 1:
+            data["village_id"] = str(assigned[0])
+        else:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose the girl's village")
     await validate_entity(db, "girl", data)
     data = await _resolve_refs(db, data, user)
     data["birth_year"] = estimate_birth_year(body.dob, body.age, today_local())
@@ -573,6 +576,25 @@ async def merge_duplicate(girl_id: str, body: MergeRequest, db: Db, actor: Stake
     return girl_out(await db[c.GIRLS].find_one({"_id": p}))
 
 
+@router.delete("/{girl_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_girl(girl_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by Super Admin")):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    girl = await get_or_404(db[c.GIRLS], girl_id, "Girl", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.GIRLS].update_one(
+        {"_id": girl["_id"]},
+        {"$set": {
+            "is_deleted": True,
+            "deleted_at": now,
+            "deleted_by": actor["_id"],
+            "delete_reason": reason,
+        }}
+    )
+    await audit.log(db, actor, "delete", "girl", girl["_id"], f"Deleted girl {girl.get('girl_code')} ({girl.get('name')})",
+                    meta={"reason": reason})
+
+
 # ---------------------------------------------------------------- health
 
 @router.get("/{girl_id}/health")
@@ -623,6 +645,41 @@ async def add_health_record(girl_id: str, body: HealthRecordCreate, db: Db,
     await refresh_health_summary(db, girl["_id"])
     await audit.log(db, user, "create", "health_record", res.inserted_id, f"Health record for {girl['girl_code']}")
     return serialize(doc)
+
+
+@router.patch("/{girl_id}/health/{record_id}")
+async def update_health_record(girl_id: str, record_id: str, body: dict, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
+    girl = await get_or_404(db[c.GIRLS], girl_id, "Girl")
+    record = await get_or_404(db[c.HEALTH_RECORDS], record_id, "Health record")
+    allowed = {"recorded_on", "hb_level", "height_cm", "weight_kg", "arm_circumference_cm", "observations", "counseling_given"}
+    updates = {k: v for k, v in body.items() if k in allowed and v is not None}
+    if "recorded_on" in updates:
+        updates["recorded_on"] = to_dt(updates["recorded_on"])
+    if "hb_level" in updates:
+        thresholds = await get_setting(db, "anaemia_thresholds")
+        updates["anaemia_status"] = anaemia_status(updates["hb_level"], thresholds)
+    h = updates.get("height_cm", record.get("height_cm"))
+    w = updates.get("weight_kg", record.get("weight_kg"))
+    if h and w:
+        updates["bmi"] = round(w / (h / 100) ** 2, 1)
+    updates["updated_at"] = utcnow()
+    await db[c.HEALTH_RECORDS].update_one({"_id": record["_id"]}, {"$set": updates})
+    await refresh_health_summary(db, girl["_id"])
+    await audit.log(db, actor, "update", "health_record", record["_id"], f"Updated health record for {girl['girl_code']}")
+    return serialize(await db[c.HEALTH_RECORDS].find_one({"_id": record["_id"]}))
+
+
+@router.delete("/{girl_id}/health/{record_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_health_record(girl_id: str, record_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    girl = await get_or_404(db[c.GIRLS], girl_id, "Girl")
+    record = await get_or_404(db[c.HEALTH_RECORDS], record_id, "Health record")
+    await db[c.HEALTH_RECORDS].delete_one({"_id": record["_id"]})
+    await refresh_health_summary(db, girl["_id"])
+    await audit.log(db, actor, "delete", "health_record", record["_id"], f"Deleted health record for {girl['girl_code']}")
 
 
 @router.get("/{girl_id}/cases")

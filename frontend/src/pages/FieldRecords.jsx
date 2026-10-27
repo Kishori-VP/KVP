@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { fmtDate, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch, useLookups, useVillages, useVolunteers, lookupLabel } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
@@ -145,6 +146,85 @@ function ActivityReportModal({ open, onClose, onSaved }) {
   )
 }
 
+function VisitDetailModal({ visit, onClose, onUpdated }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
+  const vols = useVolunteers()
+  const villages = useVillages()
+  const { busy, run } = useAction()
+  if (!visit) return null
+
+  const vol = vols.find((v) => v.id === visit.volunteer_id)
+  const vil = villages.find((v) => (v.id || v._id) === visit.village_id)
+
+  const decide = (decision) => run(async () => {
+    await api.post(`/home-visits/${visit.id}/approval`, { decision })
+    onUpdated()
+  }).catch(() => {})
+
+  const deleteVisit = () => {
+    const reason = window.prompt(t('Enter reason for deleting this home visit:'), t('Deleted by Super Admin'))
+    if (!reason) return
+    run(async () => {
+      await api.delete(`/home-visits/${visit.id}?reason=${encodeURIComponent(reason)}`)
+      onUpdated()
+    }).catch(() => {})
+  }
+
+  return (
+    <Modal open title={t('Home Visit Details')} onClose={onClose} wide
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <div>
+            {isSuperAdmin && (
+              <Button variant="danger" size="sm" icon={Trash2} busy={busy} onClick={deleteVisit}>
+                {t('Delete Visit')}
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            {visit.approval?.status === 'pending' && (
+              <>
+                <Button size="sm" variant="secondary" icon={Check} busy={busy} onClick={() => decide('approved')}>{t('Approve')}</Button>
+                <Button size="sm" variant="ghost" icon={X} onClick={() => decide('rejected')}>{t('Reject')}</Button>
+              </>
+            )}
+            <Button variant="secondary" onClick={onClose}>{t('Close')}</Button>
+          </div>
+        </div>
+      }>
+      <div className="space-y-4 text-sm">
+        <div className="grid gap-3 sm:grid-cols-3 rounded-lg bg-gray-50 p-3">
+          <div><span className="text-xs text-gray-500">{t('Date')}</span><div className="font-medium">{fmtDate(visit.visit_date)}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Volunteer')}</span><div className="font-medium">{vol?.name || '—'}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Village')}</span><div className="font-medium">{vil?.name || vol?.village_name || '—'}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Status')}</span><div><StatusBadge value={visit.status} /></div></div>
+          <div><span className="text-xs text-gray-500">{t('Purpose')}</span><div className="font-medium">{humanize(visit.purpose)}</div></div>
+          <div><span className="text-xs text-gray-500">{t('Approval Status')}</span><div><StatusBadge value={visit.approval?.status} /></div></div>
+          <div><span className="text-xs text-gray-500">{t('Girls Visited')}</span><div className="font-medium tabular">{visit.girl_ids?.length || 0}</div></div>
+        </div>
+
+        <div>
+          <span className="text-xs font-semibold uppercase text-gray-500">{t('Risk Indicators')}</span>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {Object.entries(visit.risk_indicators || {}).filter(([, v]) => v === true).map(([k]) => (
+              <Badge key={k} tone="red">{humanize(k)}</Badge>
+            ))}
+            {!Object.values(visit.risk_indicators || {}).some(Boolean) && <span className="text-gray-400">{t('No risks noted')}</span>}
+          </div>
+        </div>
+
+        {visit.observations && (
+          <div>
+            <span className="text-xs font-semibold uppercase text-gray-500">{t('Observations')}</span>
+            <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-gray-800">{visit.observations}</p>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 function ReportDetailModal({ report, onClose, onUpdated }) {
   const vols = useVolunteers()
   const villages = useVillages()
@@ -237,14 +317,27 @@ function ApprovalButtons({ path, onDone }) {
 }
 
 export default function FieldRecords() {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [tab, setTab] = useState('visits')
   const [f, setF] = useState({ volunteer_id: '', village_id: '', status: '', approval: '', start_date: '', end_date: '' })
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null)
   const [selectedReport, setSelectedReport] = useState(null)
+  const [selectedVisit, setSelectedVisit] = useState(null)
   const vols = useVolunteers()
   const volName = (id) => vols.find((v) => v.id === id)?.name || '—'
   const url = tab === 'visits' ? '/home-visits' : tab === 'calls' ? '/external-calls' : '/activity-reports'
+
+  const deleteCall = async (callId) => {
+    if (!window.confirm(t('Are you sure you want to delete this call record?'))) return
+    try {
+      await api.delete(`/external-calls/${callId}`)
+      reload()
+    } catch (err) {
+      alert(err?.response?.data?.detail || err?.message || 'Failed to delete call')
+    }
+  }
 
   const { data, error, loading, reload } = useFetch(url, {
     volunteer_id: f.volunteer_id || undefined,
@@ -281,15 +374,21 @@ export default function FieldRecords() {
         {loading && !data ? <Spinner /> : (
           <>
             {tab === 'visits' ? (
-              <Table columns={[
-                { key: 'visit_date', label: t('Date'), render: (r) => fmtDate(r.visit_date) },
-                { key: 'volunteer', label: t('Volunteer'), render: (r) => volName(r.volunteer_id) },
-                { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
-                { key: 'purpose', label: t('Purpose'), render: (r) => humanize(r.purpose) },
-                { key: 'girls', label: t('Girls'), render: (r) => r.girl_ids?.length || 0 },
-                { key: 'risks', label: t('Risks'), render: (r) => Object.entries(r.risk_indicators || {}).filter(([, v]) => v === true).map(([k]) => humanize(k)).join(', ') || '—' },
-                { key: 'approval', label: t('Approval'), render: (r) => (r.approval?.status === 'pending' ? <ApprovalButtons path={`/home-visits/${r.id}/approval`} onDone={reload} /> : <StatusBadge value={r.approval?.status} />) },
-              ]} rows={data?.items} empty={t('No home visits recorded.')} />
+              <Table
+                onRowClick={(r) => setSelectedVisit(r)}
+                columns={[
+                  { key: 'visit_date', label: t('Date'), render: (r) => fmtDate(r.visit_date) },
+                  { key: 'volunteer', label: t('Volunteer'), render: (r) => volName(r.volunteer_id) },
+                  { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
+                  { key: 'purpose', label: t('Purpose'), render: (r) => humanize(r.purpose) },
+                  { key: 'girls', label: t('Girls'), render: (r) => r.girl_ids?.length || 0 },
+                  { key: 'risks', label: t('Risks'), render: (r) => Object.entries(r.risk_indicators || {}).filter(([, v]) => v === true).map(([k]) => humanize(k)).join(', ') || '—' },
+                  { key: 'approval', label: t('Approval'), render: (r) => (r.approval?.status === 'pending' ? <ApprovalButtons path={`/home-visits/${r.id}/approval`} onDone={reload} /> : <StatusBadge value={r.approval?.status} />) },
+                  { key: 'view', label: '', render: (r) => <Button size="sm" variant="ghost" icon={Eye} onClick={() => setSelectedVisit(r)}>{t('View')}</Button> },
+                ]}
+                rows={data?.items}
+                empty={t('No home visits recorded.')}
+              />
             ) : tab === 'calls' ? (
               <Table columns={[
                 { key: 'call_date', label: t('Date'), render: (r) => fmtDate(r.call_date) },
@@ -298,6 +397,24 @@ export default function FieldRecords() {
                 { key: 'status', label: t('Status'), render: (r) => <StatusBadge value={r.status} /> },
                 { key: 'purpose', label: t('Purpose'), render: (r) => humanize(r.purpose) },
                 { key: 'notes', label: t('Observations / Notes'), render: (r) => <span className="line-clamp-2">{r.observations || r.notes || '—'}</span> },
+                ...(isSuperAdmin ? [{
+                  key: 'actions',
+                  label: '',
+                  className: 'text-right',
+                  render: (r) => (
+                    <button
+                      type="button"
+                      title={t('Delete call')}
+                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        deleteCall(r.id)
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ),
+                }] : []),
               ]} rows={data?.items} empty={t('No external calls recorded.')} />
             ) : (
               <Table onRowClick={(r) => setSelectedReport(r)} columns={[
@@ -319,6 +436,7 @@ export default function FieldRecords() {
       {modal === 'call' && <CallModal onClose={() => setModal(null)} onSaved={() => { setModal(null); setTab('calls'); reload() }} />}
       <ActivityReportModal key={`r${modal}`} open={modal === 'report'} onClose={() => setModal(null)} onSaved={() => { setModal(null); setTab('reports'); reload() }} />
       {selectedReport && <ReportDetailModal report={selectedReport} onClose={() => setSelectedReport(null)} onUpdated={() => { setSelectedReport(null); reload() }} />}
+      {selectedVisit && <VisitDetailModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onUpdated={() => { setSelectedVisit(null); reload() }} />}
     </div>
   )
 }

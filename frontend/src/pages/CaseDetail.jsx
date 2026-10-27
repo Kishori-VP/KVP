@@ -1,6 +1,6 @@
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Textarea } from '../components/ui'
 import api from '../lib/api'
@@ -19,7 +19,9 @@ const NEXT = {
 
 export default function CaseDetail() {
   const { id } = useParams()
+  const nav = useNavigate()
   const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const isVolunteer = user?.role === 'volunteer'
   const { data: c, error, setData } = useFetch(`/cases/${id}`)
   const [note, setNote] = useState({ type: 'note', text: '', next_action: '' })
@@ -30,6 +32,17 @@ export default function CaseDetail() {
 
   if (error) return <ErrorBox message={error} />
   if (!c) return <Spinner />
+
+  const deleteCase = async () => {
+    const reason = window.prompt(t('Enter reason for deleting this case:'), t('Deleted by Super Admin'))
+    if (!reason) return
+    try {
+      await api.delete(`/cases/${id}?reason=${encodeURIComponent(reason)}`)
+      nav('/cases')
+    } catch (err) {
+      alert(err?.response?.data?.detail || err?.message || 'Failed to delete case')
+    }
+  }
 
   const refresh = async () => setData((await api.get(`/cases/${id}`)).data)
   const addNote = () => run(async () => {
@@ -58,6 +71,7 @@ export default function CaseDetail() {
         actions={<>
           {NEXT[c.status].filter((s) => !isVolunteer || s !== 'closed').map((s) => <Button key={s} size="sm" variant={s === 'escalated' ? 'danger' : 'secondary'} onClick={() => setStatusModal(s)}>Mark {humanize(s).toLowerCase()}</Button>)}
           {!isVolunteer && <Button size="sm" onClick={() => setAssign({ assigned_to: c.assigned_to || '' })}>{t('Assign')}</Button>}
+          {isSuperAdmin && <Button size="sm" variant="danger" icon={Trash2} onClick={deleteCase}>{t('Delete case')}</Button>}
         </>}
       />
       <ErrorBox message={actErr} />

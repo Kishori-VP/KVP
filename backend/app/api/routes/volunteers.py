@@ -29,7 +29,7 @@ router = APIRouter(prefix="/volunteers", tags=["volunteers"])
 
 
 async def _volunteer(db, volunteer_id: str) -> dict:
-    return await get_or_404(db[c.USERS], volunteer_id, "Volunteer", {"role": Role.VOLUNTEER.value})
+    return await get_or_404(db[c.USERS], volunteer_id, "Volunteer", {"role": Role.VOLUNTEER.value, "is_deleted": {"$ne": True}})
 
 
 async def _names(db, coll, ids) -> dict:
@@ -58,7 +58,7 @@ async def list_volunteers(
     is_active: bool | None = True,
     assigned: bool | None = Query(None, description="true = has a village, false = not yet assigned"),
 ):
-    query: dict = {"role": Role.VOLUNTEER.value}
+    query: dict = {"role": Role.VOLUNTEER.value, "is_deleted": {"$ne": True}}
     if assigned is True:
         query["$or"] = [{"village_id": {"$ne": None}}, {"village_ids": {"$exists": True, "$not": {"$size": 0}}}]
     elif assigned is False:

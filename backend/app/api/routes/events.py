@@ -77,7 +77,7 @@ def _checklist(items: list[str]) -> list[dict]:
 
 
 async def _load(db, event_id: str, user: dict) -> dict:
-    return await get_or_404(db[c.EVENTS], event_id, "Event", village_scope(user))
+    return await get_or_404(db[c.EVENTS], event_id, "Event", {"is_deleted": {"$ne": True}, **village_scope(user)})
 
 
 def _require_open(ev: dict):
@@ -159,7 +159,7 @@ async def list_events(
     start_date: date | None = None,
     end_date: date | None = None,
 ):
-    query: dict = village_scope(user)
+    query: dict = {"is_deleted": {"$ne": True}, **village_scope(user)}
     if display:
         query.update(status_query(display))
     narrow_to_village(query, user, village_id)
@@ -192,7 +192,7 @@ async def calendar(
     if (end_date - start_date).days > 366:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Calendar range is limited to one year")
     s, e = local_day_bounds(start_date, end_date)
-    query: dict = {"start_at": {"$gte": s, "$lt": e}, **village_scope(user)}
+    query: dict = {"is_deleted": {"$ne": True}, "start_at": {"$gte": s, "$lt": e}, **village_scope(user)}
     narrow_to_village(query, user, village_id)
     if event_type:
         query["event_type"] = event_type
@@ -507,3 +507,23 @@ async def export_event_report(event_id: str, db: Db, user: Annotated[dict, Depen
     content, media_type, ext = exporters.event_report(ev, format)
     filename = f"event-{ev['local_date']}-{ev['id'][-6:]}.{ext}"
     return Response(content, media_type=media_type, headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+
+@router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_event(event_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by Super Admin")):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    ev = await get_or_404(db[c.EVENTS], event_id, "Event", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.EVENTS].update_one(
+        {"_id": ev["_id"]},
+        {"$set": {
+            "is_deleted": True,
+            "status": "cancelled",
+            "deleted_at": now,
+            "deleted_by": actor["_id"],
+            "delete_reason": reason,
+        }}
+    )
+    await audit.log(db, actor, "delete", "event", ev["_id"], f"Deleted event {ev.get('title')}", meta={"reason": reason})

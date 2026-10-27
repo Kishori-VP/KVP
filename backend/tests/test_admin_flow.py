@@ -129,10 +129,9 @@ def test_contacts(client, admin):
 def test_girls_and_duplicates(client, admin):
     body = {"name": "पूजा राजू शिंदे", "village_id": S["v1"], "group_id": S["g1"], "age": 14, "school_status": "studying",
             "household": {"father_name": "राजू शिंदे", "mother_name": "सुनीता"}}
-    # Girls are registered by the Volunteer of that village; Stakeholders are read-only here.
-    assert client.post(f"{API}/girls", headers=admin, json=body).status_code == 403
+    # Super admins are able to register girls:
     vh = S["vol_headers"]
-    g = ok(client.post(f"{API}/girls", headers=vh, json=body), 201)
+    g = ok(client.post(f"{API}/girls", headers=admin, json=body), 201)
     S["girl"] = g["id"]
     # Taluka 01, village 01 (first ones created in this test run), first girl of the village.
     assert g["girl_code"] == "KVP-01-01-001" and g["age_band"] == "10_14"

@@ -1,13 +1,16 @@
-import { BadgeCheck, MessageCircle, MessageSquare, Phone, Plus } from 'lucide-react'
+import { BadgeCheck, MessageCircle, MessageSquare, Phone, Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { LookupSelect, TalukaSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Spinner, Table, Tabs, Textarea } from '../components/ui'
 import api from '../lib/api'
+import { useAuth } from '../lib/auth'
 import { fmtDate, humanize } from '../lib/format'
 import { lookupLabel, useAction, useFetch, useLookups, useVillages } from '../lib/hooks'
 import { t } from '../lib/i18n'
 
 function ContactModal({ contact, onClose, onSaved }) {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [f, setF] = useState(contact || {})
   const { busy, error, run } = useAction()
   const save = () => run(async () => {
@@ -16,9 +19,30 @@ function ContactModal({ contact, onClose, onSaved }) {
     else await api.post('/contacts', { ...body, village_id: f.village_id })
     onSaved()
   }).catch(() => {})
+
+  const remove = () => run(async () => {
+    if (!window.confirm(t('Are you sure you want to delete this contact?'))) return
+    await api.delete(`/contacts/${contact.id}`)
+    onSaved()
+  }).catch(() => {})
+
   return (
     <Modal open title={contact ? t('Edit {code}', { code: contact.name }) : t('Add contact')} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.mobile || !f.category || !f.village_id} onClick={save}>{t('Save')}</Button></>}>
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <div>
+            {contact && isSuperAdmin && (
+              <Button variant="danger" busy={busy} icon={Trash2} onClick={remove}>
+                {t('Delete')}
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button>
+            <Button busy={busy} disabled={!f.name || !f.mobile || !f.category || (!contact && !f.village_id)} onClick={save}>{t('Save')}</Button>
+          </div>
+        </div>
+      }>
       <ErrorBox message={error} />
       {contact && <p className="text-xs text-gray-500">{t('Changing the name, mobile or role resets verification.')}</p>}
       <div className="grid gap-3 sm:grid-cols-2">

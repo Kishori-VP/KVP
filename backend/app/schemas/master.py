@@ -115,3 +115,22 @@ class VillageLocationItem(BaseModel):
 
 class VillageLocationsUpdate(BaseModel):
     items: list[VillageLocationItem] = Field(min_length=1, max_length=500)
+
+
+class ChildCreate(BaseModel):
+    group_id: ObjectIdStr
+    name: str = Field(min_length=1)
+    standard: str | None = None
+    phone: str | None = None
+    gender: str | None = None
+    girl_id: ObjectIdStr | None = None
+    age: int | None = None
+
+
+class ChildUpdate(BaseModel):
+    name: str | None = None
+    standard: str | None = None
+    phone: str | None = None
+    gender: str | None = None
+    girl_id: ObjectIdStr | None = None
+    age: int | None = None

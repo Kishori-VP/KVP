@@ -1,6 +1,6 @@
-import { ArrowLeft, ArrowRightLeft, MapPin, Shuffle } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, MapPin, Pencil, Shuffle, Trash2 } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { TrendChart } from '../components/charts'
 import { GroupMultiSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, ProgressBar, Select, Spinner, StatTile, StatusBadge, Table, Tabs } from '../components/ui'
@@ -72,6 +72,34 @@ function GroupsModal({ open, onClose, vol, onDone }) {
       footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} onClick={save}>{t('Save')}</Button></>}>
       <ErrorBox message={error} />
       <GroupMultiSelect villageId={vol.village_id} value={ids} onChange={setIds} />
+    </Modal>
+  )
+}
+
+function EditVolunteerModal({ open, vol, onClose, onDone }) {
+  const [f, setF] = useState({ name: vol.name || '', phone: vol.phone || '', email: vol.email || '', designation: vol.designation || '' })
+  const { busy, error, run } = useAction()
+  const save = () => run(async () => {
+    await api.patch(`/users/${vol.id}`, {
+      name: f.name.trim(),
+      phone: f.phone?.trim() || null,
+      email: f.email?.trim() || null,
+      designation: f.designation?.trim() || null,
+    })
+    invalidateRefData()
+    onDone()
+  }).catch(() => {})
+
+  return (
+    <Modal open={open} title={t('Edit Volunteer')} onClose={onClose}
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} onClick={save}>{t('Save changes')}</Button></>}>
+      <ErrorBox message={error} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t('Name *')}><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label={t('Mobile')}><Input value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} /></Field>
+        <Field label={t('Email')}><Input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
+        <Field label={t('Designation')}><Input value={f.designation} onChange={(e) => setF({ ...f, designation: e.target.value })} /></Field>
+      </div>
     </Modal>
   )
 }
@@ -157,12 +185,26 @@ function History({ id }) {
 
 export default function VolunteerDetail() {
   const { user: me } = useAuth()
+  const isSuperAdmin = me?.role === 'super_admin' || me?.role === 'stakeholder'
   const isReadOnly = me?.role === 'admin_2'
   const { id } = useParams()
+  const nav = useNavigate()
   const { data: v, error, reload } = useFetch(`/volunteers/${id}`)
   const { data: hist, reload: reloadHist } = useFetch(`/volunteers/${id}/assignments`)
   const [tab, setTab] = useState('overview')
   const [modal, setModal] = useState(null)
+
+  const deleteVolunteer = async () => {
+    if (!window.confirm(t('Are you sure you want to delete this volunteer? This will deactivate the volunteer and unassign their groups/villages.'))) return
+    try {
+      await api.delete(`/users/${id}`)
+      invalidateRefData()
+      nav('/volunteers')
+    } catch (err) {
+      alert(err?.response?.data?.detail || err.message || 'Failed to delete volunteer')
+    }
+  }
+
   if (error) return <ErrorBox message={error} />
   if (!v) return <Spinner />
   const unassigned = !v.village_id
@@ -171,14 +213,30 @@ export default function VolunteerDetail() {
       <Link to="/volunteers" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Volunteers')}</Link>
       <PageHeader title={v.name}
         subtitle={<>{v.phone || t('No mobile yet')}{v.designation && ` · ${v.designation}`} · {unassigned ? t('No village yet') : <>{(v.villages?.length ? v.villages : [v.village]).map(localName).join(', ')}</>}</>}
-        actions={isReadOnly ? null : unassigned
-          ? <Button icon={MapPin} onClick={() => setModal('assign')}>{t('Assign village')}</Button>
-          : <>
-              <Button variant="secondary" icon={MapPin} onClick={() => setModal('assign')}>{t('Assign another village')}</Button>
-              <Button variant="secondary" onClick={() => setModal('groups')}>{t('Groups')}</Button>
-              <Button variant="secondary" icon={ArrowRightLeft} onClick={() => setModal('handover')}>{t('Handover village')}</Button>
-              <Button icon={Shuffle} onClick={() => setModal('reassign')}>{t('Reassign village')}</Button>
-            </>} />
+        actions={isReadOnly ? null : (
+          <div className="flex flex-wrap items-center gap-2">
+            {isSuperAdmin && (
+              <Button variant="secondary" icon={Pencil} onClick={() => setModal('edit')}>
+                {t('Edit')}
+              </Button>
+            )}
+            {unassigned ? (
+              <Button icon={MapPin} onClick={() => setModal('assign')}>{t('Assign village')}</Button>
+            ) : (
+              <>
+                <Button variant="secondary" icon={MapPin} onClick={() => setModal('assign')}>{t('Assign another village')}</Button>
+                <Button variant="secondary" onClick={() => setModal('groups')}>{t('Groups')}</Button>
+                <Button variant="secondary" icon={ArrowRightLeft} onClick={() => setModal('handover')}>{t('Handover village')}</Button>
+                <Button icon={Shuffle} onClick={() => setModal('reassign')}>{t('Reassign village')}</Button>
+              </>
+            )}
+            {isSuperAdmin && (
+              <Button variant="danger" icon={Trash2} onClick={deleteVolunteer}>
+                {t('Delete volunteer')}
+              </Button>
+            )}
+          </div>
+        )} />
       {unassigned && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
           {t('This volunteer is not assigned to a village yet. Assign one to give them targets, groups, events and village data.')}
@@ -202,6 +260,7 @@ export default function VolunteerDetail() {
           ]} rows={hist} />
         </Card>
       )}
+      <EditVolunteerModal key={`e${modal}`} open={modal === 'edit'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload() }} />
       <ReassignModal key={`r${modal}`} open={modal === 'reassign'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
       <AssignModal key={`a${modal}`} open={modal === 'assign'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload(); reloadHist() }} />
       <GroupsModal key={`g${modal}`} open={modal === 'groups'} vol={v} onClose={() => setModal(null)} onDone={() => { setModal(null); reload() }} />

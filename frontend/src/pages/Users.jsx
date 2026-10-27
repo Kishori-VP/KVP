@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { GroupMultiSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, Table } from '../components/ui'
@@ -64,6 +64,12 @@ function EditUser({ user, onClose, onSaved }) {
     invalidateRefData()
     onSaved()
   }).catch(() => {})
+  const deleteUser = () => run(async () => {
+    if (!window.confirm(t('Are you sure you want to delete this user? This will deactivate the user and unassign their groups.'))) return
+    await api.delete(`/users/${user.id}`)
+    invalidateRefData()
+    onSaved()
+  }).catch(() => {})
   const self = me?.id === user.id
   const canEdit = isSuperAdmin || (self && !isReadOnly)
   const roleOptions = [
@@ -75,7 +81,21 @@ function EditUser({ user, onClose, onSaved }) {
 
   return (
     <Modal open title={user.name} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button>{canEdit && <Button busy={busy} onClick={save}>{t('Save profile')}</Button>}</>}>
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <div>
+            {!self && isSuperAdmin && (
+              <Button variant="danger" busy={busy} icon={Trash2} onClick={deleteUser}>
+                {t('Delete user')}
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button>
+            {canEdit && <Button busy={busy} onClick={save}>{t('Save profile')}</Button>}
+          </div>
+        </div>
+      }>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t('Name')}><Input value={f.name} disabled={!canEdit} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>

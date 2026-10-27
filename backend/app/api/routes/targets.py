@@ -108,7 +108,7 @@ async def list_targets(
     status_: Annotated[str | None, Query(alias="status", description=f"One of {TARGET_STATUSES}")] = None,
 ):
     # Targets belong to the volunteer (combined across her villages), so volunteers see their own.
-    query: dict = {}
+    query: dict = {"is_deleted": {"$ne": True}}
     if user["role"] == Role.VOLUNTEER:
         query["volunteer_id"] = user["_id"]
     elif volunteer_id:
@@ -303,7 +303,7 @@ async def apply_default_targets(body: ApplyDefaultsRequest, db: Db, actor: Stake
 
 @router.get("/{target_id}")
 async def get_target(target_id: str, db: Db, user: Annotated[dict, Depends(require_permission("targets", "read"))]):
-    t = await get_or_404(db[c.TARGETS], target_id, "Target")
+    t = await get_or_404(db[c.TARGETS], target_id, "Target", {"is_deleted": {"$ne": True}})
     if user["role"] == Role.VOLUNTEER and t["volunteer_id"] != user["_id"]:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Target not found")
     [enriched] = await with_progress(db, [t])
@@ -361,3 +361,17 @@ async def cancel_target(target_id: str, body: TargetCancel, db: Db, actor: Stake
     return serialize(await db[c.TARGETS].find_one({"_id": t["_id"]}))
 
 
+
+
+
+@router.delete("/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_target(target_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by Super Admin")):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    t = await get_or_404(db[c.TARGETS], target_id, "Target", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.TARGETS].update_one(
+        {"_id": t["_id"]},
+        {"$set": {"is_deleted": True, "status": "cancelled", "deleted_at": now, "deleted_by": actor["_id"], "delete_reason": reason}}
+    )
+    await audit.log(db, actor, "delete", "target", t["_id"], f"Deleted target '{t.get('title')}'", meta={"reason": reason})

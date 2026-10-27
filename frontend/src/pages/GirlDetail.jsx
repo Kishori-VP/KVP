@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRightLeft, FileText, Pencil, Plus, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, FileText, Pencil, Plus, Trash2, Upload } from 'lucide-react'
 import VoiceTextarea from '../components/VoiceTextarea'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -38,6 +38,8 @@ export function CaseCreateModal({ open, onClose, girl, onCreated }) {
 }
 
 function HealthTab({ girl, reload }) {
+  const { user: me } = useAuth()
+  const isSuperAdmin = me?.role === 'super_admin' || me?.role === 'stakeholder'
   const { data, reload: reloadHealth } = useFetch(`/girls/${girl.id}/health`)
   const fields = useLookups('health_field')
   const [adding, setAdding] = useState(false)
@@ -64,6 +66,16 @@ function HealthTab({ girl, reload }) {
           { key: 'bmi', label: t('BMI') },
           { key: 'source', label: t('Source'), render: (r) => humanize(r.source) },
           { key: 'observations', label: t('Observations'), render: (r) => Object.entries(r.observations || {}).map(([k, v]) => `${humanize(k)}: ${v === true ? t('Yes') : v === false ? t('No') : v}`).join(' · ') || '—' },
+          ...(isSuperAdmin ? [{
+            key: 'del', label: '', render: (r) => (
+              <button type="button" title={t('Delete record')} className="p-1 text-red-500 hover:text-red-700" onClick={async (e) => {
+                e.stopPropagation()
+                if (!window.confirm(t('Are you sure you want to delete this health record?'))) return
+                await api.delete(`/girls/${girl.id}/health/${r.id}`)
+                reloadHealth(); reload()
+              }}><Trash2 className="h-4 w-4" /></button>
+            )
+          }] : []),
         ]} rows={data.records} empty={t('No health records yet.')} />
       )}
       <Modal open={adding} title={t('Add health record')} onClose={() => setAdding(false)}
@@ -404,9 +416,21 @@ export function TransferToExternalModal({ open, girl, onClose, onTransferred }) 
 export default function GirlDetail() {
   const { id } = useParams()
   const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const isVolunteer = user?.role === 'volunteer'
   const nav = useNavigate()
   const { data: g, error, reload, setData } = useFetch(`/girls/${id}`)
+
+  const deleteGirl = async () => {
+    const reason = window.prompt(t('Are you sure you want to delete {name} ({code})? Enter reason:', { name: localName(g), code: g.girl_code }), t('Deleted by Super Admin'))
+    if (reason === null) return
+    try {
+      await api.delete(`/girls/${g.id}?reason=${encodeURIComponent(reason || 'Deleted by Super Admin')}`)
+      nav('/girls')
+    } catch (e) {
+      alert(errorMessage(e))
+    }
+  }
   const [tab, setTab] = useState('profile')
   const [editing, setEditing] = useState(false)
   const [aadhaarVersion, setAadhaarVersion] = useState(0)
@@ -438,6 +462,15 @@ export default function GirlDetail() {
           >
             {t('Transfer to External')}
           </Button>
+          {isSuperAdmin && (
+            <Button
+              variant="danger"
+              icon={Trash2}
+              onClick={deleteGirl}
+            >
+              {t('Delete')}
+            </Button>
+          )}
         </>}
       />
       <div className="flex flex-wrap gap-2">

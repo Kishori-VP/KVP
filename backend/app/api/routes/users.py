@@ -78,7 +78,7 @@ async def list_users(
     is_active: bool | None = None,
     q: Annotated[str | None, Query(description="Search name, phone or email")] = None,
 ):
-    query: dict = {}
+    query: dict = {"is_deleted": {"$ne": True}}
     if role:
         query["role"] = role.value
     if village_id:
@@ -182,3 +182,27 @@ async def reset_password(user_id: str, body: PasswordReset, db: Db, actor: Stake
         {"_id": user["_id"]}, {"$set": {"password_hash": hash_password(body.new_password), "updated_at": utcnow()}}
     )
     await audit.log(db, actor, "update", "user", user["_id"], f"Reset password for {user['name']}")
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(user_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    user = await get_or_404(db[c.USERS], user_id, "User")
+    if user["_id"] == actor["_id"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "You cannot delete your own account")
+    now = utcnow()
+    await db[c.GROUPS].update_many(
+        {"responsible_volunteer_id": user["_id"]},
+        {"$unset": {"responsible_volunteer_id": ""}},
+    )
+    await db[c.USERS].update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "is_deleted": True,
+            "is_active": False,
+            "deleted_at": now,
+            "deleted_by": actor["_id"],
+        }},
+    )
+    await audit.log(db, actor, "delete", "user", user["_id"], f"Deleted user {user['name']} ({user.get('role')})")

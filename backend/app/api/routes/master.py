@@ -9,6 +9,8 @@ from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, group_scope,
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.master import (
+    ChildCreate,
+    ChildUpdate,
     GroupCreate,
     GroupType,
     GroupUpdate,
@@ -102,6 +104,19 @@ async def update_taluka(taluka_id: str, body: TalukaUpdate, db: Db, actor: Stake
     return result
 
 
+@router.delete("/talukas/{taluka_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_taluka(taluka_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    taluka = await get_or_404(db[c.TALUKAS], taluka_id, "Taluka", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.TALUKAS].update_one(
+        {"_id": taluka["_id"]},
+        {"$set": {"is_deleted": True, "is_active": False, "deleted_at": now, "deleted_by": actor["_id"]}}
+    )
+    await audit.log(db, actor, "delete", "taluka", taluka["_id"], f"Deleted taluka {taluka['name']}")
+
+
 # ---------------------------------------------------------------- villages
 
 @router.post("/villages", status_code=status.HTTP_201_CREATED)
@@ -138,7 +153,7 @@ async def list_villages(
     status_: str | None = Query(None, alias="status"),
     q: str | None = None,
 ):
-    query: dict = village_scope(user, "_id")
+    query: dict = {"is_deleted": {"$ne": True}, **village_scope(user, "_id")}
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if district:
@@ -205,7 +220,7 @@ async def bulk_update_locations(body: VillageLocationsUpdate, db: Db, actor: Sta
 async def get_village(village_id: str, db: Db, user: CurrentUser):
     if user["role"] == Role.VOLUNTEER and oid(village_id) not in user_village_ids(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your assigned village")
-    village = await get_or_404(db[c.VILLAGES], village_id, "Village")
+    village = await get_or_404(db[c.VILLAGES], village_id, "Village", {"is_deleted": {"$ne": True}})
     vid = village["_id"]
     taluka = await db[c.TALUKAS].find_one({"_id": village["taluka_id"]})
     groups = await db[c.GROUPS].find({"$or": [{"village_id": vid}, {"member_village_ids": vid}]}).sort(
@@ -272,6 +287,19 @@ async def update_village(village_id: str, body: VillageUpdate, db: Db, actor: St
             {"$set": {"taluka_id": new_taluka}}
         )
     return result
+
+
+@router.delete("/villages/{village_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_village(village_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    village = await get_or_404(db[c.VILLAGES], village_id, "Village", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.VILLAGES].update_one(
+        {"_id": village["_id"]},
+        {"$set": {"is_deleted": True, "status": "inactive", "deleted_at": now, "deleted_by": actor["_id"]}}
+    )
+    await audit.log(db, actor, "delete", "village", village["_id"], f"Deleted village {village['name']}")
 
 
 # ---------------------------------------------------------------- groups
@@ -347,7 +375,7 @@ async def list_groups(
     responsible_volunteer_id: ObjectIdStr | None = None,
     include_inactive: bool = False,
 ):
-    query: dict = group_scope(user, village_id)
+    query: dict = {"is_deleted": {"$ne": True}, **group_scope(user, village_id)}
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if group_type:
@@ -393,15 +421,19 @@ async def list_children(
     data = rows[0] if rows else {"total": [], "items": []}
     villages = {v["_id"]: v for v in await db[c.VILLAGES].find(
         {"_id": {"$in": list({r["village_id"] for r in data["items"]})}}, {"name": 1, "name_mr": 1}).to_list()}
-    items = [{**serialize(r["member"]), "name_en": to_latin(r["member"].get("name")),
+    items = [{**serialize(r["member"]),
+              "id": str(r["member"].get("_id", r["member"].get("id", ""))) or f"{r['group_id']}-{i}",
+              "member_id": str(r["member"].get("_id", r["member"].get("id", ""))) or r["member"].get("name"),
+              "group_id": str(r["group_id"]),
+              "name_en": to_latin(r["member"].get("name")),
               "group": {"id": str(r["group_id"]), "name": r["group_name"], "name_en": r.get("group_name_en")},
-              "village": serialize(villages.get(r["village_id"]))} for r in data["items"]]
+              "village": serialize(villages.get(r["village_id"]))} for i, r in enumerate(data["items"])]
     return {"items": items, "total": data["total"][0]["n"] if data["total"] else 0, "page": pg.page, "page_size": pg.page_size}
 
 
 @router.get("/groups/{group_id}")
 async def get_group(group_id: str, db: Db, user: CurrentUser):
-    group = await get_or_404(db[c.GROUPS], group_id, "Group", group_scope(user))
+    group = await get_or_404(db[c.GROUPS], group_id, "Group", {"is_deleted": {"$ne": True}, **group_scope(user)})
     girls = await db[c.GIRLS].find(
         {"$or": [{"group_id": group["_id"]}, {"bal_panchayat_id": group["_id"]}], "is_deleted": {"$ne": True}},
         {"girl_code": 1, "name": 1, "name_en": 1, "name_mr": 1, "dob": 1, "age": 1},
@@ -434,3 +466,104 @@ async def update_group(group_id: str, body: GroupUpdate, db: Db, actor: Stakehol
     elif "member_village_ids" in updates:
         updates["member_village_ids"] = []
     return await _update(db, c.GROUPS, group_id, "Group", updates, actor, "group")
+
+
+
+@router.delete("/groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_group(group_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    group = await get_or_404(db[c.GROUPS], group_id, "Group", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.GROUPS].update_one(
+        {"_id": group["_id"]},
+        {"$set": {"is_deleted": True, "is_active": False, "deleted_at": now, "deleted_by": actor["_id"]}}
+    )
+    await db[c.USERS].update_many({"group_ids": group["_id"]}, {"$pull": {"group_ids": group["_id"]}})
+    await audit.log(db, actor, "delete", "group", group["_id"], f"Deleted group {group['name']}")
+
+
+@router.post("/children", status_code=status.HTTP_201_CREATED)
+async def create_child(body: ChildCreate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
+    from bson import ObjectId
+    group = await get_or_404(db[c.GROUPS], body.group_id, "Group", {"is_deleted": {"$ne": True}})
+    if group.get("group_type") != "bal_panchayat":
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Children can only be added to Bal Panchayat groups")
+    cid = ObjectId()
+    child_doc = {
+        "_id": cid,
+        "id": str(cid),
+        "name": body.name.strip(),
+        "name_en": to_latin(body.name.strip()),
+        "standard": body.standard.strip() if body.standard else None,
+        "phone": body.phone.strip() if body.phone else None,
+        "gender": body.gender or "boy",
+        "girl_id": oid(body.girl_id) if body.girl_id else None,
+        "age": body.age,
+        "created_at": utcnow(),
+    }
+    await db[c.GROUPS].update_one({"_id": group["_id"]}, {"$push": {"members": child_doc}})
+    await audit.log(db, actor, "create", "child", cid, f"Added child {body.name} to {group['name']}")
+    return serialize(child_doc)
+
+
+@router.patch("/children/{group_id}/{member_id}")
+async def update_child(group_id: str, member_id: str, body: ChildUpdate, db: Db, actor: Stakeholder):
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
+    from bson import ObjectId
+    group = await get_or_404(db[c.GROUPS], group_id, "Group")
+    members = group.get("members", [])
+    found_idx = -1
+    for idx, m in enumerate(members):
+        m_id = str(m.get("_id", m.get("id", "")))
+        if m_id == member_id or f"{group_id}-{idx}" == member_id or m.get("name") == member_id:
+            found_idx = idx
+            break
+    if found_idx == -1:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found in group")
+    curr = dict(members[found_idx])
+    updates = body.model_dump(exclude_unset=True)
+    if "name" in updates and updates["name"]:
+        curr["name"] = updates["name"].strip()
+        curr["name_en"] = to_latin(curr["name"])
+    if "standard" in updates:
+        curr["standard"] = updates["standard"]
+    if "phone" in updates:
+        curr["phone"] = updates["phone"]
+    if "gender" in updates:
+        curr["gender"] = updates["gender"]
+    if "girl_id" in updates:
+        curr["girl_id"] = oid(updates["girl_id"]) if updates["girl_id"] else None
+    if "age" in updates:
+        curr["age"] = updates["age"]
+    curr["updated_at"] = utcnow()
+    if "_id" not in curr:
+        curr["_id"] = ObjectId()
+    curr["id"] = str(curr["_id"])
+    members[found_idx] = curr
+    await db[c.GROUPS].update_one({"_id": group["_id"]}, {"$set": {"members": members}})
+    await audit.log(db, actor, "update", "child", curr["_id"], f"Updated child {curr.get('name')} in {group['name']}")
+    return serialize(curr)
+
+
+@router.delete("/children/{group_id}/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_child(group_id: str, member_id: str, db: Db, actor: Stakeholder):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    group = await get_or_404(db[c.GROUPS], group_id, "Group")
+    members = group.get("members", [])
+    new_members = []
+    removed = None
+    for idx, m in enumerate(members):
+        m_id = str(m.get("_id", m.get("id", "")))
+        if (m_id == member_id or f"{group_id}-{idx}" == member_id or m.get("name") == member_id) and removed is None:
+            removed = m
+        else:
+            new_members.append(m)
+    if not removed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Child not found in group")
+    await db[c.GROUPS].update_one({"_id": group["_id"]}, {"$set": {"members": new_members}})
+    await audit.log(db, actor, "delete", "child", group["_id"], f"Deleted child {removed.get('name')} from {group['name']}")

@@ -5,7 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import ADMIN_ROLES, Db, Pagination, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import ADMIN_ROLES, Db, Pagination, Stakeholder, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import CaseAssign, CaseCreate, CaseNote, CaseStatusChange, CaseUpdate
@@ -114,7 +114,7 @@ async def list_cases(
     stale: bool = Query(False, description="No activity within the configured no-update window"),
     open_only: bool = False,
 ):
-    query: dict = _case_scope(user)
+    query: dict = {"is_deleted": {"$ne": True}, **_case_scope(user)}
     if status_:
         query["status"] = {"$in": status_}
     elif open_only or overdue or stale:
@@ -150,7 +150,7 @@ async def list_cases(
 
 @router.get("/{case_id}")
 async def get_case(case_id: str, db: Db, user: Annotated[dict, Depends(require_permission("cases", "read"))]):
-    case = await get_or_404(db[c.CASES], case_id, "Case", _case_scope(user))
+    case = await get_or_404(db[c.CASES], case_id, "Case", {"is_deleted": {"$ne": True}, **_case_scope(user)})
     out = serialize(case)
     girl = await db[c.GIRLS].find_one({"_id": case["girl_id"]}, {"girl_code": 1, "name": 1, "village_id": 1})
     out["girl"] = serialize(girl)
@@ -265,3 +265,24 @@ async def assign_case(case_id: str, body: CaseAssign, db: Db, user: Annotated[di
     await audit.log(db, user, "update", "case", case["_id"], f"Assigned {case['case_code']} to {assignee['name']}",
                     {"assigned_to": {"from": case.get("assigned_to"), "to": assignee["_id"]}})
     return serialize(await db[c.CASES].find_one({"_id": case["_id"]}))
+
+
+
+@router.delete("/{case_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_case(case_id: str, db: Db, actor: Stakeholder, reason: str = Query("Deleted by Super Admin")):
+    from app.core.deps import check_can_delete
+    check_can_delete(actor)
+    case_doc = await get_or_404(db[c.CASES], case_id, "Case", {"is_deleted": {"$ne": True}})
+    now = utcnow()
+    await db[c.CASES].update_one(
+        {"_id": case_doc["_id"]},
+        {"$set": {
+            "is_deleted": True,
+            "deleted_at": now,
+            "deleted_by": actor["_id"],
+            "delete_reason": reason,
+        }}
+    )
+    if case_doc.get("girl_id"):
+        await refresh_case_summary(db, case_doc["girl_id"])
+    await audit.log(db, actor, "delete", "case", case_doc["_id"], f"Deleted case {case_doc.get('case_code')}", meta={"reason": reason})

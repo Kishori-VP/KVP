@@ -1,6 +1,6 @@
-import { ArrowLeft, Download, Send, Upload } from 'lucide-react'
+import { ArrowLeft, Download, Send, Trash2, Upload } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, Card, Checkbox, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
 import api, { download, errorMessage } from '../lib/api'
 import { fmtDateTime, humanize } from '../lib/format'
@@ -190,6 +190,7 @@ function Media({ ev, onChange }) {
 
 export default function EventDetail() {
   const { id } = useParams()
+  const nav = useNavigate()
   const { user } = useAuth()
   const isVolunteer = user?.role === 'volunteer'
   const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
@@ -210,6 +211,17 @@ export default function EventDetail() {
   const notify = () => run(async () => setSmsResult((await api.post(`/events/${id}/notify-participants`)).data)).catch(() => {})
   const decide = (decision) => run(async () => { await api.post(`/events/${id}/approval`, { decision, remarks: approval || null }); setApproval(null); reload() }).catch(() => {})
 
+  const deleteEvent = async () => {
+    const r = window.prompt(t('Enter reason for deleting this event:'), t('Deleted by Super Admin'))
+    if (!r) return
+    try {
+      await api.delete(`/events/${id}?reason=${encodeURIComponent(r)}`)
+      nav('/events')
+    } catch (err) {
+      alert(err?.response?.data?.detail || err?.message || 'Failed to delete event')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Link to="/events" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" /> {t('Events')}</Link>
@@ -223,6 +235,7 @@ export default function EventDetail() {
             {ev.display_status === 'upcoming' || ev.display_status === 'today' ? <Button variant="secondary" size="sm" icon={Send} busy={busy} onClick={notify}>{t('SMS participants')}</Button> : null}
             {isSuperAdmin && ev.status === 'scheduled' && <Button variant="danger" size="sm" onClick={() => setCancel(true)}>{t('Cancel event')}</Button>}
             {!isReadOnly && ev.report && ev.approval?.status === 'pending' && <Button size="sm" onClick={() => setApproval('')}>{t('Review report')}</Button>}
+            {isSuperAdmin && <Button variant="danger" size="sm" icon={Trash2} onClick={deleteEvent}>{t('Delete event')}</Button>}
           </>}
         </>}
       />

@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { LookupSelect, VolunteerSelect } from '../components/pickers'
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, ProgressBar, Select, Spinner, StatusBadge, Table } from '../components/ui'
@@ -70,9 +70,33 @@ function DetailModal({ target, onClose, onChanged }) {
     onChanged()
   }).catch(() => {})
   const cancel = () => run(async () => { await api.post(`/targets/${target.id}/cancel`, { reason: cancelReason }); onChanged() }).catch(() => {})
+  const deleteTarget = () => run(async () => {
+    if (!window.confirm(t('Are you sure you want to delete this target?'))) return
+    await api.delete(`/targets/${target.id}`)
+    onChanged()
+  }).catch(() => {})
   const p = target.progress || {}
   return (
-    <Modal open title={target.title} onClose={onClose} wide>
+    <Modal
+      open
+      title={target.title}
+      onClose={onClose}
+      wide
+      footer={
+        <div className="flex w-full items-center justify-between">
+          <div>
+            {isSuperAdmin && (
+              <Button variant="danger" size="sm" icon={Trash2} busy={busy} onClick={deleteTarget}>
+                {t('Delete target')}
+              </Button>
+            )}
+          </div>
+          <div>
+            <Button variant="secondary" onClick={onClose}>{t('Close')}</Button>
+          </div>
+        </div>
+      }
+    >
       <ErrorBox message={error} />
       <div className="text-sm text-gray-700">{target.volunteer_name} · {fmtDate(target.period_start)} – {fmtDate(target.period_end)} · {humanize(target.period_type)}</div>
       <ProgressBar pct={p.progress_pct} status={p.status} />

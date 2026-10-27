@@ -176,6 +176,7 @@ function visibleColumns(rows, columns) {
 export default function Girls() {
   const nav = useNavigate()
   const { user } = useAuth()
+  const canCreate = user?.role === 'volunteer' || user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [filters, setFilters] = useState(() => user?.role === 'volunteer' ? { ...EMPTY, village_id: user.village_id || '' } : EMPTY)
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
@@ -184,7 +185,7 @@ export default function Girls() {
 
   return (
     <div>
-      <PageHeader title={t('Girls (beneficiaries)')} subtitle={t('Unique Girl IDs, profiles and participation')} actions={user?.role === 'volunteer' ? <Button icon={Plus} onClick={() => setCreating(true)}>{t('Register girl')}</Button> : null} />
+      <PageHeader title={t('Girls (beneficiaries)')} subtitle={t('Unique Girl IDs, profiles and participation')} actions={canCreate ? <Button icon={Plus} onClick={() => setCreating(true)}>{t('Register girl')}</Button> : null} />
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative lg:col-span-2">
@@ -231,7 +232,7 @@ export default function Girls() {
           </>
         )}
       </Card>
-      {user?.role === 'volunteer' && <Modal open={creating} title={t('Register a girl')} onClose={() => setCreating(false)} wide>
+      {creating && <Modal open={creating} title={t('Register a girl')} onClose={() => setCreating(false)} wide>
         <GirlForm onCancel={() => setCreating(false)} onSaved={(g) => nav(`/girls/${g.id}`)} />
       </Modal>}
     </div>
