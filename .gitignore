@@ -21,3 +21,4 @@ Thumbs.db
 
 # Uploaded media and generated reports
 backend/storage/
+exports/
