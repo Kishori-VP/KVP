@@ -11,14 +11,26 @@ import { localName, t } from '../lib/i18n'
 
 const RISKS = ['child_marriage_risk', 'school_dropout_risk', 'health_concern', 'anaemia_concern', 'gender_discrimination']
 
-function GirlPicker({ villageId, value, onChange }) {
-  const { data } = useFetch(villageId ? '/girls' : null, { village_id: villageId, page_size: 500, sort: 'name' })
+function GirlPicker({ villageId, value, onChange, forHomeVisit = true }) {
+  const params = { village_id: villageId, page_size: 500, sort: 'name' }
+  if (forHomeVisit) {
+    params.for_home_visit = true
+    if (value && value.length > 0) {
+      params.include_ids = value.join(',')
+    }
+  }
+  const { data } = useFetch(villageId ? '/girls' : null, params)
   const [q, setQ] = useState('')
   if (!villageId) return <p className="text-xs text-gray-500">{t('Pick a volunteer and village first.')}</p>
   const girls = (data?.items || []).filter((g) => !q || `${g.girl_code} ${g.name || ''} ${g.name_en || ''}`.toLowerCase().includes(q.toLowerCase()))
   return (
     <div>
       <Input placeholder={t('Filter by name or Girl ID')} value={q} onChange={(e) => setQ(e.target.value)} />
+      {forHomeVisit && (
+        <p className="mt-1 text-[11px] font-medium text-brand-600">
+          {t('Only girls eligible for a home visit (not visited in the last 6 months) are shown.')}
+        </p>
+      )}
       <div className="mt-2 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">
         {girls.slice(0, 200).map((g) => (
           <Checkbox key={g.id} label={`${g.girl_code} · ${localName(g) || t('no name')}`} checked={value.includes(g.id)}

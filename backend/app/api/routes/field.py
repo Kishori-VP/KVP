@@ -19,7 +19,7 @@ from app.services import audit
 from app.services.beneficiaries import touch_participation
 from app.services.lookups import ensure_code
 from app.services.validation import validate_entity
-from app.utils.dates import day_range, to_dt, today_local, utcnow
+from app.utils.dates import day_range, six_months_ago, to_dt, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, oids, paginate, serialize
 
 router = APIRouter(tags=["field activity"])
@@ -86,6 +86,18 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
                                              "visit_date": body.visit_date})
     now = utcnow()
     is_historical = body.is_historical or body.visit_date < today_local()
+    if body.status == "completed" and not body.is_historical:
+        cutoff = to_dt(six_months_ago(body.visit_date))
+        recent_hv = await db[c.HOME_VISITS].distinct("girl_ids", {"status": "completed", "girl_ids": {"$in": girl_ids}, "visit_date": {"$gte": cutoff}})
+        recent_ar = await db[c.ACTIVITY_REPORTS].distinct("home_visit_girl_ids", {"home_visit_girl_ids": {"$in": girl_ids}, "report_date": {"$gte": cutoff}})
+        ineligible = set(recent_hv + recent_ar)
+        if ineligible:
+            ineligible_girls = await db[c.GIRLS].find({"_id": {"$in": list(ineligible)}}, {"girl_code": 1, "name": 1}).to_list()
+            names = [f"{g.get('girl_code')} ({g.get('name')})" for g in ineligible_girls]
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"Cannot record visit: The following girl(s) received a home visit within the last 6 months (cooldown period): {', '.join(names)}"
+            )
     doc = {
         **data,
         "volunteer_id": vol["_id"],
@@ -115,6 +127,7 @@ async def create_home_visit(body: HomeVisitCreate, db: Db,
         raise
     if body.status == "completed":
         await touch_participation(db, girl_ids, doc["visit_date"])
+        await db[c.GIRLS].update_many({"_id": {"$in": girl_ids}}, {"$max": {"last_home_visit_at": doc["visit_date"]}})
     await audit.log(db, user, "create", "home_visit", res.inserted_id,
                     f"{body.status.title()} home visit on {body.visit_date}", meta={"historical": is_historical})
     return serialize(doc)
@@ -185,6 +198,7 @@ async def update_home_visit(visit_id: str, body: HomeVisitUpdate, db: Db,
     after = await db[c.HOME_VISITS].find_one({"_id": before["_id"]})
     if after["status"] == "completed":
         await touch_participation(db, after["girl_ids"], after["visit_date"])
+        await db[c.GIRLS].update_many({"_id": {"$in": after["girl_ids"]}}, {"$max": {"last_home_visit_at": after["visit_date"]}})
     await audit.log(db, user, "update", "home_visit", before["_id"], "Updated home visit", diff(before, after))
     return serialize(after)
 
@@ -262,6 +276,8 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
                 return serialize(existing)
         raise HTTPException(status.HTTP_409_CONFLICT, "A report for this volunteer and date already exists")
     await touch_participation(db, girl_ids, doc["report_date"])
+    if girl_ids:
+        await db[c.GIRLS].update_many({"_id": {"$in": girl_ids}}, {"$max": {"last_home_visit_at": doc["report_date"]}})
     await audit.log(db, user, "create", "activity_report", res.inserted_id,
                     f"Activity report for {vol['name']} on {body.report_date}")
     return serialize(doc)

@@ -9,7 +9,7 @@ import { useAuth } from '../lib/auth'
 import { useAction, useFetch } from '../lib/hooks'
 import { locale, localName, t } from '../lib/i18n'
 
-const EMPTY = { q: '', village_id: '', group_id: '', registered: '' }
+const EMPTY = { q: '', village_id: '', group_id: '', registered: '', gender: '' }
 
 /** Every child in a Bal Panchayat, boys included. Children who are registered girls link to their profile. */
 export default function Children() {
@@ -46,13 +46,22 @@ export default function Children() {
         )}
       />
       <Card padded={false}>
-        <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm" placeholder={t('Search name…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
           {user?.role !== 'volunteer' && <VillageSelect value={filters.village_id} onChange={(v) => set('village_id', v)} />}
           <GroupSelect villageId={filters.village_id} groupType="bal_panchayat" placeholder={t('All Bal Panchayats')} value={filters.group_id} onChange={(v) => set('group_id', v)} />
+          <Select
+            options={[
+              { value: 'girl', label: t('Girls only (मुली)') },
+              { value: 'boy', label: t('Boys only (मुले)') },
+            ]}
+            placeholder={t('All genders (लिंग)')}
+            value={filters.gender}
+            onChange={(e) => set('gender', e.target.value)}
+          />
           <Select options={[{ value: 'true', label: t('Registered girls') }, { value: 'false', label: t('Not registered') }]} placeholder={t('Everyone')} value={filters.registered} onChange={(e) => set('registered', e.target.value)} />
         </div>
         <ErrorBox message={error} />
@@ -63,6 +72,13 @@ export default function Children() {
               columns={[
                 { key: 'name', label: t('Name'), render: (r) => (r.girl_id
                   ? <Link className="text-brand-700 hover:underline" to={`/girls/${r.girl_id}`}>{localName(r)}</Link> : localName(r)) },
+                {
+                  key: 'gender',
+                  label: t('Gender'),
+                  render: (r) => (r.gender === 'girl'
+                    ? <Badge tone="brand">{t('Girl (मुलगी)')}</Badge>
+                    : <Badge tone="neutral">{t('Boy (मुलगा)')}</Badge>)
+                },
                 { key: 'standard', label: t('Class'), render: (r) => r.standard || '—' },
                 { key: 'phone', label: t('Mobile'), className: 'whitespace-nowrap', render: (r) => r.phone || '—' },
                 { key: 'village', label: t('Village'), render: (r) => localName(r.village) || '—' },

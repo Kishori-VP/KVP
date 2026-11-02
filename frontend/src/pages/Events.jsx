@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GroupedBars } from '../components/charts'
@@ -98,42 +98,42 @@ function CalendarView({ villageId }) {
                 {iso && <div className={cx('mb-1 text-right', iso === today ? 'font-bold text-brand-700' : 'text-gray-500')}>{Number(iso.slice(8))}</div>}
                 {/* phones: just a count; wider screens: the first few events */}
                 {evs.length > 0 && <div className="rounded bg-brand-50 px-1 text-center font-semibold text-brand-800 sm:hidden">{evs.length}</div>}
-                <div className="hidden sm:block">
-                  {evs.slice(0, PER_CELL).map((ev) => (
-                    <button key={ev.id} type="button" onClick={(e) => { e.stopPropagation(); nav(`/events/${ev.id}`) }}
-                      className={cx('mb-0.5 block w-full truncate rounded px-1 py-0.5 text-left', STATUS_STYLE[ev.display_status])}
-                      title={`${ev.title} · ${ev.village_name} · ${humanize(ev.display_status)}`}>
-                      {ev.start_time} {ev.title}
+                <div className="hidden space-y-1 sm:block">
+                  {evs.slice(0, PER_CELL).map((e) => (
+                    <button key={e.id} type="button" onClick={(ev) => { ev.stopPropagation(); nav(`/events/${e.id}`) }}
+                      className={cx('block w-full truncate rounded px-1 py-0.5 text-left text-[11px] font-medium leading-tight', STATUS_STYLE[e.display_status] || 'bg-gray-100 text-gray-800')}>
+                      {e.start_time} {e.title}
                     </button>
                   ))}
-                  {evs.length > PER_CELL && <div className="px-1 font-medium text-brand-700">{t('+{n} more', { n: evs.length - PER_CELL })}</div>}
+                  {evs.length > PER_CELL && <div className="text-[10px] font-semibold text-gray-500">+{evs.length - PER_CELL} {t('more')}</div>}
                 </div>
               </div>
             )
           })}
         </div>
       </Card>
-      {selected && <Card title={`${t('Events on')} ${fmtDate(selected)} · ${dayEvents.length}`}>
-        {dayEvents.length ? <div className="divide-y divide-gray-100">{dayEvents.map((ev) => (
-          <Link key={ev.id} to={`/events/${ev.id}`} className="flex items-start justify-between gap-3 py-2 hover:text-brand-700">
-            <div className="min-w-0"><div className="truncate font-medium text-gray-900">{ev.title}</div>
-              <div className="text-xs text-gray-500">{ev.start_time || ''}{ev.end_time ? `–${ev.end_time}` : ''} · {ev.village_name}</div></div>
-            <StatusBadge value={ev.display_status} />
-          </Link>
-        ))}</div> : <p className="text-sm text-gray-500">{t('No events on this day.')}</p>}
-      </Card>}
+      {selected && dayEvents.length > 0 && (
+        <Card title={t('Events on {date}', { date: new Date(selected + 'T00:00:00').toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) })}>
+          <div className="divide-y divide-gray-100">
+            {dayEvents.map((e) => (
+              <div key={e.id} role="button" tabIndex={0} onClick={() => nav(`/events/${e.id}`)} onKeyDown={(ev) => ev.key === 'Enter' && nav(`/events/${e.id}`)}
+                className="flex cursor-pointer items-center justify-between py-2 text-sm hover:bg-gray-50">
+                <div className="min-w-0 pr-3">
+                  <div className="font-medium text-gray-900">{e.title}</div>
+                  <div className="text-xs text-gray-500">{e.start_time}{e.end_time ? ` – ${e.end_time}` : ''} · {e.location_name || t('No location')} · {e.responsible_volunteer_name || t('No volunteer')}</div>
+                </div>
+                <StatusBadge value={e.display_status} />
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
 
-/** The KVP programme year starts on 1 July. */
-function programmeYearStart() {
-  const d = new Date()
-  return `${d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1}-07-01`
-}
-
 function PlannedVsConducted() {
-  const [range, setRange] = useState({ start_date: programmeYearStart(), end_date: todayISO(), group_by: 'month' })
+  const [range, setRange] = useState({ start_date: todayISO().slice(0, 7) + '-01', end_date: todayISO(), group_by: 'month' })
   const { data } = useFetch('/events/planned-vs-conducted', range)
   return (
     <Card title={t('Planned vs conducted')} actions={<>
@@ -165,10 +165,36 @@ export default function Events() {
   const [f, setF] = useState({ status: '', village_id: '', event_type: '' })
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
-  const { data, error, loading } = useFetch(tab === 'list' ? '/events' : null, { ...f, page, page_size: 25 })
+  const [autoScheduling, setAutoScheduling] = useState(false)
+  const { data, error, loading, reload } = useFetch(tab === 'list' ? '/events' : null, { ...f, page, page_size: 25 })
+
+  const handleAutoSchedule = async () => {
+    setAutoScheduling(true)
+    try {
+      const res = await api.post('/events/auto-schedule-monthly')
+      alert(t('Auto-scheduled {n} monthly meetings for this month.', { n: res.data.created }))
+      if (tab === 'list') reload()
+    } catch (e) {
+      alert(e.response?.data?.detail || e.message)
+    } finally {
+      setAutoScheduling(false)
+    }
+  }
+
   return (
     <div>
-      <PageHeader title={t('Events')} subtitle={t('Village events, attendance and post-event reporting')} actions={canCreate && <Button icon={Plus} onClick={() => setCreating(true)}>{t('Schedule event')}</Button>} />
+      <PageHeader
+        title={t('Events')}
+        subtitle={t('Village events, attendance and post-event reporting')}
+        actions={canCreate && (
+          <div className="flex gap-2">
+            <Button variant="secondary" busy={autoScheduling} onClick={handleAutoSchedule}>
+              {t('Auto-Schedule Monthly Meetings')}
+            </Button>
+            <Button icon={Plus} onClick={() => setCreating(true)}>{t('Schedule event')}</Button>
+          </div>
+        )}
+      />
       <Tabs tabs={[{ value: 'list', label: t('List') }, { value: 'calendar', label: t('Calendar') }, ...(!isVolunteer ? [{ value: 'pvc', label: t('Planned vs conducted') }] : [])]} value={tab} onChange={setTab} />
       {tab === 'list' && (
         <Card padded={false}>
@@ -194,10 +220,10 @@ export default function Events() {
         </Card>
       )}
       {tab === 'calendar' && <CalendarView villageId={f.village_id} />}
-      {tab === 'pvc' && <PlannedVsConducted />}
-      {canCreate && <Modal open={creating} title={t('Schedule an event')} onClose={() => setCreating(false)} wide>
-        <EventForm onCancel={() => setCreating(false)} onSaved={(ev) => nav(`/events/${ev.id}`)} />
-      </Modal>}
+      {tab === 'pvc' && !isVolunteer && <PlannedVsConducted />}
+      <Modal open={creating} title={t('Schedule event')} onClose={() => setCreating(false)}>
+        <EventForm onSaved={(e) => { setCreating(false); nav(`/events/${e.id}`) }} onCancel={() => setCreating(false)} />
+      </Modal>
     </div>
   )
 }

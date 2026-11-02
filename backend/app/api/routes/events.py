@@ -146,6 +146,27 @@ async def create_event(body: EventCreate, db: Db, actor: Stakeholder):
     return event_out(doc, full=True)
 
 
+@router.post("/auto-schedule-monthly")
+async def trigger_auto_schedule_monthly_meetings(
+    db: Db,
+    actor: Stakeholder,
+    year: int | None = Query(None, description="Year (default: current year)"),
+    month: int | None = Query(None, ge=1, le=12, description="Month (default: current month)"),
+):
+    from app.services.events import auto_schedule_monthly_meetings
+    from app.utils.dates import today_local
+    t = today_local()
+    target_year = year or t.year
+    target_month = month or t.month
+    res = await auto_schedule_monthly_meetings(db, target_year, target_month)
+    await audit.log(
+        db, actor, "auto_schedule", "event", None,
+        f"Auto-scheduled {res['created']} monthly meetings for {target_year}-{target_month:02d}",
+        meta=res
+    )
+    return res
+
+
 @router.get("")
 async def list_events(
     db: Db,

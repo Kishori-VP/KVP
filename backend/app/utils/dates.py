@@ -109,3 +109,27 @@ def next_period(period: PeriodType, end: date) -> tuple[date, date]:
 
 def age_on(dob: date, on: date) -> int:
     return on.year - dob.year - ((on.month, on.day) < (dob.month, dob.day))
+
+def six_months_ago(ref: date | None = None) -> date:
+    """Return the calendar date 6 months prior to ref (default: today_local())."""
+    d = ref or today_local()
+    month = d.month - 6
+    year = d.year
+    if month <= 0:
+        month += 12
+        year -= 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
+
+
+def six_months_after(ref: date | None = None) -> date:
+    """Return the calendar date 6 months after ref (default: today_local())."""
+    d = ref or today_local()
+    month = d.month + 6
+    year = d.year
+    if month > 12:
+        month -= 12
+        year += 1
+    last_day = calendar.monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
+

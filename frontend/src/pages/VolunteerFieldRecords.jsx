@@ -8,15 +8,28 @@ import { fmtDate, humanize, todayISO } from '../lib/format'
 import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
 
-function GirlMultiPicker({ villageId, value, onChange }) {
+function GirlMultiPicker({ villageId, value, onChange, forHomeVisit = true }) {
   const [search, setSearch] = useState('')
-  const { data, loading, error } = useFetch(villageId ? '/girls' : null, { page: 1, page_size: 500, sort: 'name' })
+  const params = { page: 1, page_size: 500, sort: 'name' }
+  if (villageId) params.village_id = villageId
+  if (forHomeVisit) {
+    params.for_home_visit = true
+    if (value && value.length > 0) {
+      params.include_ids = value.join(',')
+    }
+  }
+  const { data, loading, error } = useFetch(villageId ? '/girls' : null, params)
   const girls = (data?.items || []).filter((girl) => !villageId || girl.village_id === villageId).filter((girl) => `${girl.name || ''} ${girl.name_en || ''} ${girl.girl_code || ''}`.toLowerCase().includes(search.toLowerCase()))
   const toggle = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
   return <div className="space-y-2">
     <Input placeholder={t('Search girls')} value={search} onChange={(e) => setSearch(e.target.value)} />
+    {forHomeVisit && (
+      <p className="text-[11px] font-medium text-brand-600">
+        {t('Showing girls eligible for a home visit (6-month cooldown applied).')}
+      </p>
+    )}
     <ErrorBox message={error} />
-    {loading ? <Spinner /> : girls.length ? <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">{girls.map((girl) => <label key={girl.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50"><input type="checkbox" checked={value.includes(girl.id)} onChange={() => toggle(girl.id)} /><span className="font-medium">{girl.girl_code}</span><span>{localName(girl) || t('Name not recorded')}</span></label>)}</div> : <Empty>{t('No girls registered in your village yet.')}</Empty>}
+    {loading ? <Spinner /> : girls.length ? <div className="max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2">{girls.map((girl) => <label key={girl.id} className="flex items-center gap-2 rounded px-2 py-1 text-sm hover:bg-gray-50"><input type="checkbox" checked={value.includes(girl.id)} onChange={() => toggle(girl.id)} /><span className="font-medium">{girl.girl_code}</span><span>{localName(girl) || t('Name not recorded')}</span></label>)}</div> : <Empty>{t('No eligible girls found for home visit in this village.')}</Empty>}
   </div>
 }
 

@@ -26,7 +26,7 @@ from app.services.beneficiaries import (
 from app.services.counters import next_girl_code
 from app.services.lookups import ensure_code
 from app.services.validation import validate_entity
-from app.utils.dates import to_date, to_dt, today_local, utcnow
+from app.utils.dates import six_months_after, six_months_ago, to_date, to_dt, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, serialize
 from app.utils.survey_i18n import survey_in_english
 from app.utils.translit import to_latin
@@ -41,6 +41,16 @@ def girl_out(doc: dict) -> dict:
     age = current_age(doc)
     out["current_age"] = age
     out["age_band"] = age_band(age)
+    lv = to_date(doc.get("last_home_visit_at"))
+    if lv:
+        cooldown_end = six_months_after(lv)
+        out["last_home_visit_at"] = doc["last_home_visit_at"]
+        out["home_visit_cooldown_until"] = to_dt(cooldown_end)
+        out["is_home_visit_eligible"] = today_local() >= cooldown_end
+    else:
+        out["last_home_visit_at"] = None
+        out["home_visit_cooldown_until"] = None
+        out["is_home_visit_eligible"] = True
     return out
 
 
@@ -194,6 +204,8 @@ async def list_girls(
     case_status: str | None = Query(None, description="'open', 'none', or a specific case status"),
     anaemia: str | None = Query(None, description="severe|moderate|mild|normal|unscreened"),
     profile_incomplete: bool | None = None,
+    for_home_visit: bool = False,
+    include_ids: str | None = None,
     q: str | None = Query(None, description="Search by name, Girl ID or parent name"),
     sort: Literal["girl_code", "name", "created_at", "last_participation_at"] = "girl_code",
 ):
@@ -233,6 +245,16 @@ async def list_girls(
         query["health_summary.anaemia_status"] = anaemia
     if profile_incomplete is not None:
         query["flags.profile_incomplete"] = profile_incomplete
+    if for_home_visit:
+        cutoff = to_dt(six_months_ago(today_local()))
+        recent_hv = await db[c.HOME_VISITS].distinct("girl_ids", {"status": "completed", "visit_date": {"$gte": cutoff}})
+        recent_ar = await db[c.ACTIVITY_REPORTS].distinct("home_visit_girl_ids", {"report_date": {"$gte": cutoff}})
+        cooldown_ids = set(recent_hv + recent_ar)
+        if include_ids:
+            keep = {oid(x) for x in include_ids.split(",") if x.strip()}
+            cooldown_ids = cooldown_ids - keep
+        if cooldown_ids:
+            query.setdefault("$and", []).append({"_id": {"$nin": list(cooldown_ids)}})
     if q:
         rx = {"$regex": re.escape(q.strip()), "$options": "i"}
         query["$or"] = [{"name": rx}, {"name_en": rx}, {"girl_code": rx}, {"household.father_name": rx},

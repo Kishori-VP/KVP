@@ -1,4 +1,4 @@
-"""Background jobs: reminders, Stakeholder alerts, case escalation and scheduled reports.
+"""Background jobs: reminders, Stakeholder alerts, case escalation, scheduled reports, and monthly meetings.
 
 Every notification uses a dedupe key, so running the jobs repeatedly (every 15
 minutes by default) never sends the same reminder twice.
@@ -16,7 +16,7 @@ from app.services import notifications as notif
 from app.services.alerts import compute_alerts
 from app.services.app_settings import get_setting
 from app.services.beneficiaries import OPEN_CASE_STATUSES, refresh_case_summary
-from app.services.events import local_day_bounds, remind_participants
+from app.services.events import auto_schedule_monthly_meetings, local_day_bounds, remind_participants
 from app.services.report_delivery import run_due_schedules
 from app.services.targets import with_progress
 from app.utils.dates import to_dt, today_local, utcnow
@@ -130,8 +130,21 @@ async def _volunteer_reminders(db: AsyncDatabase) -> int:
     return n
 
 
+async def _monthly_meetings_auto_schedule(db: AsyncDatabase) -> int:
+    today = today_local()
+    res = await auto_schedule_monthly_meetings(db, today.year, today.month)
+    created = res.get("created", 0)
+    if today.day >= 25:
+        ny = today.year + (1 if today.month == 12 else 0)
+        nm = 1 if today.month == 12 else today.month + 1
+        next_res = await auto_schedule_monthly_meetings(db, ny, nm)
+        created += next_res.get("created", 0)
+    return created
+
+
 async def run_jobs_once(db: AsyncDatabase) -> dict:
     return {
+        "monthly_meetings_created": await _monthly_meetings_auto_schedule(db),
         "stakeholder_alerts": await _stakeholder_alerts(db),
         "case_escalations": await _case_escalations(db),
         "volunteer_reminders": await _volunteer_reminders(db),

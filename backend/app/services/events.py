@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, date, datetime, time, timedelta
 
 from app.db import collections as c
@@ -105,3 +106,109 @@ async def remind_participants(db, ev: dict, actor: dict | None = None) -> dict:
                              created_by=actor["_id"] if actor else None)
         counts["duplicate" if doc is None else doc["status"]] += 1
     return counts
+
+
+async def auto_schedule_monthly_meetings(db, year: int, month: int) -> dict:
+    """Automatically create recurring monthly meeting events at the beginning of the month for all Balpanchayat and Kishori groups."""
+    start_of_month = datetime(year, month, 1, 0, 0, 0, tzinfo=local_tz())
+    if month == 12:
+        end_of_month = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=local_tz())
+    else:
+        end_of_month = datetime(year, month + 1, 1, 0, 0, 0, tzinfo=local_tz())
+    s_utc = start_of_month.astimezone(UTC)
+    e_utc = end_of_month.astimezone(UTC)
+
+    groups = await db[c.GROUPS].find({
+        "group_type": {"$in": ["kishori", "bal_panchayat"]},
+        "is_active": True,
+        "is_deleted": {"$ne": True},
+    }).to_list()
+
+    volunteers = await db[c.USERS].find({"role": "volunteer", "is_active": True}).to_list()
+    vol_by_group = {}
+    vol_by_village = {}
+    for v in volunteers:
+        for gid in v.get("group_ids", []):
+            vol_by_group[gid] = v["_id"]
+        for vid in v.get("village_ids", []):
+            vol_by_village[vid] = v["_id"]
+
+    created_events = 0
+    now = utcnow()
+
+    for g in groups:
+        gtype = g.get("group_type")
+        event_type = "kishori_meeting" if gtype == "kishori" else "bal_panchayat_meeting"
+
+        exists = await db[c.EVENTS].find_one({
+            "group_ids": g["_id"],
+            "event_type": event_type,
+            "start_at": {"$gte": s_utc, "$lt": e_utc},
+            "is_deleted": {"$ne": True},
+        })
+        if exists:
+            continue
+
+        meeting_date = date(year, month, 1)
+        sched = g.get("meeting_schedule") or {}
+        time_str = sched.get("time") or "10:00"
+        start_at, end_at = event_window(meeting_date, time_str, None)
+
+        vol_id = g.get("responsible_volunteer_id") or vol_by_group.get(g["_id"]) or vol_by_village.get(g["village_id"])
+
+        if gtype == "kishori":
+            title = f"{g['name']} - किशोरी गट मासिक बैठक"
+        else:
+            title = f"{g['name']} - बालपंचायत मासिक बैठक"
+
+        doc = {
+            "title": title,
+            "event_type": event_type,
+            "objective": f"{g['name']} monthly meeting for {year}-{month:02d}",
+            "village_id": g["village_id"],
+            "taluka_id": g.get("taluka_id"),
+            "location_name": "गाव / अंगणवाडी",
+            "location": None,
+            "start_at": start_at,
+            "end_at": end_at,
+            "start_time": time_str,
+            "end_time": "12:00",
+            "responsible_volunteer_id": vol_id,
+            "expected_participants": len(g.get("members", [])) if gtype == "bal_panchayat" else 15,
+            "group_ids": [g["_id"]],
+            "status": "scheduled",
+            "is_historical": False,
+            "planned": True,
+            "is_auto_scheduled": True,
+            "recurrence": {
+                "frequency": "monthly",
+                "period": f"{year:04d}-{month:02d}",
+            },
+            "pre_checklist": [{"item": item, "done": False, "notes": None, "done_at": None, "done_by": None}
+                              for item in DEFAULT_PRE_CHECKLIST],
+            "post_checklist": [{"item": item, "done": False, "notes": None, "done_at": None, "done_by": None}
+                               for item in DEFAULT_POST_CHECKLIST],
+            "attendance": [],
+            "other_participants": {},
+            "report": None,
+            "expenditure": {"items": [], "total": 0, "resources_used": []},
+            "planned_budget": None,
+            "notify_participants": False,
+            "media_ids": [],
+            "reschedule_history": [],
+            "cancel_reason": None,
+            "approval": {"status": "not_required", "by": None, "at": None, "remarks": None},
+            "created_by": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+        await db[c.EVENTS].insert_one(doc)
+        created_events += 1
+
+    return {
+        "created": created_events,
+        "year": year,
+        "month": month,
+        "total_groups": len(groups),
+    }

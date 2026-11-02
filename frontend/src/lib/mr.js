@@ -1545,5 +1545,15 @@ export default {
   "· Devices": "· उपकरणे",
   "· Pending": "· प्रलंबित",
   "· Stale": "· जुने",
-  "नाव (Marathi)": "नाव (मराठी)"
+  "नाव (Marathi)": "नाव (मराठी)",
+  "Auto-Schedule Monthly Meetings": "मासिक बैठका स्वयंचलित शेड्युल करा",
+  "Auto-scheduled {n} monthly meetings for this month.": "या महिन्यासाठी {n} मासिक बैठका स्वयंचलित शेड्युल केल्या.",
+  "All genders (लिंग)": "सर्व (लिंग)",
+  "Girls only (मुली)": "फक्त मुली",
+  "Boys only (मुले)": "फक्त मुले",
+  "Eligible for home visit": "गृहभेटीसाठी पात्र",
+  "In 6-month cooldown": "६ महिने प्रतीक्षा काळ (कूलडाऊन)",
+  "Next home visit eligible after {date}": "{date} नंतर पुढील गृहभेटीसाठी पात्र",
+  "Only girls eligible for a home visit (not visited in the last 6 months) are shown.": "केवळ गृहभेटीसाठी पात्र असलेल्या मुली (गेल्या ६ महिन्यांत भेट न झालेल्या) दाखवल्या आहेत.",
+  "Showing girls eligible for a home visit (6-month cooldown applied).": "गृहभेटीसाठी पात्र असलेल्या मुली (६ महिन्यांचा प्रतीक्षा काळ लागू).",
 };

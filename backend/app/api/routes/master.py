@@ -1,6 +1,7 @@
 """Programme master data: talukas, villages, Kishori / Bal Panchayat groups (PRD 4.2, 4.18)."""
 
 import re
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
@@ -24,6 +25,7 @@ from app.services import audit
 from app.services.counters import next_code
 from app.services.lookups import MANDATORY_CONTACT_CATEGORIES
 from app.utils.dates import utcnow
+from app.utils.gender import clean_child_name, infer_gender
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, oids, paginate, serialize
 from app.utils.translit import to_latin
 
@@ -394,6 +396,7 @@ async def list_children(
     pg: Pagination,
     village_id: ObjectIdStr | None = None,
     group_id: ObjectIdStr | None = None,
+    gender: Literal["boy", "girl"] | None = None,
     q: str | None = None,
     registered: bool | None = Query(None, description="true: linked to a registered girl; false: not registered"),
 ):
@@ -402,6 +405,8 @@ async def list_children(
     if group_id:
         match["_id"] = oid(group_id)
     child: dict = {}
+    if gender:
+        child["members.gender"] = gender
     if q:
         child["members.name"] = {"$regex": re.escape(q.strip()), "$options": "i"}
     if registered is not None:
@@ -492,15 +497,17 @@ async def create_child(body: ChildCreate, db: Db, actor: Stakeholder):
     if group.get("group_type") != "bal_panchayat":
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Children can only be added to Bal Panchayat groups")
     cid = ObjectId()
+    c_name = clean_child_name(body.name)
+    c_gender = body.gender or infer_gender(c_name)
     child_doc = {
         "_id": cid,
         "id": str(cid),
-        "name": body.name.strip(),
-        "name_en": to_latin(body.name.strip()),
+        "name": c_name,
+        "name_en": to_latin(c_name),
         "standard": body.standard.strip() if body.standard else None,
         "phone": body.phone.strip() if body.phone else None,
-        "gender": body.gender or "boy",
-        "girl_id": oid(body.girl_id) if body.girl_id else None,
+        "gender": c_gender,
+        "girl_id": None if c_gender == "boy" else (oid(body.girl_id) if body.girl_id else None),
         "age": body.age,
         "created_at": utcnow(),
     }
@@ -527,15 +534,19 @@ async def update_child(group_id: str, member_id: str, body: ChildUpdate, db: Db,
     curr = dict(members[found_idx])
     updates = body.model_dump(exclude_unset=True)
     if "name" in updates and updates["name"]:
-        curr["name"] = updates["name"].strip()
+        curr["name"] = clean_child_name(updates["name"])
         curr["name_en"] = to_latin(curr["name"])
+        if "gender" not in updates:
+            curr["gender"] = infer_gender(curr["name"])
     if "standard" in updates:
         curr["standard"] = updates["standard"]
     if "phone" in updates:
         curr["phone"] = updates["phone"]
     if "gender" in updates:
         curr["gender"] = updates["gender"]
-    if "girl_id" in updates:
+    if curr.get("gender") == "boy":
+        curr["girl_id"] = None
+    elif "girl_id" in updates:
         curr["girl_id"] = oid(updates["girl_id"]) if updates["girl_id"] else None
     if "age" in updates:
         curr["age"] = updates["age"]

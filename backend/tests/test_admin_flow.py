@@ -236,7 +236,7 @@ def test_events(client, admin):
 
     past = ok(client.post(f"{API}/events", headers=admin, json={
         "title": "Kishori meeting", "event_type": "kishori_meeting", "village_id": S["v1"],
-        "event_date": str(TODAY - timedelta(days=2)), "is_historical": True,
+        "event_date": str(TODAY - timedelta(days=1 if TODAY.day > 1 else 0)), "is_historical": True,
         "responsible_volunteer_id": S["vol"], "expected_participants": 15, "group_ids": [S["g1"]]}), 201)
     S["event_past"] = past["id"]
     assert past["display_status"] == "overdue"

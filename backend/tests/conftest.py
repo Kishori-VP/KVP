@@ -43,6 +43,7 @@ def _bootstrap():
         for order, (code, label, label_mr, attrs) in enumerate(items):
             db.lookups.insert_one({"type": type_, "code": code, "label": label, "label_mr": label_mr,
                                    "attributes": attrs, "order": order, "is_active": True, "is_system": True})
+    db.notifications.create_index("dedupe_key", unique=True, partialFilterExpression={"dedupe_key": {"$type": "string"}})
     return client
 
 
