@@ -49,12 +49,12 @@ export function Card({ title, actions, children, className, padded = true }) {
 
 export function PageHeader({ title, subtitle, actions }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm leading-relaxed text-gray-500">{subtitle}</p>}
+    <div className="mb-5 sm:mb-6 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+      <div className="min-w-0">
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-gray-900">{title}</h1>
+        {subtitle && <p className="mt-1 text-xs sm:text-sm leading-relaxed text-gray-500">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
     </div>
   )
 }
@@ -176,12 +176,12 @@ export function Empty({ children = t('Nothing to show yet.') }) {
 export function Table({ columns, rows, onRowClick, empty, rowKey = (r) => r.id }) {
   if (!rows?.length) return <Empty>{empty}</Empty>
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
       <table className="min-w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
             {columns.map((c) => (
-              <th key={c.key} className={cx('px-3 py-2 font-medium whitespace-nowrap', c.className)}>
+              <th key={c.key} className={cx('px-3 py-2.5 font-medium whitespace-nowrap', c.className)}>
                 {c.label}
               </th>
             ))}
@@ -192,10 +192,10 @@ export function Table({ columns, rows, onRowClick, empty, rowKey = (r) => r.id }
             <tr
               key={rowKey(row) ?? i}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
-              className={cx('border-b border-gray-100 last:border-0', onRowClick && 'cursor-pointer hover:bg-brand-50/60')}
+              className={cx('border-b border-gray-100 last:border-0 transition-colors', onRowClick && 'cursor-pointer hover:bg-brand-50/60 active:bg-brand-100/40')}
             >
               {columns.map((c) => (
-                <td key={c.key} className={cx('px-3 py-2 align-top', c.className)}>
+                <td key={c.key} className={cx('px-3 py-2.5 align-top', c.className)}>
                   {c.render ? c.render(row) : (row[c.key] ?? '—')}
                 </td>
               ))}
@@ -211,8 +211,8 @@ export function Pagination({ page, pageSize, total, onPage }) {
   if (!total || total <= pageSize) return null
   const pages = Math.ceil(total / pageSize)
   return (
-    <div className="flex items-center justify-between border-t border-gray-100 px-3 py-2 text-sm text-gray-600">
-      <span className="tabular">
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 px-3 py-2 text-sm text-gray-600">
+      <span className="tabular text-xs sm:text-sm">
         {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} {t('of')} {total.toLocaleString(locale())}
       </span>
       <div className="flex gap-1">
@@ -236,21 +236,24 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-8" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-2 sm:p-6 backdrop-blur-xs" onMouseDown={onClose}>
       <div
-        className={cx('w-full rounded-xl bg-white shadow-xl', wide ? 'max-w-3xl' : 'max-w-lg')}
+        className={cx(
+          'w-full max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col rounded-2xl bg-white shadow-2xl transition-all',
+          wide ? 'max-w-3xl' : 'max-w-lg',
+        )}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
       >
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-          <h3 className="font-semibold text-gray-900">{title}</h3>
-          <button type="button" onClick={onClose} className="rounded p-1 text-gray-500 hover:bg-gray-100" aria-label={t('Close')}>
+        <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3 sm:px-5 sm:py-3.5">
+          <h3 className="font-semibold text-gray-900 text-sm sm:text-base">{title}</h3>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 active:scale-95 transition" aria-label={t('Close')}>
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="space-y-3 px-5 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-3">{footer}</div>}
+        <div className="space-y-3.5 overflow-y-auto px-4 py-3.5 sm:px-5 sm:py-4 flex-1">{children}</div>
+        {footer && <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-100 px-4 py-3 sm:px-5">{footer}</div>}
       </div>
     </div>
   )

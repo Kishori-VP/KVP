@@ -18,7 +18,7 @@ export default function MobileBottomNav({
   checkedOut = false,
 }) {
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 flex h-16 items-center justify-around border-t border-gray-200 bg-white/95 px-2 pb-[env(safe-area-inset-bottom)] backdrop-blur shadow-lg lg:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-30 flex h-[calc(4rem+env(safe-area-inset-bottom,0px))] items-center justify-around border-t border-gray-200/80 bg-white/90 px-2 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-md shadow-lg lg:hidden">
       {/* 1. Dashboard */}
       <NavLink
         to="/"
