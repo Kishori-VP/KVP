@@ -1,8 +1,8 @@
-import { Activity, AlertTriangle, CalendarDays, Camera, CheckCircle2, ClipboardCheck, FileText, HeartPulse, MapPin, Mic, Phone, Users, RefreshCw } from 'lucide-react'
+import { Activity, AlertTriangle, CalendarDays, Camera, CheckCircle2, ClipboardCheck, FileText, MapPin, Mic, Phone, Users, RefreshCw } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 import { CircleMarker, MapContainer, TileLayer, Tooltip as MapTooltip } from 'react-leaflet'
 import { Link } from 'react-router-dom'
-import { Button, Card, Empty, ErrorBox, PageHeader, ProgressBar, Spinner, StatTile, StatusBadge, Table } from '../components/ui'
+import { Button, Card, Empty, ErrorBox, PageHeader, Spinner, StatTile, StatusBadge, Table } from '../components/ui'
 import { fmtDate, fmtDateTime, humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
@@ -39,7 +39,6 @@ const QUICK_LINKS = [
   { to: '/events', label: 'Event reports', description: 'Submit attendance and event outcomes', icon: CalendarDays },
   { to: '/field', label: 'Voice entry', description: 'Dictate Marathi field observations', icon: Mic },
   { to: '/contacts', label: 'Village contacts', description: 'Maintain key contact details', icon: Phone },
-  { to: '/cases', label: 'Follow-ups', description: 'Review concerns and next actions', icon: HeartPulse },
   { to: '/reports', label: 'My reports', description: 'Review activity and target progress', icon: FileText },
 ]
 
@@ -228,26 +227,27 @@ export default function VolunteerDashboard() {
           {/* NoteCam Daily Check-In / Check-Out Widget */}
           <div className="relative overflow-hidden rounded-2xl shadow-sm transition">
             {!todayAttendance?.checked_in ? (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-gradient-to-r from-emerald-600 to-teal-700 p-5 text-white">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-brand-gradient p-5 text-white">
                 <div>
-                  <div className="text-xs uppercase font-bold tracking-wider text-emerald-100 flex items-center gap-1.5">
+                  <div className="text-xs uppercase font-bold tracking-wider text-white/80 flex items-center gap-1.5">
                     <Camera className="h-4 w-4" /> {t('Daily Field Attendance')}
                   </div>
                   <h3 className="text-lg font-bold mt-1">{t('You have not checked in today')}</h3>
-                  <p className="text-xs text-emerald-100 mt-0.5">
+                  <p className="text-xs text-white/80 mt-0.5">
                     {t('Capture your NoteCam photo with GPS & village stamp to mark attendance.')}
                   </p>
                 </div>
                 <Button
+                  variant="light"
                   onClick={() => openNoteCam('CHECK-IN')}
-                  className="w-full sm:w-auto bg-white text-emerald-800 hover:bg-emerald-50 font-bold px-5 py-2.5 shadow transition active:scale-95"
+                  className="w-full sm:w-auto font-bold px-5 py-2.5 shadow transition active:scale-95"
                 >
-                  <Camera className="mr-2 h-5 w-5 text-emerald-700" />
+                  <Camera className="mr-2 h-5 w-5 text-brand-600" />
                   {t('NoteCam Check-In')}
                 </Button>
               </div>
             ) : !todayAttendance?.checked_out ? (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-gradient-to-r from-blue-700 to-indigo-800 p-5 text-white">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-brand-gradient p-5 text-white">
                 <div className="flex items-center gap-3 min-w-0">
                   {todayAttendance.record?.check_in_photo && (
                     <img
@@ -257,20 +257,21 @@ export default function VolunteerDashboard() {
                     />
                   )}
                   <div className="min-w-0">
-                    <div className="text-xs uppercase font-bold tracking-wider text-blue-200 flex items-center gap-1.5">
+                    <div className="text-xs uppercase font-bold tracking-wider text-white/80 flex items-center gap-1.5">
                       <CheckCircle2 className="h-4 w-4 text-emerald-400" /> {t('Currently Checked In')}
                     </div>
                     <h3 className="text-base sm:text-lg font-bold mt-0.5 truncate">
                       {t('Checked In at')} {todayAttendance.record?.check_in}
                     </h3>
-                    <p className="text-xs text-blue-100 mt-0.5 truncate">
+                    <p className="text-xs text-white/80 mt-0.5 truncate">
                       📍 {todayAttendance.record?.village_name || getVillageName(data.village)}
                     </p>
                   </div>
                 </div>
                 <Button
+                  variant="light"
                   onClick={() => openNoteCam('CHECK-OUT')}
-                  className="w-full sm:w-auto bg-amber-500 hover:bg-amber-600 text-white font-bold px-5 py-2.5 shadow transition active:scale-95"
+                  className="w-full sm:w-auto font-bold px-5 py-2.5 shadow transition active:scale-95"
                 >
                   <Camera className="mr-2 h-5 w-5" />
                   {t('NoteCam Check-Out')}
@@ -356,13 +357,12 @@ export default function VolunteerDashboard() {
           </Card>
 
           {/* Stat Tiles (Mobile Responsive) */}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
             <StatTile label={t('Assigned girls')} value={data.summary?.girls_total || 0} sub={t('{n} active', { n: data.summary?.girls_active || 0 })} />
             <StatTile label={t('Visits today')} value={data.summary?.home_visits_today || 0} />
             <StatTile label={t('Visits this week')} value={data.summary?.home_visits_this_week || 0} />
             <StatTile label={t('Visits this month')} value={data.summary?.home_visits_this_month || 0} />
             <StatTile label={t('Girls reached')} value={data.summary?.girls_covered || 0} />
-            <StatTile label={t('Open follow-ups')} value={data.open_cases || 0} tone={data.open_cases ? 'alert' : undefined} />
           </div>
 
           <PlannedVsActual />
@@ -396,11 +396,11 @@ export default function VolunteerDashboard() {
                 <div className="h-64 overflow-hidden rounded-lg border border-black/10">
                   <MapContainer center={[data.village.location.lat, data.village.location.lng]} zoom={12} scrollWheelZoom={false} className="h-full w-full">
                     <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                    <CircleMarker center={[data.village.location.lat, data.village.location.lng]} radius={10} pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#0f766e', fillOpacity: 1 }}>
+                    <CircleMarker center={[data.village.location.lat, data.village.location.lng]} radius={10} pathOptions={{ color: '#ffffff', weight: 2, fillColor: '#023b77', fillOpacity: 1 }}>
                       <MapTooltip>{getVillageName(data.village)}</MapTooltip>
                     </CircleMarker>
                     {(data.recent_visits || []).filter((visit) => visit.gps?.lat != null && visit.gps?.lng != null).map((visit) => (
-                      <CircleMarker key={visit.id} center={[visit.gps.lat, visit.gps.lng]} radius={6} pathOptions={{ color: '#ffffff', weight: 1, fillColor: '#2563eb', fillOpacity: 0.9 }}>
+                      <CircleMarker key={visit.id} center={[visit.gps.lat, visit.gps.lng]} radius={6} pathOptions={{ color: '#ffffff', weight: 1, fillColor: '#039583', fillOpacity: 0.9 }}>
                         <MapTooltip>{t('Home visit')} · {fmtDate(visit.visit_date)}</MapTooltip>
                       </CircleMarker>
                     ))}
@@ -439,30 +439,8 @@ export default function VolunteerDashboard() {
             </Card>
           </div>
 
-          {/* Current Targets */}
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Card title={t('My current targets')} actions={<Link className="text-xs text-brand-700 hover:underline" to="/targets">{t('View all')}</Link>}>
-              {data.targets?.length ? (
-                <div className="space-y-4">
-                  {data.targets.map((target) => (
-                    <div key={target.id}>
-                      <div className="mb-1 flex flex-wrap items-center justify-between gap-2 text-sm">
-                        <span className="font-medium text-gray-800">{target.title}</span>
-                        <StatusBadge value={target.progress?.status} />
-                      </div>
-                      <ProgressBar pct={target.progress?.progress_pct} />
-                      <div className="mt-1 flex justify-between gap-2 text-xs text-gray-500">
-                        <span>{target.progress?.achieved || 0} / {target.target_value}</span>
-                        <span>{t('{n} days left', { n: target.progress?.days_left || 0 })}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <Empty>{t('No active targets assigned for this period.')}</Empty>
-              )}
-            </Card>
-
+          {/* Upcoming events */}
+          <div className="grid gap-4">
             <Card title={t('Upcoming events')} actions={<Link className="text-xs text-brand-700 hover:underline" to="/events">{t('All events')}</Link>}>
               {data.upcoming_events?.length ? (
                 <div className="divide-y divide-gray-100">

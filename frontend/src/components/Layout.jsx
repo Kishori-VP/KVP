@@ -90,27 +90,11 @@ const VOLUNTEER_NAV = [
     section: 'My work',
     items: [
       { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
-      { to: '/field', label: 'Visits, calls & records', icon: ClipboardList },
-      { to: '/targets', label: 'My targets', icon: Target },
-    ],
-  },
-  {
-    section: 'Village',
-    items: [
+      { to: '/field', label: 'Visits', icon: ClipboardList },
       { to: '/girls', label: 'Girls', icon: Users },
       { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },
       { to: '/external-girls', label: 'External girls', icon: GraduationCap },
-      { to: '/groups', label: 'Groups', icon: Users },
-      { to: '/cases', label: 'Follow-ups', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },
-      { to: '/contacts', label: 'Village contacts', icon: Phone },
-    ],
-  },
-  {
-    section: 'My account',
-    items: [
-      { to: '/reports', label: 'My reports', icon: BarChart3 },
-      { to: '/notifications', label: 'Notifications', icon: Bell },
     ],
   },
 ]

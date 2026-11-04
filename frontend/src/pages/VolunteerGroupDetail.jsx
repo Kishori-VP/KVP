@@ -44,9 +44,7 @@ export default function VolunteerGroupDetail() {
 
   return (
     <div className="space-y-4">
-      {user?.role === 'volunteer'
-        ? <Link to="/groups" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" />{t('My village groups')}</Link>
-        : <button type="button" onClick={() => nav(-1)} className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" />{t('Back')}</button>}
+      <button type="button" onClick={() => nav(-1)} className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline"><ArrowLeft className="h-4 w-4" />{t('Back')}</button>
       <ErrorBox message={error} />
       {data && (
         <>

@@ -16,6 +16,7 @@
   --color-brand-700: #025e79;
   --color-brand-800: #024b78;
   --color-brand-900: #023b77;
+  --color-brand-950: #012d5c;
 
   /* Gradient tokens */
   --gradient-brand: linear-gradient(135deg, #023b77 0%, #039583 100%);

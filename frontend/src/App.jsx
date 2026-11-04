@@ -51,7 +51,6 @@ const VolunteerDashboard = lazy(() => import('./pages/VolunteerDashboard'))
 const VolunteerFieldRecords = lazy(() => import('./pages/VolunteerFieldRecords'))
 const VolunteerContacts = lazy(() => import('./pages/VolunteerContacts'))
 const VolunteerReports = lazy(() => import('./pages/VolunteerReports'))
-const VolunteerGroups = lazy(() => import('./pages/VolunteerGroups'))
 const VolunteerGroupDetail = lazy(() => import('./pages/VolunteerGroupDetail'))
 const EventDetail = lazy(() => import('./pages/EventDetail'))
 const Events = lazy(() => import('./pages/Events'))
@@ -130,19 +129,18 @@ export default function App() {
             <Route path="children" element={<Children />} />
             <Route path="girls/:id" element={<GirlDetail />} />
             <Route path="external-girls" element={<ExternalGirls />} />
-            <Route path="cases" element={<Cases />} />
-            <Route path="cases/:id" element={<CaseDetail />} />
+            <Route path="cases" element={<StakeholderOnly><Cases /></StakeholderOnly>} />
+            <Route path="cases/:id" element={<StakeholderOnly><CaseDetail /></StakeholderOnly>} />
             <Route path="events" element={<Events />} />
             <Route path="events/:id" element={<EventDetail />} />
             <Route path="field" element={<RoleSwitch stakeholder={<FieldRecords />} volunteer={<VolunteerFieldRecords />} />} />
             <Route path="volunteers" element={<StakeholderOnly><Volunteers /></StakeholderOnly>} />
             <Route path="volunteers/:id" element={<StakeholderOnly><VolunteerDetail /></StakeholderOnly>} />
-            <Route path="targets" element={<Targets />} />
+            <Route path="targets" element={<StakeholderOnly><Targets /></StakeholderOnly>} />
             <Route path="users" element={<StakeholderOnly><Users /></StakeholderOnly>} />
             <Route path="master" element={<StakeholderOnly><MasterData /></StakeholderOnly>} />
             <Route path="villages" element={<StakeholderOnly><Villages /></StakeholderOnly>} />
             <Route path="villages/:id" element={<StakeholderOnly><VillageDetail /></StakeholderOnly>} />
-            <Route path="groups" element={<VolunteerOnly><VolunteerGroups /></VolunteerOnly>} />
             <Route path="groups/:id" element={<VolunteerGroupDetail />} />
             <Route path="contacts" element={<RoleSwitch stakeholder={<Contacts />} volunteer={<VolunteerContacts />} />} />
             <Route path="reports" element={<RoleSwitch stakeholder={<Reports />} volunteer={<VolunteerReports />} />} />

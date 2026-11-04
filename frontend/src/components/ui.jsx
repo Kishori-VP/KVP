@@ -12,6 +12,7 @@ const BTN = {
   secondary: 'border border-gray-200 bg-white text-gray-800 shadow-sm hover:border-brand-200 hover:bg-brand-50 disabled:text-gray-400',
   danger: 'bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300',
   ghost: 'text-brand-700 hover:bg-brand-50 disabled:text-gray-400',
+  light: 'bg-white text-brand-800 shadow hover:bg-brand-50',
 }
 
 export function Button({ variant = 'primary', size = 'md', busy, className, children, icon: Icon, ...props }) {
