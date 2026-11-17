@@ -1,7 +1,7 @@
-import { ArrowLeft, Download, Send, Trash2, Upload } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeft, Check, ChevronLeft, ChevronRight, Download, Send, Trash2, Upload } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { Badge, Button, Card, Checkbox, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
+import { Badge, Button, Card, Checkbox, DefinitionList, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Textarea, cx } from '../components/ui'
 import api, { download, errorMessage } from '../lib/api'
 import { fmtDateTime, humanize } from '../lib/format'
 import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
@@ -188,6 +188,49 @@ function Media({ ev, onChange }) {
   )
 }
 
+const STAGES = [
+  { value: 'overview', label: 'Overview' },
+  { value: 'checklists', label: 'Checklists' },
+  { value: 'attendance', label: 'Attendance' },
+  { value: 'report', label: 'Report' },
+  { value: 'expenditure', label: 'Expenditure' },
+  { value: 'media', label: 'Media' },
+]
+
+/** Stage-wise stepper: all stages fit the width (no sideways scrolling); finished stages get a tick. */
+function StageStepper({ value, onChange, done }) {
+  const current = STAGES.findIndex((s) => s.value === value)
+  return (
+    <ol className="grid grid-cols-6 gap-0.5 rounded-2xl border border-gray-200/80 bg-white px-1.5 py-3 shadow-sm sm:px-3">
+      {STAGES.map((s, i) => {
+        const active = i === current
+        const complete = done[s.value]
+        return (
+          <li key={s.value} className="relative">
+            {i > 0 && <span aria-hidden className={cx('absolute right-1/2 top-4 h-0.5 w-full -translate-y-1/2', i <= current ? 'bg-brand-500' : 'bg-gray-200')} />}
+            <button
+              type="button"
+              onClick={() => onChange(s.value)}
+              aria-current={active ? 'step' : undefined}
+              className="relative flex w-full flex-col items-center gap-1 text-center"
+            >
+              <span className={cx(
+                'relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold transition',
+                active ? 'border-brand-600 bg-brand-gradient text-white shadow-md ring-4 ring-brand-100'
+                  : complete ? 'border-emerald-500 bg-emerald-500 text-white'
+                  : 'border-gray-300 bg-white text-gray-500',
+              )}>
+                {complete && !active ? <Check className="h-4 w-4" /> : i + 1}
+              </span>
+              <span className={cx('text-[11px] leading-tight sm:text-xs', active ? 'font-semibold text-brand-800' : 'text-gray-500')}>{t(s.label)}</span>
+            </button>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 export default function EventDetail() {
   const { id } = useParams()
   const nav = useNavigate()
@@ -203,10 +246,21 @@ export default function EventDetail() {
   const [approval, setApproval] = useState(null)
   const { busy, error: actErr, run } = useAction()
   const [smsResult, setSmsResult] = useState(null)
+  const stepperRef = useRef(null)
   if (error) return <ErrorBox message={error} />
   if (!ev) return <Spinner />
   const onSaved = () => reload()
   const att = ev.attendance_summary
+  const stageIdx = STAGES.findIndex((s) => s.value === tab)
+  const goStage = (i) => { setTab(STAGES[i].value); stepperRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+  const stageDone = {
+    overview: true,
+    checklists: (ev.pre_checklist || []).length > 0 && ev.pre_checklist.every((x) => x.done),
+    attendance: (att?.total_present || 0) > 0,
+    report: Boolean(ev.report),
+    expenditure: (ev.expenditure?.items || []).length > 0,
+    media: (ev.media || []).length > 0,
+  }
   const doCancel = () => run(async () => { await api.post(`/events/${id}/cancel`, { reason }); setCancel(false); reload() }).catch(() => {})
   const notify = () => run(async () => setSmsResult((await api.post(`/events/${id}/notify-participants`)).data)).catch(() => {})
   const decide = (decision) => run(async () => { await api.post(`/events/${id}/approval`, { decision, remarks: approval || null }); setApproval(null); reload() }).catch(() => {})
@@ -242,7 +296,7 @@ export default function EventDetail() {
       <ErrorBox message={actErr} />
       {smsResult && <div className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-900">SMS: {Object.entries(smsResult).filter(([, n]) => n).map(([k, n]) => `${n} ${humanize(k).toLowerCase()}`).join(' · ') || t('no recipients')}</div>}
       <div className="flex flex-wrap gap-2"><StatusBadge value={ev.display_status} />{ev.is_historical && <Badge>{t('Back-dated')}</Badge>}{ev.notify_participants && <Badge tone="blue">{t('SMS reminders on')}</Badge>}</div>
-      <Tabs tabs={['overview', 'checklists', 'attendance', 'report', 'expenditure', 'media']} value={tab} onChange={setTab} />
+      <div ref={stepperRef} className="scroll-mt-4"><StageStepper value={tab} onChange={setTab} done={stageDone} /></div>
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card title={t('Event')}>
@@ -266,6 +320,11 @@ export default function EventDetail() {
       {tab === 'report' && <ReportForm ev={ev} onSaved={onSaved} />}
       {tab === 'expenditure' && <Expenditure ev={ev} onSaved={onSaved} />}
       {tab === 'media' && <Media ev={ev} onChange={reload} />}
+      <div className="flex items-center justify-between gap-2 border-t border-gray-100 pt-3">
+        <Button variant="secondary" icon={ChevronLeft} disabled={stageIdx <= 0} onClick={() => goStage(stageIdx - 1)}>{t('Back')}</Button>
+        <span className="text-xs text-gray-500">{t('Step {n} of {total}', { n: stageIdx + 1, total: STAGES.length })}</span>
+        <Button disabled={stageIdx >= STAGES.length - 1} onClick={() => goStage(stageIdx + 1)}>{t('Next')} <ChevronRight className="h-4 w-4" /></Button>
+      </div>
       {!isVolunteer && isSuperAdmin && <Modal open={cancel} title={t('Cancel event')} onClose={() => setCancel(false)}
         footer={<><Button variant="secondary" onClick={() => setCancel(false)}>{t('Keep')}</Button><Button variant="danger" busy={busy} disabled={reason.length < 3} onClick={doCancel}>{t('Cancel event')}</Button></>}>
         <Field label={t('Reason *')}><Input value={reason} onChange={(e) => setReason(e.target.value)} /></Field>

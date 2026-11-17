@@ -176,6 +176,7 @@ export default {
   "NoteCam daily check-in and check-out": "NoteCam दैनिक चेक-इन आणि चेक-आउट",
   "No photo yet": "अद्याप फोटो नाही",
   "Filters": "फिल्टर",
+  "Step {n} of {total}": "पायरी {n} / {total}",
   "Hide filters": "फिल्टर लपवा",
   "Today's attendance": "आजची हजेरी",
   "Check-in": "चेक-इन",
