@@ -49,7 +49,7 @@ export default function Children() {
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm" placeholder={t('Search name…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
+            <input className="w-full rounded-lg border border-gray-300 py-2.5 sm:py-2 pl-9 pr-3 text-base sm:text-sm" placeholder={t('Search name…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
           {user?.role !== 'volunteer' && <VillageSelect value={filters.village_id} onChange={(v) => set('village_id', v)} />}
           <GroupSelect villageId={filters.village_id} groupType="bal_panchayat" placeholder={t('All Bal Panchayats')} value={filters.group_id} onChange={(v) => set('group_id', v)} />

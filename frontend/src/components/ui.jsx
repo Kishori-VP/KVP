@@ -1,5 +1,6 @@
 import { AlertCircle, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
 import { useEffect } from 'react'
+import { useAuth } from '../lib/auth'
 import { humanize } from '../lib/format'
 import { locale, t } from '../lib/i18n'
 
@@ -55,7 +56,7 @@ export function PageHeader({ title, subtitle, actions }) {
         <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-gray-900">{title}</h1>
         {subtitle && <p className="mt-1 text-xs sm:text-sm leading-relaxed text-gray-500">{subtitle}</p>}
       </div>
-      {actions && <div className="flex flex-wrap items-center gap-2 shrink-0">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 shrink-0 [&>button]:flex-1 [&>button]:whitespace-nowrap sm:[&>button]:flex-none [&>div]:flex-1 sm:[&>div]:flex-none">{actions}</div>}
     </div>
   )
 }
@@ -113,7 +114,7 @@ export function Field({ label, hint, children, className, group }) {
   )
 }
 
-const INPUT = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm outline-none transition placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-gray-50'
+const INPUT = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 sm:py-2 text-base sm:text-sm shadow-sm outline-none transition placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-gray-50'
 
 export function Input(props) {
   return <input className={INPUT} {...props} />
@@ -171,13 +172,62 @@ export function Empty({ children = t('Nothing to show yet.') }) {
   return <div className="py-8 text-center text-sm text-gray-500">{children}</div>
 }
 
+const isBlank = (v) => v === null || v === undefined || v === '' || v === '—'
+
 /**
- * columns: [{key, label, render?(row), className?}]
+ * On phones, each row becomes a card: first column is the title, labelled columns
+ * become label/value pairs, unlabelled columns (actions, flags) sit at the bottom.
+ * Columns with `mobileHidden` are left out of the card.
  */
-export function Table({ columns, rows, onRowClick, empty, rowKey = (r) => r.id }) {
-  if (!rows?.length) return <Empty>{empty}</Empty>
+function StackedRows({ columns, rows, onRowClick, rowKey }) {
+  const [head, ...rest] = columns.filter((c) => !c.mobileHidden)
+  const fields = rest.filter((c) => c.label)
+  const extras = rest.filter((c) => !c.label)
+  const cell = (c, row) => (c.render ? c.render(row) : row[c.key])
   return (
-    <div className="overflow-x-auto touch-pan-x" style={{ WebkitOverflowScrolling: 'touch' }}>
+    <ul className="divide-y divide-gray-100">
+      {rows.map((row, i) => {
+        const shown = fields.map((c) => [c, cell(c, row)]).filter(([, v]) => !isBlank(v))
+        const bottom = extras.map((c) => [c, cell(c, row)]).filter(([, v]) => !isBlank(v))
+        return (
+          <li
+            key={rowKey(row) ?? i}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+            className={cx('px-3.5 py-3', onRowClick && 'cursor-pointer active:bg-brand-50/60')}
+          >
+            {head && <div className="text-sm font-semibold text-gray-900 break-words">{isBlank(cell(head, row)) ? '—' : cell(head, row)}</div>}
+            {shown.length > 0 && (
+              <dl className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
+                {shown.map(([c, v]) => (
+                  <div key={c.key} className="min-w-0">
+                    <dt className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{c.label}</dt>
+                    <dd className="break-words text-gray-800">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {bottom.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                {bottom.map(([c, v]) => <div key={c.key}>{v}</div>)}
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+/**
+ * columns: [{key, label, render?(row), className?, mobileHidden?}]
+ * Volunteers get stacked cards on phones (they work from mobile in the field).
+ */
+export function Table({ columns, rows, onRowClick, empty, rowKey = (r) => r.id, stacked }) {
+  const { user } = useAuth() || {}
+  if (!rows?.length) return <Empty>{empty}</Empty>
+  const useCards = stacked ?? user?.role === 'volunteer'
+  const table = (
+    <div className={cx('overflow-x-auto touch-pan-x', useCards && 'hidden sm:block')} style={{ WebkitOverflowScrolling: 'touch' }}>
       <table className="min-w-full text-sm">
         <thead>
           <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500">
@@ -205,6 +255,15 @@ export function Table({ columns, rows, onRowClick, empty, rowKey = (r) => r.id }
         </tbody>
       </table>
     </div>
+  )
+  if (!useCards) return table
+  return (
+    <>
+      <div className="sm:hidden">
+        <StackedRows columns={columns} rows={rows} onRowClick={onRowClick} rowKey={rowKey} />
+      </div>
+      {table}
+    </>
   )
 }
 
@@ -237,10 +296,10 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-2 sm:p-6 backdrop-blur-xs" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 sm:p-6 backdrop-blur-xs" onMouseDown={onClose}>
       <div
         className={cx(
-          'w-full max-h-[calc(100vh-1.5rem)] sm:max-h-[calc(100vh-3rem)] flex flex-col rounded-2xl bg-white shadow-2xl transition-all',
+          'w-full max-h-[92dvh] sm:max-h-[calc(100vh-3rem)] flex flex-col rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl transition-all pb-[env(safe-area-inset-bottom)] sm:pb-0',
           wide ? 'max-w-3xl' : 'max-w-lg',
         )}
         onMouseDown={(e) => e.stopPropagation()}
@@ -254,7 +313,7 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
           </button>
         </div>
         <div className="space-y-3.5 overflow-y-auto px-4 py-3.5 sm:px-5 sm:py-4 flex-1">{children}</div>
-        {footer && <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-100 px-4 py-3 sm:px-5">{footer}</div>}
+        {footer && <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-100 px-4 py-3 sm:px-5 [&>button]:flex-1 sm:[&>button]:flex-none">{footer}</div>}
       </div>
     </div>
   )
@@ -262,7 +321,7 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
 
 export function Tabs({ tabs, value, onChange }) {
   return (
-    <div className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-200">
+    <div className="mb-4 flex gap-1 overflow-x-auto border-b border-gray-200 [scrollbar-width:none]">
       {tabs.map((tabItem) => {
         const v = typeof tabItem === 'string' ? tabItem : tabItem.value
         const rawLabel = typeof tabItem === 'string' ? humanize(tabItem) : tabItem.label
@@ -273,7 +332,7 @@ export function Tabs({ tabs, value, onChange }) {
             type="button"
             onClick={() => onChange(v)}
             className={cx(
-              '-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium',
+              '-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 sm:py-2 text-sm font-medium',
               value === v ? 'border-brand-600 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-800',
             )}
           >

@@ -2,8 +2,8 @@ import {
   CalendarDays,
   Camera,
   CheckCircle2,
+  ClipboardCheck,
   ClipboardList,
-  Home,
   Menu,
   Users,
 } from 'lucide-react'
@@ -19,7 +19,7 @@ export default function MobileBottomNav({
 }) {
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-30 flex h-[calc(4rem+env(safe-area-inset-bottom,0px))] items-center justify-around border-t border-gray-200/80 bg-white/90 px-2 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-md shadow-lg lg:hidden">
-      {/* 1. Dashboard */}
+      {/* 1. Attendance (NoteCam) */}
       <NavLink
         to="/"
         end
@@ -30,8 +30,8 @@ export default function MobileBottomNav({
           )
         }
       >
-        <Home className="h-5 w-5" />
-        <span>{t('Home')}</span>
+        <ClipboardCheck className="h-5 w-5" />
+        <span>{t('Attendance')}</span>
       </NavLink>
 
       {/* 2. Field Visits */}

@@ -1,4 +1,4 @@
-import { FileText, ImagePlus, Plus, Search, X } from 'lucide-react'
+import { FileText, ImagePlus, Plus, Search, SlidersHorizontal, X } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GroupSelect, LookupSelect, TalukaSelect, VillageSelect } from '../components/pickers'
@@ -180,6 +180,8 @@ export default function Girls() {
   const [filters, setFilters] = useState(() => user?.role === 'volunteer' ? { ...EMPTY, village_id: user.village_id || '' } : EMPTY)
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+  const activeFilters = Object.entries(filters).filter(([k, v]) => v && k !== 'q' && !(user?.role === 'volunteer' && k === 'village_id')).length
   const set = (k, v) => { setFilters((p) => ({ ...p, [k]: v, ...(k === 'village_id' ? { group_id: '' } : {}) })); setPage(1) }
   const { data, error, loading } = useFetch('/girls', { ...filters, page, page_size: 25 })
 
@@ -189,9 +191,14 @@ export default function Girls() {
       <Card padded={false}>
         <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="relative lg:col-span-2">
-            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-            <input className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm" placeholder={t('Search name, Girl ID, parent…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
+            <Search className="pointer-events-none absolute left-3 top-3 sm:top-2.5 h-4 w-4 text-gray-400" />
+            <input className="w-full rounded-lg border border-gray-300 py-2.5 sm:py-2 pl-9 pr-3 text-base sm:text-sm" placeholder={t('Search name, Girl ID, parent…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
+          <button type="button" onClick={() => setShowFilters((v) => !v)} className="flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white py-2 text-sm font-medium text-gray-700 sm:hidden">
+            <SlidersHorizontal className="h-4 w-4" />
+            {showFilters ? t('Hide filters') : t('Filters')}{activeFilters > 0 && ` (${activeFilters})`}
+          </button>
+          <div className={showFilters ? 'contents' : 'hidden sm:contents'}>
           {user?.role !== 'volunteer' && <TalukaSelect value={filters.taluka_id} onChange={(v) => set('taluka_id', v)} />}
           {user?.role !== 'volunteer' && <VillageSelect value={filters.village_id} talukaId={filters.taluka_id} onChange={(v) => set('village_id', v)} />}
           <GroupSelect villageId={filters.village_id} value={filters.group_id} onChange={(v) => set('group_id', v)} />
@@ -201,6 +208,7 @@ export default function Girls() {
           <Select options={[{ value: 'open', label: t('Has open case') }, { value: 'none', label: t('No cases') }, 'resolved', 'closed', 'escalated']} placeholder={t('Any case status')} value={filters.case_status} onChange={(e) => set('case_status', e.target.value)} />
           <Select options={['severe', 'moderate', 'mild', 'normal', 'unscreened']} placeholder={t('Any anaemia status')} value={filters.anaemia} onChange={(e) => set('anaemia', e.target.value)} />
           <Select options={[{ value: 'true', label: t('Incomplete profiles') }, { value: 'false', label: t('Complete profiles') }]} placeholder={t('Any profile')} value={filters.profile_incomplete} onChange={(e) => set('profile_incomplete', e.target.value)} />
+          </div>
         </div>
         <ErrorBox message={error} />
         {loading && !data ? <Spinner /> : (
@@ -212,18 +220,18 @@ export default function Girls() {
                 { key: 'girl_code', label: t('Girl ID'), className: 'whitespace-nowrap font-medium', always: true },
                 { key: 'name', label: t('Name'), always: true, render: (r) => localName(r) || <span className="text-gray-400">{t('Not recorded')}</span> },
                 { key: 'current_age', label: t('Age'), value: (r) => r.current_age },
-                { key: 'dob', label: t('Date of birth'), className: 'whitespace-nowrap', value: (r) => r.dob, render: (r) => fmtDate(r.dob) },
+                { key: 'dob', mobileHidden: true, label: t('Date of birth'), className: 'whitespace-nowrap', value: (r) => r.dob, render: (r) => fmtDate(r.dob) },
                 { key: 'standard', label: t('Class'), value: (r) => r.standard },
                 { key: 'village', label: t('Village'), value: (r) => localName(r.village) },
                 { key: 'group', label: t('Group'), value: (r) => localName(r.group) },
-                { key: 'bal_panchayat', label: t('Bal Panchayat'), value: (r) => localName(r.bal_panchayat) },
+                { key: 'bal_panchayat', mobileHidden: true, label: t('Bal Panchayat'), value: (r) => localName(r.bal_panchayat) },
                 { key: 'phone', label: t('Mobile'), className: 'whitespace-nowrap', value: (r) => r.phone || r.household?.phone },
-                { key: 'category', label: t('Category'), value: (r) => categoryLabel(r.household?.social_category) },
-                { key: 'caste', label: t('Caste'), value: (r) => casteLabel(r) },
+                { key: 'category', mobileHidden: true, label: t('Category'), value: (r) => categoryLabel(r.household?.social_category) },
+                { key: 'caste', mobileHidden: true, label: t('Caste'), value: (r) => casteLabel(r) },
                 { key: 'school_status', label: t('School'), value: (r) => r.school_status && t(humanize(r.school_status)) },
                 { key: 'case', label: t('Cases'), value: (r) => r.case_summary?.open, render: (r) => <Badge tone="orange">{t('{n} open', { n: r.case_summary.open })}</Badge> },
                 { key: 'anaemia', label: t('Anaemia'), value: (r) => r.health_summary?.anaemia_status, render: (r) => <StatusBadge value={r.health_summary.anaemia_status} /> },
-                { key: 'last_participation_at', label: t('Last participation'), value: (r) => r.last_participation_at, render: (r) => fmtDate(r.last_participation_at) },
+                { key: 'last_participation_at', mobileHidden: true, label: t('Last participation'), value: (r) => r.last_participation_at, render: (r) => fmtDate(r.last_participation_at) },
                 { key: 'flags', label: '', value: (r) => r.flags?.needs_review || r.flags?.profile_incomplete, render: (r) => (r.flags?.needs_review ? <Badge tone="red">{t('Review')}</Badge> : r.flags?.profile_incomplete ? <Badge>{t('Incomplete')}</Badge> : null) },
               ])}
               rows={data?.items}

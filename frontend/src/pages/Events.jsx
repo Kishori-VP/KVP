@@ -11,7 +11,10 @@ import { locale, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
 export function EventForm({ onSaved, onCancel }) {
-  const [f, setF] = useState({ event_date: todayISO(), start_time: '10:00', group_ids: [], expected_participants: 0, is_historical: false, notify_participants: false })
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
+  const myVillageIds = user?.village_ids || (user?.village_id ? [user.village_id] : [])
+  const [f, setF] = useState({ village_id: isVolunteer && myVillageIds.length === 1 ? myVillageIds[0] : undefined, event_date: todayISO(), start_time: '10:00', group_ids: [], expected_participants: 0, is_historical: false, notify_participants: false })
   const { busy, error, run } = useAction()
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }))
   const submit = () => run(async () => {
@@ -34,7 +37,7 @@ export function EventForm({ onSaved, onCancel }) {
           <Field label={t('End')}><Input type="time" value={f.end_time || ''} onChange={(e) => set('end_time', e.target.value)} /></Field>
         </div>
         <Field label={t('Location')}><Input placeholder={t('e.g. ZP school hall')} value={f.location_name || ''} onChange={(e) => set('location_name', e.target.value)} /></Field>
-        <Field label={t('Responsible volunteer')}><VolunteerSelect villageId={f.village_id} value={f.responsible_volunteer_id} onChange={(v) => set('responsible_volunteer_id', v)} placeholder={t('None')} /></Field>
+        {!isVolunteer && <Field label={t('Responsible volunteer')}><VolunteerSelect villageId={f.village_id} value={f.responsible_volunteer_id} onChange={(v) => set('responsible_volunteer_id', v)} placeholder={t('None')} /></Field>}
         <Field label={t('Expected participants')}><Input type="number" min={0} value={f.expected_participants} onChange={(e) => set('expected_participants', e.target.value)} /></Field>
         <Field label={t('Planned budget (₹)')}><Input type="number" min={0} value={f.planned_budget || ''} onChange={(e) => set('planned_budget', e.target.value)} /></Field>
         <Field label={t('Objective')} className="sm:col-span-2"><Textarea value={f.objective || ''} onChange={(e) => set('objective', e.target.value)} /></Field>
@@ -159,7 +162,7 @@ export default function Events() {
   const { user } = useAuth()
   const isVolunteer = user?.role === 'volunteer'
   const isReadOnly = user?.role === 'admin_2'
-  const canCreate = !isVolunteer && !isReadOnly
+  const canCreate = !isReadOnly
   const types = useLookups('event_type')
   const [tab, setTab] = useState('list')
   const [f, setF] = useState({ status: '', village_id: '', event_type: '' })
@@ -187,10 +190,12 @@ export default function Events() {
         title={t('Events')}
         subtitle={t('Village events, attendance and post-event reporting')}
         actions={canCreate && (
-          <div className="flex gap-2">
-            <Button variant="secondary" busy={autoScheduling} onClick={handleAutoSchedule}>
-              {t('Auto-Schedule Monthly Meetings')}
-            </Button>
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
+            {!isVolunteer && (
+              <Button variant="secondary" busy={autoScheduling} onClick={handleAutoSchedule}>
+                {t('Auto-Schedule Monthly Meetings')}
+              </Button>
+            )}
             <Button icon={Plus} onClick={() => setCreating(true)}>{t('Schedule event')}</Button>
           </div>
         )}

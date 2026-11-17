@@ -89,7 +89,7 @@ const VOLUNTEER_NAV = [
   {
     section: 'My work',
     items: [
-      { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+      { to: '/', label: 'Attendance', icon: ClipboardCheck, end: true },
       { to: '/field', label: 'Visits', icon: ClipboardList },
       { to: '/girls', label: 'Girls', icon: Users },
       { to: '/children', label: 'Children (Bal Panchayat)', icon: Baby },

@@ -86,7 +86,7 @@ DEFAULT_VOLUNTEER_PERMISSIONS = {
     "cases": ["read", "create", "update"],
     "home_visits": ["read", "create", "update"],
     "activity_reports": ["read", "create", "update"],
-    "events": ["read", "update"],
+    "events": ["read", "create", "update"],
     "targets": ["read"],
     "dashboard": ["read"],
     "reports": ["read"],

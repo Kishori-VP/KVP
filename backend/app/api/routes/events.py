@@ -7,7 +7,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
-from app.core.deps import Db, Pagination, Stakeholder, can_access_village, require_permission, user_village_ids, village_scope, narrow_to_village
+from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Pagination, Stakeholder, can_access_village, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.beneficiaries import ApprovalDecision
@@ -86,10 +86,18 @@ def _require_open(ev: dict):
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_event(body: EventCreate, db: Db, actor: Stakeholder):
+async def create_event(body: EventCreate, db: Db, actor: CurrentUser):
     from app.core.deps import check_not_read_only
+    is_volunteer = actor.get("role") == Role.VOLUNTEER.value
+    if not is_volunteer and actor.get("role") not in ADMIN_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted to create events")
     check_not_read_only(actor)
     village = await get_or_404(db[c.VILLAGES], body.village_id, "Village")
+    if is_volunteer:
+        # Volunteers may only schedule events in their own villages, and are always the responsible volunteer.
+        if not can_access_village(actor, village["_id"]):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can only create events in your assigned villages")
+        body.responsible_volunteer_id = str(actor["_id"])
     await ensure_code(db, "event_type", body.event_type, "event_type")
     vol = await _responsible(db, body.responsible_volunteer_id, village["_id"])
     groups = await _groups(db, body.group_ids, village["_id"])
@@ -138,7 +146,7 @@ async def create_event(body: EventCreate, db: Db, actor: Stakeholder):
     }
     await validate_entity(db, "event", doc)
     res = await db[c.EVENTS].insert_one(doc)
-    if vol and not body.is_historical:
+    if vol and not body.is_historical and vol["_id"] != actor["_id"]:
         await notifications.notify(db, vol["_id"], "event_assigned", f"New event: {body.title}",
                                    f"{body.event_date} {body.start_time} at {body.location_name or village['name']}",
                                    entity_type="event", entity_id=res.inserted_id)

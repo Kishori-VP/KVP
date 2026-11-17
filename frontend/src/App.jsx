@@ -47,7 +47,7 @@ const CaseDetail = lazy(() => import('./pages/CaseDetail'))
 const Cases = lazy(() => import('./pages/Cases'))
 const Contacts = lazy(() => import('./pages/Contacts'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
-const VolunteerDashboard = lazy(() => import('./pages/VolunteerDashboard'))
+const VolunteerCheckIn = lazy(() => import('./pages/VolunteerCheckIn'))
 const VolunteerFieldRecords = lazy(() => import('./pages/VolunteerFieldRecords'))
 const VolunteerContacts = lazy(() => import('./pages/VolunteerContacts'))
 const VolunteerReports = lazy(() => import('./pages/VolunteerReports'))
@@ -80,7 +80,7 @@ function Protected({ children }) {
 
 function RoleHome() {
   const { user } = useAuth()
-  return user?.role === 'volunteer' ? <VolunteerDashboard /> : <Dashboard />
+  return user?.role === 'volunteer' ? <VolunteerCheckIn /> : <Dashboard />
 }
 
 function RoleSwitch({ stakeholder, volunteer }) {
