@@ -1,4 +1,5 @@
 import { ArrowLeft, MessageCircle, Pencil, Phone, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { Badge, Button, Card, DefinitionList, ErrorBox, PageHeader, Spinner, Table } from '../components/ui'
@@ -18,7 +19,7 @@ export default function VillageDetail() {
   const { data: v, error, reload } = useFetch(`/villages/${id}`)
 
   const deleteVillage = async () => {
-    if (!window.confirm(t('Are you sure you want to delete {name}?', { name: localName(v) }))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete {name}?', { name: localName(v) }) }))) return
     try {
       await api.delete(`/villages/${id}`)
       nav('/villages')

@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { TalukaSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs } from '../components/ui'
@@ -28,7 +29,7 @@ export function VillageModal({ village, onClose, onSaved }) {
   }).catch(() => {})
 
   const remove = () => run(async () => {
-    if (!window.confirm(t('Are you sure you want to delete {name}?', { name: village.name }))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete {name}?', { name: village.name }) }))) return
     await api.delete(`/villages/${village.id}`)
     invalidateRefData()
     onSaved()
@@ -75,7 +76,7 @@ function Talukas() {
   const { busy, error, run } = useAction()
   const add = () => run(async () => { await api.post('/talukas', f); invalidateRefData(); setF({ name: '', name_mr: '', district: f.district }); reload() }).catch(() => {})
   const deleteTaluka = async (row) => {
-    if (!window.confirm(t('Are you sure you want to delete taluka {name}?', { name: row.name }))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete taluka {name}?', { name: row.name }) }))) return
     try {
       await api.delete(`/talukas/${row.id}`)
       invalidateRefData()
@@ -120,7 +121,7 @@ function GroupModal({ group, onClose, onSaved }) {
   }).catch(() => {})
 
   const remove = () => run(async () => {
-    if (!window.confirm(t('Are you sure you want to delete group {name}?', { name: group.name }))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete group {name}?', { name: group.name }) }))) return
     await api.delete(`/groups/${group.id}`)
     onSaved()
   }).catch(() => {})

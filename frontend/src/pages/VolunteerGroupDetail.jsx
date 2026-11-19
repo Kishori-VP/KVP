@@ -1,4 +1,5 @@
 import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import ChildModal from '../components/ChildModal'
@@ -19,7 +20,7 @@ export default function VolunteerGroupDetail() {
   const girlIds = new Set((data?.girls || []).map((g) => g.id))
 
   const deleteGroup = async () => {
-    if (!window.confirm(t('Are you sure you want to delete this group? This cannot be undone.'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this group?') }))) return
     try {
       await api.delete(`/groups/${id}`)
       nav(-1)
@@ -29,7 +30,7 @@ export default function VolunteerGroupDetail() {
   }
 
   const deleteChild = async (memberId) => {
-    if (!window.confirm(t('Are you sure you want to delete this member from the Bal Panchayat?'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this member from the Bal Panchayat?') }))) return
     try {
       await api.delete(`/children/${id}/${memberId}`)
       reload()

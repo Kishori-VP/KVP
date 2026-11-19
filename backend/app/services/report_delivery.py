@@ -11,9 +11,9 @@ from fastapi import HTTPException, status
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import settings
+from app.core.permissions import Role
 from app.db import collections as c
 from app.services import exporters, notifications, template_attachments
-from app.services.app_settings import get_setting
 from app.services.reports import apply_template, build_report
 from app.utils.dates import local_tz, period_bounds, previous_period, today_local, utcnow
 
@@ -32,16 +32,21 @@ def next_run_after(frequency: str, after: date, run_time: str = "07:00") -> date
     return datetime.combine(d, time(h, m), tzinfo=local_tz()).astimezone(UTC)
 
 
+# Reports may only be shared with Super Admins ("stakeholder" is the legacy name of the role).
+SUPER_ADMIN_ROLES = [Role.SUPER_ADMIN.value, "stakeholder"]
+
+
 async def validate_recipients(db: AsyncDatabase, user_ids: list[ObjectId], emails: list[str]) -> list[dict]:
-    users = await db[c.USERS].find({"_id": {"$in": user_ids}, "is_active": True}, {"name": 1, "email": 1}).to_list()
+    users = await db[c.USERS].find({"_id": {"$in": user_ids}, "is_active": True, "role": {"$in": SUPER_ADMIN_ROLES}},
+                                   {"name": 1, "email": 1}).to_list()
     if len(users) != len(set(user_ids)):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Recipients must be active users")
-    allowed = {e.lower() for e in (await get_setting(db, "report_sharing"))["allowed_external_emails"]}
-    known = {u["email"] for u in await db[c.USERS].find({"email": {"$in": [e.lower() for e in emails]}, "is_active": True}).to_list()}
-    bad = [e for e in emails if e.lower() not in allowed and e.lower() not in known]
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Reports can only be shared with active Super Admins")
+    known = {u["email"] for u in await db[c.USERS].find(
+        {"email": {"$in": [e.lower() for e in emails]}, "is_active": True, "role": {"$in": SUPER_ADMIN_ROLES}}).to_list()}
+    bad = [e for e in emails if e.lower() not in known]
     if bad:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
-                            f"Not authorised recipients: {bad}. Add them under /config/settings/report_sharing.")
+                            f"Not authorised recipients: {bad}. Reports can only be shared with active Super Admins.")
     return users
 
 

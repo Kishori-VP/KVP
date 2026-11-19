@@ -10,7 +10,9 @@ import { currentSubscription, disablePush, enablePush, pushSupported } from '../
 import { t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
-const LINK = { case: (id) => `/cases/${id}`, event: (id) => `/events/${id}`, target: () => '/targets', generated_report: () => '/reports', village: (id) => `/villages/${id}`, home_visit: () => '/field' }
+// Older alerts were stored without an entity_id, so fall back to the list page instead of `/…/null`.
+const detail = (list) => (id) => (id ? `${list}/${id}` : list)
+const LINK = { case: detail('/cases'), event: detail('/events'), target: () => '/targets', generated_report: () => '/reports', village: detail('/villages'), home_visit: () => '/field' }
 
 function PushToggle() {
   const [on, setOn] = useState(null)

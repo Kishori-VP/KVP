@@ -34,24 +34,24 @@ async def _stakeholder_alerts(db: AsyncDatabase) -> int:
             n += await notif.notify_stakeholders(
                 db, "target_missed", f"Target missed: {a['title']}",
                 f"{a['volunteer']} ({a['village']}): {a['achieved']}/{a['target_value']}",
-                entity_type="target", severity="high", dedupe_key=f"target_missed:{a['target_id']}")
+                entity_type="target", entity_id=a["target_id"], severity="high", dedupe_key=f"target_missed:{a['target_id']}")
     for a in alerts["overdue_reports"]:
         if a["type"] == "event_report_overdue":
             n += await notif.notify_stakeholders(
                 db, "event_report_overdue", f"Event report overdue: {a['title']}",
                 f"{a['village']} · {a['volunteer'] or 'no volunteer'} · {a['days_overdue']} day(s) overdue",
-                entity_type="event", severity="medium", dedupe_key=f"event_overdue:{a['event_id']}:{today}")
+                entity_type="event", entity_id=a["event_id"], severity="medium", dedupe_key=f"event_overdue:{a['event_id']}:{today}")
         else:
             n += await notif.notify_stakeholders(
                 db, "reports_missing", f"Daily reports missing: {a['volunteer']}",
                 f"{a['count']} missing in the last week ({a['village']})",
-                entity_type="user", severity="medium", dedupe_key=f"reports_missing:{a['volunteer_id']}:{week}")
+                entity_type="user", entity_id=a["volunteer_id"], severity="medium", dedupe_key=f"reports_missing:{a['volunteer_id']}:{week}")
     for a in alerts["inactive_villages"]:
         if a["status"] == "no_recent_activity":
             since = f"{a['days_since']} days" if a["days_since"] is not None else "ever"
             n += await notif.notify_stakeholders(
                 db, "village_inactive", f"No recent activity: {a['village']}", f"Last field activity: {since}",
-                entity_type="village", severity="medium", dedupe_key=f"village_inactive:{a['village_id']}:{week}")
+                entity_type="village", entity_id=a["village_id"], severity="medium", dedupe_key=f"village_inactive:{a['village_id']}:{week}")
     return n
 
 

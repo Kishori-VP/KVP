@@ -384,6 +384,9 @@ def test_reports(client, admin):
     assert shared["delivery"]["in_app"] == 1
     assert client.post(f"{API}/reports/programme_summary/share", headers=admin, json={
         "recipient_emails": ["stranger@example.com"]}).status_code == 422
+    # Only Super Admins may receive reports.
+    assert client.post(f"{API}/reports/programme_summary/share", headers=admin, json={
+        "recipient_user_ids": [S["vol"]]}).status_code == 422
     sch = ok(client.post(f"{API}/reports/schedules", headers=admin, json={
         "name": "Monthly donor", "report_type": "donor_summary", "frequency": "monthly", "recipient_user_ids": [me["id"]]}), 201)
     ok(client.post(f"{API}/reports/schedules/{sch['id']}/run-now", headers=admin))
@@ -391,6 +394,10 @@ def test_reports(client, admin):
     assert gen["total"] == 3
     dl = client.get(f"{API}/reports/generated/{gen['items'][0]['id']}/download", headers=admin, params={"format": "pdf"})
     assert dl.status_code == 200 and dl.content[:4] == b"%PDF"
+    saved = ok(client.post(f"{API}/reports/programme_summary/save", headers=admin, json={"formats": ["pdf", "xlsx"]}), 201)
+    assert saved["recipient_user_ids"] == [] and saved["delivery"] == {"in_app": 0, "email": "not_requested"}
+    assert sorted(f["format"] for f in saved["files"]) == ["pdf", "xlsx"]
+    assert ok(client.get(f"{API}/reports/generated", headers=admin))["total"] == 4
 
 
 def test_configuration(client, admin):

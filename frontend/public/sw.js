@@ -2,7 +2,7 @@
 self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 
-const LINKS = { case: '/cases/', event: '/events/', home_visit: '/field', target: '/targets', generated_report: '/reports' }
+const LINKS = { case: '/cases/', event: '/events/', village: '/villages/', home_visit: '/field', target: '/targets', generated_report: '/reports' }
 
 self.addEventListener('push', (event) => {
   let data = {}

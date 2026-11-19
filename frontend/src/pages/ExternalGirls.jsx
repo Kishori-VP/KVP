@@ -1,3 +1,4 @@
+import { confirmDelete } from '../components/ConfirmDelete'
 import {
   ArrowRightLeft,
   Eye,
@@ -404,7 +405,7 @@ export default function ExternalGirls() {
   }
 
   const deleteGirl = async (girl) => {
-    if (!window.confirm(t('Are you sure you want to delete {name}?', { name: girl.name }))) {
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete {name}?', { name: girl.name }) }))) {
       return
     }
     try {

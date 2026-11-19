@@ -1,3 +1,4 @@
+import { confirmDelete } from '../components/ConfirmDelete'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -34,7 +35,7 @@ export default function CaseDetail() {
   if (!c) return <Spinner />
 
   const deleteCase = async () => {
-    const reason = window.prompt(t('Enter reason for deleting this case:'), t('Deleted by Super Admin'))
+    const reason = await confirmDelete({ title: t('Delete this case?'), message: t('Case {code} will be deleted.', { code: c.case_code }), reason: t('Deleted by Super Admin') })
     if (!reason) return
     try {
       await api.delete(`/cases/${id}?reason=${encodeURIComponent(reason)}`)

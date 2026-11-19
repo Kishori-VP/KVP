@@ -1,4 +1,5 @@
 import { BadgeCheck, MessageCircle, MessageSquare, Phone, Plus, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { LookupSelect, TalukaSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Spinner, Table, Tabs, Textarea } from '../components/ui'
@@ -21,7 +22,7 @@ function ContactModal({ contact, onClose, onSaved }) {
   }).catch(() => {})
 
   const remove = () => run(async () => {
-    if (!window.confirm(t('Are you sure you want to delete this contact?'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this contact?') }))) return
     await api.delete(`/contacts/${contact.id}`)
     onSaved()
   }).catch(() => {})

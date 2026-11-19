@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { GroupMultiSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, Table } from '../components/ui'
@@ -65,7 +66,7 @@ function EditUser({ user, onClose, onSaved }) {
     onSaved()
   }).catch(() => {})
   const deleteUser = () => run(async () => {
-    if (!window.confirm(t('Are you sure you want to delete this user? This will deactivate the user and unassign their groups.'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this user? This will deactivate the user and unassign their groups.') }))) return
     await api.delete(`/users/${user.id}`)
     invalidateRefData()
     onSaved()

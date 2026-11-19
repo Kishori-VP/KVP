@@ -1,3 +1,4 @@
+import { confirmDelete } from '../components/ConfirmDelete'
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Download, Send, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -266,7 +267,7 @@ export default function EventDetail() {
   const decide = (decision) => run(async () => { await api.post(`/events/${id}/approval`, { decision, remarks: approval || null }); setApproval(null); reload() }).catch(() => {})
 
   const deleteEvent = async () => {
-    const r = window.prompt(t('Enter reason for deleting this event:'), t('Deleted by Super Admin'))
+    const r = await confirmDelete({ title: t('Delete this event?'), message: t('The event "{title}" will be deleted.', { title: ev.title }), reason: t('Deleted by Super Admin') })
     if (!r) return
     try {
       await api.delete(`/events/${id}?reason=${encodeURIComponent(r)}`)

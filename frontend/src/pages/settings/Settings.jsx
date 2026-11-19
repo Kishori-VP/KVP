@@ -1,3 +1,4 @@
+import { confirmDelete } from '../../components/ConfirmDelete'
 import { Plus } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, Table, Tabs, Textarea } from '../../components/ui'
@@ -151,7 +152,7 @@ function Providers() {
     setEdit(null)
     reload()
   }).catch(() => {})
-  const remove = async (p) => { try { await api.delete(`/config/providers/${p.id}`); reload() } catch (e) { alert(errorMessage(e)) } }
+  const remove = async (p) => { if (!(await confirmDelete({ message: t('Are you sure you want to delete this provider?') }))) return; try { await api.delete(`/config/providers/${p.id}`); reload() } catch (e) { alert(errorMessage(e)) } }
   return (
     <Card title={t('AI / OCR / voice / SMS providers')} actions={<Button size="sm" icon={Plus} onClick={() => setEdit({ provider_type: 'speech_to_text', provider_name: '', is_active: false, is_default: false, config_text: '{}', creds: [{ key: 'api_key', value: '' }] })}>{t('Add provider')}</Button>}>
       <ErrorBox message={error} />

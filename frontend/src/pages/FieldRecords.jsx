@@ -1,4 +1,5 @@
 import { Check, Eye, PhoneCall, Plus, Trash2, X } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import CallModal from '../components/CallModal'
 import { useState } from 'react'
 import { VillageSelect, VolunteerSelect } from '../components/pickers'
@@ -174,8 +175,8 @@ function VisitDetailModal({ visit, onClose, onUpdated }) {
     onUpdated()
   }).catch(() => {})
 
-  const deleteVisit = () => {
-    const reason = window.prompt(t('Enter reason for deleting this home visit:'), t('Deleted by Super Admin'))
+  const deleteVisit = async () => {
+    const reason = await confirmDelete({ title: t('Delete this home visit?'), reason: t('Deleted by Super Admin') })
     if (!reason) return
     run(async () => {
       await api.delete(`/home-visits/${visit.id}?reason=${encodeURIComponent(reason)}`)
@@ -253,8 +254,8 @@ function ReportDetailModal({ report, onClose, onUpdated }) {
     onUpdated()
   }).catch(() => {})
 
-  const deleteReport = () => {
-    if (!window.confirm(t('Are you sure you want to delete this daily report?'))) return
+  const deleteReport = async () => {
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this daily report?') }))) return
     run(async () => {
       await api.delete(`/activity-reports/${report.id}`)
       onUpdated()
@@ -342,7 +343,7 @@ export default function FieldRecords() {
   const url = tab === 'visits' ? '/home-visits' : tab === 'calls' ? '/external-calls' : '/activity-reports'
 
   const deleteCall = async (callId) => {
-    if (!window.confirm(t('Are you sure you want to delete this call record?'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this call record?') }))) return
     try {
       await api.delete(`/external-calls/${callId}`)
       reload()

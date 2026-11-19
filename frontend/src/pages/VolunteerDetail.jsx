@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRightLeft, MapPin, Pencil, Shuffle, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { TrendChart } from '../components/charts'
@@ -195,7 +196,7 @@ export default function VolunteerDetail() {
   const [modal, setModal] = useState(null)
 
   const deleteVolunteer = async () => {
-    if (!window.confirm(t('Are you sure you want to delete this volunteer? This will deactivate the volunteer and unassign their groups/villages.'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this volunteer? This will deactivate the volunteer and unassign their groups/villages.') }))) return
     try {
       await api.delete(`/users/${id}`)
       invalidateRefData()

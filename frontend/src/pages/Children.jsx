@@ -1,4 +1,5 @@
 import { Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import ChildModal from '../components/ChildModal'
@@ -23,7 +24,7 @@ export default function Children() {
   const { data, error, loading, reload } = useFetch('/children', { ...filters, page, page_size: 50 })
 
   const deleteChild = async (r) => {
-    if (!window.confirm(t('Are you sure you want to delete {name} from Bal Panchayat?', { name: localName(r) }))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete {name} from Bal Panchayat?', { name: localName(r) }) }))) return
     const gId = r.group?.id || r.group_id
     const mId = r.member_id || r.id
     try {

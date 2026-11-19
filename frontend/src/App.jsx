@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { ConfirmDeleteHost } from './components/ConfirmDelete'
 import Layout from './components/Layout'
 import { Spinner } from './components/ui'
 import api from './lib/api'
@@ -111,6 +112,7 @@ export default function App() {
       <LanguageProvider>
       <BrowserRouter>
         <WakingBanner />
+        <ConfirmDeleteHost />
         <Suspense fallback={<Spinner />}>
         <Routes>
           <Route path="/home" element={<Home />} />

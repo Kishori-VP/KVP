@@ -1,11 +1,18 @@
-import { Download, FileText, Paperclip, Play, Plus, Share2, X } from 'lucide-react'
+import { Download, FileText, Paperclip, Play, Plus, Save, Share2, X } from 'lucide-react'
 import { useState } from 'react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { PeriodPicker, TalukaSelect, VillageSelect } from '../components/pickers'
 import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Select, Spinner, StatusBadge, Table, Tabs, Textarea } from '../components/ui'
 import api, { clean, download, errorMessage } from '../lib/api'
 import { fmtDateTime, fmtNum, humanize, todayISO } from '../lib/format'
 import { useAction, useFetch } from '../lib/hooks'
 import { t } from '../lib/i18n'
+
+// The report Templates feature is hidden from the UI; flip to true to show it again.
+const SHOW_TEMPLATES = false
+
+// Reports can only be shared with Super Admins (the backend enforces this too).
+const SUPER_ADMIN_QUERY = { is_active: true, role: 'super_admin', page_size: 200 }
 
 const FORMATS = [
   { value: 'pdf', label: 'PDF' },
@@ -81,26 +88,24 @@ function ReportView({ report }) {
 }
 
 function ShareModal({ open, onClose, onShare, initialFormats = ['pdf'] }) {
-  const { data: users } = useFetch(open ? '/users' : null, { is_active: true, page_size: 200 })
+  const { data: users } = useFetch(open ? '/users' : null, SUPER_ADMIN_QUERY)
   const [ids, setIds] = useState([])
-  const [emails, setEmails] = useState('')
   const [formats, setFormats] = useState(initialFormats)
   const { busy, error, run } = useAction()
   const [result, setResult] = useState(null)
   const submit = () => run(async () => {
-    setResult(await onShare({ recipient_user_ids: ids, recipient_emails: emails.split(',').map((e) => e.trim()).filter(Boolean), formats }))
+    setResult(await onShare({ recipient_user_ids: ids, formats }))
   }).catch(() => {})
   return (
     <Modal open={open} title={t('Share report')} onClose={onClose}
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} disabled={(!ids.length && !emails.trim()) || !formats.length} onClick={submit}>{t('Generate & share')}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} disabled={!ids.length || !formats.length} onClick={submit}>{t('Generate & share')}</Button></>}>
       <ErrorBox message={error} />
       {result && <p className="rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900">Shared: {result.delivery.in_app} in-app · email {result.delivery.email}</p>}
-      <Field label={t('Recipients (system users)')} group>
+      <Field label={t('Recipients (Super Admins only)')} group>
         <div className="max-h-40 space-y-1 overflow-y-auto">{(users?.items || []).map((u) => (
           <Checkbox key={u.id} label={`${u.name} (${humanize(u.role)})`} checked={ids.includes(u.id)} onChange={() => setIds(ids.includes(u.id) ? ids.filter((x) => x !== u.id) : [...ids, u.id])} />
         ))}</div>
       </Field>
-      <Field label={t('External emails')} hint={t('Must be on the allow-list (Configuration → Report sharing)')}><Input placeholder={t('donor@example.org, …')} value={emails} onChange={(e) => setEmails(e.target.value)} /></Field>
       <FormatPicker value={formats} onChange={setFormats} />
     </Modal>
   )
@@ -126,6 +131,17 @@ function RunReport() {
     }
   }).catch(() => {})
   const go = () => run(async () => setReport((await api.get(`/reports/${type}`, { params })).data)).catch(() => {})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(null)
+  const save = () => run(async () => {
+    setSaving(true)
+    setSaved(null)
+    try {
+      setSaved((await api.post(`/reports/${type}/save`, { ...params, formats })).data)
+    } finally {
+      setSaving(false)
+    }
+  }).catch(() => {})
   return (
     <div className="space-y-4">
       <Card>
@@ -134,13 +150,15 @@ function RunReport() {
           <PeriodPicker value={period} onChange={setPeriod} />
           <Field label={t('Taluka')}><TalukaSelect value={scope.taluka_id} onChange={(v) => setScope({ taluka_id: v, village_id: '' })} /></Field>
           <Field label={t('Village')}><VillageSelect value={scope.village_id} talukaId={scope.taluka_id} onChange={(v) => setScope({ ...scope, village_id: v })} /></Field>
-          <Button icon={Play} busy={busy && !downloading} onClick={go}>{t('Run')}</Button>
+          <Button icon={Play} busy={busy && !downloading && !saving} onClick={go}>{t('Run')}</Button>
         </div>
         <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-gray-100 pt-3">
           <FormatPicker value={formats} onChange={setFormats} label={t('Download formats')} />
           <Button variant="secondary" icon={Download} busy={downloading} disabled={!formats.length} onClick={exportFiles}>{downloadLabel(formats)}</Button>
+          <Button variant="secondary" icon={Save} busy={saving} disabled={!formats.length} onClick={save}>{t('Save')}</Button>
           <Button variant="secondary" icon={Share2} onClick={() => setSharing(true)}>{t('Share')}</Button>
         </div>
+        {saved && <p className="mt-3 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-900">{t('Saved — find it under the Generated tab.')}</p>}
       </Card>
       <ErrorBox message={error} />
       {report && <ReportView report={report} />}
@@ -244,7 +262,7 @@ function Templates() {
   const [sharing, setSharing] = useState(null)
   const { busy, error: actErr, run } = useAction()
   const show = (tpl) => run(async () => setPreview((await api.get(`/reports/templates/${tpl.id}/run`)).data)).catch(() => {})
-  const remove = (tpl) => run(async () => { await api.delete(`/reports/templates/${tpl.id}`); reload() }).catch(() => {})
+  const remove = (tpl) => run(async () => { if (!(await confirmDelete({ message: t('Are you sure you want to delete the template {name}?', { name: tpl.name }) }))) return; await api.delete(`/reports/templates/${tpl.id}`); reload() }).catch(() => {})
   const [attaching, setAttaching] = useState(null)
   const attach = (tpl, files) => run(async () => {
     setAttaching(tpl.id)
@@ -255,7 +273,7 @@ function Templates() {
       reload()
     }
   }).catch(() => {})
-  const detach = (tpl, a) => run(async () => { await api.delete(`/reports/templates/${tpl.id}/attachments/${a.id}`); reload() }).catch(() => {})
+  const detach = (tpl, a) => run(async () => { if (!(await confirmDelete({ message: t('Are you sure you want to delete the attachment {name}?', { name: a.original_name }) }))) return; await api.delete(`/reports/templates/${tpl.id}/attachments/${a.id}`); reload() }).catch(() => {})
   return (
     <div className="space-y-4">
       <Card title={t('Report templates')} actions={<Button size="sm" icon={Plus} onClick={() => setBuilding(true)}>{t('New template')}</Button>}>
@@ -298,7 +316,7 @@ function Templates() {
 function Schedules() {
   const { data: types } = useFetch('/reports/types')
   const { data: templates } = useFetch('/reports/templates')
-  const { data: users } = useFetch('/users', { is_active: true, page_size: 200 })
+  const { data: users } = useFetch('/users', SUPER_ADMIN_QUERY)
   const { data, reload } = useFetch('/reports/schedules')
   const [f, setF] = useState(null)
   const { busy, error, run } = useAction()
@@ -306,7 +324,7 @@ function Schedules() {
     await api.post('/reports/schedules', {
       name: f.name, frequency: f.frequency, run_time: f.run_time, formats: f.formats,
       ...(f.source === 'template' ? { template_id: f.template_id } : { report_type: f.report_type }),
-      recipient_user_ids: f.recipient_user_ids, recipient_emails: f.emails ? f.emails.split(',').map((e) => e.trim()).filter(Boolean) : [],
+      recipient_user_ids: f.recipient_user_ids,
     })
     setF(null)
     reload()
@@ -331,11 +349,11 @@ function Schedules() {
       ]} rows={data} empty={t('No schedules. Reports are generated for the period that just ended and shared with the recipients.')} />
       {f && (
         <Modal open title={t('New report schedule')} onClose={() => setF(null)}
-          footer={<><Button variant="secondary" onClick={() => setF(null)}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || (!f.recipient_user_ids.length && !f.emails) || !f.formats.length} onClick={save}>{t('Create')}</Button></>}>
+          footer={<><Button variant="secondary" onClick={() => setF(null)}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.name || !f.recipient_user_ids.length || !f.formats.length} onClick={save}>{t('Create')}</Button></>}>
           <ErrorBox message={error} />
           <Field label={t('Name *')}><Input value={f.name || ''} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
-          <Field label={t('Source')}><Select options={[{ value: 'type', label: t('Standard report') }, { value: 'template', label: t('Saved template') }]} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} /></Field>
-          {f.source === 'type'
+          {SHOW_TEMPLATES && <Field label={t('Source')}><Select options={[{ value: 'type', label: t('Standard report') }, { value: 'template', label: t('Saved template') }]} value={f.source} onChange={(e) => setF({ ...f, source: e.target.value })} /></Field>}
+          {f.source === 'type' || !SHOW_TEMPLATES
             ? <Field label={t('Report')}><Select options={Object.entries(types?.report_types || {}).map(([value, label]) => ({ value, label }))} value={f.report_type} onChange={(e) => setF({ ...f, report_type: e.target.value })} /></Field>
             : <Field label={t('Template')}><Select options={(templates || []).map((tpl) => ({ value: tpl.id, label: tpl.name }))} placeholder={t('Select…')} value={f.template_id || ''} onChange={(e) => setF({ ...f, template_id: e.target.value })} /></Field>}
           <div className="grid grid-cols-2 gap-3">
@@ -343,13 +361,12 @@ function Schedules() {
             <Field label={t('Run time (IST)')}><Input type="time" value={f.run_time} onChange={(e) => setF({ ...f, run_time: e.target.value })} /></Field>
           </div>
           <FormatPicker value={f.formats} onChange={(v) => setF({ ...f, formats: v })} />
-          <Field label={t('Recipients')} group>
+          <Field label={t('Recipients (Super Admins only)')} group>
             <div className="max-h-32 space-y-1 overflow-y-auto">{(users?.items || []).map((u) => (
               <Checkbox key={u.id} label={u.name} checked={f.recipient_user_ids.includes(u.id)}
                 onChange={() => setF({ ...f, recipient_user_ids: f.recipient_user_ids.includes(u.id) ? f.recipient_user_ids.filter((x) => x !== u.id) : [...f.recipient_user_ids, u.id] })} />
             ))}</div>
           </Field>
-          <Field label={t('External emails (allow-listed)')}><Input value={f.emails || ''} onChange={(e) => setF({ ...f, emails: e.target.value })} /></Field>
         </Modal>
       )}
     </Card>
@@ -384,9 +401,10 @@ export default function Reports() {
   return (
     <div>
       <PageHeader title={t('Reports & analytics')} subtitle={t('Daily to yearly · village, taluka, volunteer and activity reports · PDF, Excel, CSV & Word')} />
-      <Tabs tabs={[{ value: 'run', label: t('Run a report') }, { value: 'templates', label: t('Templates') }, { value: 'schedules', label: t('Schedules') }, { value: 'generated', label: t('Generated') }]} value={tab} onChange={setTab} />
+      {/* Templates tab hidden for now — set SHOW_TEMPLATES to true to bring it back. */}
+      <Tabs tabs={[{ value: 'run', label: t('Run a report') }, ...(SHOW_TEMPLATES ? [{ value: 'templates', label: t('Templates') }] : []), { value: 'schedules', label: t('Schedules') }, { value: 'generated', label: t('Generated') }]} value={tab} onChange={setTab} />
       {tab === 'run' && <RunReport />}
-      {tab === 'templates' && <Templates />}
+      {SHOW_TEMPLATES && tab === 'templates' && <Templates />}
       {tab === 'schedules' && <Schedules />}
       {tab === 'generated' && <Generated />}
     </div>

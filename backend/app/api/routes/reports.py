@@ -229,3 +229,15 @@ async def share_report(report_type: str, body: ShareRequest, db: Db, actor: Stak
     await audit.log(db, actor, "export", "report", out["_id"], f"Shared {report_type}",
                     meta={"recipients": len(out["recipient_user_ids"]) + len(out["recipient_emails"])})
     return serialize(out)
+
+
+@router.post("/{report_type}/save", status_code=status.HTTP_201_CREATED)
+async def save_report(report_type: str, body: ShareRequest, db: Db, actor: Stakeholder):
+    """Generate report files and store them under Generated reports, without sending them to anyone."""
+    out = await generate_and_share(
+        db, report_type=report_type, period=body.period, reference=body.reference_date, start=body.start_date,
+        end=body.end_date, formats=body.formats, taluka_id=oid(body.taluka_id) if body.taluka_id else None,
+        village_id=oid(body.village_id) if body.village_id else None, actor=actor)
+    await audit.log(db, actor, "export", "report", out["_id"], f"Saved {report_type}",
+                    meta={"formats": body.formats})
+    return serialize(out)

@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRightLeft, FileText, Pencil, Plus, Trash2, Upload } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import VoiceTextarea from '../components/VoiceTextarea'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -70,7 +71,7 @@ function HealthTab({ girl, reload }) {
             key: 'del', label: '', render: (r) => (
               <button type="button" title={t('Delete record')} className="p-1 text-red-500 hover:text-red-700" onClick={async (e) => {
                 e.stopPropagation()
-                if (!window.confirm(t('Are you sure you want to delete this health record?'))) return
+                if (!(await confirmDelete({ message: t('Are you sure you want to delete this health record?') }))) return
                 await api.delete(`/girls/${girl.id}/health/${r.id}`)
                 reloadHealth(); reload()
               }}><Trash2 className="h-4 w-4" /></button>
@@ -422,8 +423,8 @@ export default function GirlDetail() {
   const { data: g, error, reload, setData } = useFetch(`/girls/${id}`)
 
   const deleteGirl = async () => {
-    const reason = window.prompt(t('Are you sure you want to delete {name} ({code})? Enter reason:', { name: localName(g), code: g.girl_code }), t('Deleted by Super Admin'))
-    if (reason === null) return
+    const reason = await confirmDelete({ message: t('Are you sure you want to delete {name} ({code})?', { name: localName(g), code: g.girl_code }), reason: t('Deleted by Super Admin') })
+    if (!reason) return
     try {
       await api.delete(`/girls/${g.id}?reason=${encodeURIComponent(reason || 'Deleted by Super Admin')}`)
       nav('/girls')

@@ -1,4 +1,5 @@
 import { Plus, Trash2 } from 'lucide-react'
+import { confirmDelete } from '../components/ConfirmDelete'
 import { useState, useEffect } from 'react'
 import { LookupSelect, VolunteerSelect } from '../components/pickers'
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, ProgressBar, Select, Spinner, StatusBadge, Table } from '../components/ui'
@@ -71,7 +72,7 @@ function DetailModal({ target, onClose, onChanged }) {
   }).catch(() => {})
   const cancel = () => run(async () => { await api.post(`/targets/${target.id}/cancel`, { reason: cancelReason }); onChanged() }).catch(() => {})
   const deleteTarget = () => run(async () => {
-    if (!window.confirm(t('Are you sure you want to delete this target?'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this target?') }))) return
     await api.delete(`/targets/${target.id}`)
     onChanged()
   }).catch(() => {})

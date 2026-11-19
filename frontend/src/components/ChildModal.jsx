@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react'
+import { confirmDelete } from './ConfirmDelete'
 import { useState } from 'react'
 import { GroupSelect, VillageSelect } from './pickers'
 import { Button, ErrorBox, Field, Input, Modal, Select } from './ui'
@@ -40,7 +41,7 @@ export default function ChildModal({ child, defaultVillageId, defaultGroupId, on
   }).catch(() => {})
 
   const remove = () => run(async () => {
-    if (!window.confirm(t('Are you sure you want to delete this child from the Bal Panchayat?'))) return
+    if (!(await confirmDelete({ message: t('Are you sure you want to delete this child from the Bal Panchayat?') }))) return
     const gId = child.group?.id || child.group_id || groupId
     const mId = child.member_id || child.id
     await api.delete(`/children/${gId}/${mId}`)
