@@ -1,3 +1,4 @@
+import MediaGallery from '../components/MediaGallery'
 import { Check, Eye, PhoneCall, Plus, Trash2, X } from 'lucide-react'
 import { confirmDelete } from '../components/ConfirmDelete'
 import CallModal from '../components/CallModal'
@@ -233,6 +234,11 @@ function VisitDetailModal({ visit, onClose, onUpdated }) {
             <p className="mt-1 whitespace-pre-wrap rounded-lg bg-gray-50 p-2 text-gray-800">{visit.observations}</p>
           </div>
         )}
+
+        <div>
+          <span className="text-xs font-semibold uppercase text-gray-500">{t('Visit photographs')}</span>
+          <div className="mt-1"><MediaGallery entityType="home_visit" entityId={visit.id} /></div>
+        </div>
       </div>
     </Modal>
   )

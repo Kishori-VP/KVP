@@ -2,9 +2,10 @@
 
 from datetime import datetime
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Stakeholder, require_permission, village_scope
 from app.core.permissions import Role
@@ -77,7 +78,7 @@ async def _replace_kind(db, user: dict, doc: dict, kind: str) -> None:
     await db[c.MEDIA].update_one({"_id": doc["_id"]}, {"$set": {"kind": kind}})
     if old:
         await db[c.MEDIA].delete_one({"_id": old["_id"]})
-        storage.file_path(old).unlink(missing_ok=True)
+        await storage.delete_file(db, old)
         await audit.log(db, user, "delete", "media", old["_id"], f"Replaced {kind.replace('_', ' ')}")
 
 
@@ -103,10 +104,12 @@ async def get_media(media_id: str, db: Db, user: CurrentUser):
 async def download(media_id: str, db: Db, user: CurrentUser):
     media = await get_or_404(db[c.MEDIA], media_id, "Media")
     await _can_access(db, user, media)
-    path = storage.file_path(media)
-    if not path.exists():
+    data = await storage.read_file(db, media)
+    if data is None:
         raise HTTPException(status.HTTP_410_GONE, "File is missing from storage")
-    return FileResponse(path, media_type=media["content_type"], filename=media.get("original_name") or path.name)
+    name = media.get("original_name") or f"media-{media['_id']}"
+    return Response(data, media_type=media["content_type"], headers={
+        "Content-Disposition": f"inline; filename*=UTF-8''{quote(name)}", "Cache-Control": "private, max-age=86400"})
 
 
 @router.delete("/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,6 +121,6 @@ async def delete_media(media_id: str, db: Db, actor: Stakeholder, reason: Annota
     if coll:
         await db[coll].update_one({"_id": media["entity_id"]}, {"$pull": {"media_ids": media["_id"]}})
     await db[c.MEDIA].delete_one({"_id": media["_id"]})
-    storage.file_path(media).unlink(missing_ok=True)
+    await storage.delete_file(db, media)
     await audit.log(db, actor, "delete", "media", media["_id"], f"Deleted media from {media['entity_type']}",
                     meta={"reason": reason, "original_name": media.get("original_name")})

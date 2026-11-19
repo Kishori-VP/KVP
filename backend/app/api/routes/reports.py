@@ -1,16 +1,18 @@
 """Reports & analytics (PRD 4.14): on-demand reports, exports, schedules and sharing."""
 
 from datetime import date
+from pathlib import Path
 from typing import Literal, get_args
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
 
 from app.core.config import settings
 from app.core.deps import Db, Pagination, Stakeholder
 from app.db import collections as c
-from app.services import audit, exporters
+from app.services import audit, exporters, filestore
 from app.services.exporters import FORMAT_LABELS, ExportFormat
 from app.services.report_delivery import (
     FREQUENCY_PERIOD,
@@ -36,6 +38,12 @@ def parse_formats(formats: str | None, single: str) -> list[str] | None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                             f"Unknown format(s) {unknown}. Use any of {list(get_args(ExportFormat))}")
     return list(dict.fromkeys(chosen))
+
+
+def file_response(data: bytes, content_type: str, filename: str) -> Response:
+    """A stored file as a download (UTF-8 safe file name)."""
+    return Response(data, media_type=content_type,
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"})
 
 
 def export_response(report: dict, formats: list[str], stem: str,
@@ -181,10 +189,10 @@ async def download_generated(report_id: str, db: Db, _: Stakeholder,
     f = next((f for f in doc["files"] if f["format"] == format and (name is None or f.get("name") == name)), None)
     if not f:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"No {format} file for this report")
-    path = (settings.reports_dir / f["path"]).resolve()
-    if settings.reports_dir.resolve() not in path.parents or not path.exists():
+    data = await filestore.get(db, f, base=settings.reports_dir)
+    if data is None:
         raise HTTPException(status.HTTP_410_GONE, "Report file is missing")
-    return FileResponse(path, media_type=f["content_type"], filename=f.get("name") or path.name)
+    return file_response(data, f["content_type"], f.get("name") or Path(f.get("path") or "report").name)
 
 
 # ---------------------------------------------------------------- on-demand

@@ -1,4 +1,5 @@
 import api from './api'
+import { prepareUpload } from './upload'
 
 export const AADHAAR_SIDES = [
   { kind: 'aadhaar_front', label: 'Aadhaar card – front' },
@@ -6,11 +7,11 @@ export const AADHAAR_SIDES = [
 ]
 
 /** Upload one side of a girl's Aadhaar card; the server replaces any earlier file of that side. */
-export function uploadAadhaar(girlId, kind, file) {
+export async function uploadAadhaar(girlId, kind, file) {
   const fd = new FormData()
   fd.append('entity_type', 'girl')
   fd.append('entity_id', girlId)
   fd.append('kind', kind)
-  fd.append('file', file)
+  fd.append('file', await prepareUpload(file))
   return api.post('/media', fd)
 }

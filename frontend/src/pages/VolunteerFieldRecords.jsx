@@ -1,3 +1,5 @@
+import MediaGallery from '../components/MediaGallery'
+import { prepareUpload } from '../lib/upload'
 import { Camera, Eye, MapPin, Mic, Phone, PhoneCall, Plus, Save, Square } from 'lucide-react'
 import CallModal from '../components/CallModal'
 import { useEffect, useRef, useState } from 'react'
@@ -273,7 +275,7 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
     for (const file of photos) {
       try {
         const payload = new FormData()
-        payload.append('entity_type', 'home_visit'); payload.append('entity_id', response.data.id); payload.append('file', file)
+        payload.append('entity_type', 'home_visit'); payload.append('entity_id', response.data.id); payload.append('file', await prepareUpload(file))
         if (gps) { payload.append('lat', String(gps.lat)); payload.append('lng', String(gps.lng)); payload.append('accuracy_m', String(gps.accuracy_m)); payload.append('captured_at', gps.captured_at) }
         await api.post('/media', payload)
       } catch { failedPhotos += 1 }
@@ -439,27 +441,37 @@ function DailyReportEditor({ user, onClose, onSaved, submitRecord }) {
 
 function PhotoUploadModal({ visit, onClose, onSaved }) {
   const [files, setFiles] = useState([])
+  const [uploaded, setUploaded] = useState(0)
   const { busy, error, run } = useAction()
   const upload = () => run(async () => {
-    for (const file of files) {
-      const payload = new FormData()
-      payload.append('entity_type', 'home_visit')
-      payload.append('entity_id', visit.id)
-      payload.append('file', file)
-      if (visit.gps) {
-        payload.append('lat', String(visit.gps.lat)); payload.append('lng', String(visit.gps.lng))
-        if (visit.gps.accuracy_m != null) payload.append('accuracy_m', String(visit.gps.accuracy_m))
-        if (visit.gps.captured_at) payload.append('captured_at', visit.gps.captured_at)
+    const problems = []
+    for (const original of files) {
+      try {
+        const payload = new FormData()
+        payload.append('entity_type', 'home_visit')
+        payload.append('entity_id', visit.id)
+        payload.append('file', await prepareUpload(original))
+        if (visit.gps) {
+          payload.append('lat', String(visit.gps.lat)); payload.append('lng', String(visit.gps.lng))
+          if (visit.gps.accuracy_m != null) payload.append('accuracy_m', String(visit.gps.accuracy_m))
+          if (visit.gps.captured_at) payload.append('captured_at', visit.gps.captured_at)
+        }
+        await api.post('/media', payload)
+      } catch (e) {
+        problems.push(`${original.name}: ${errorMessage(e)}`)
       }
-      await api.post('/media', payload)
     }
+    setUploaded((n) => n + 1)
+    setFiles([])
+    if (problems.length) throw new Error(problems.join('\n'))
     onSaved()
   }).catch(() => {})
-  return <Modal open title={t('Attach photos to home visit')} onClose={onClose} footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!files.length} icon={Camera} onClick={upload}>{t('Upload photos')}</Button></>}>
+  return <Modal open title={t('Attach photos to home visit')} onClose={onClose} footer={<><Button variant="secondary" onClick={onClose}>{t('Close')}</Button><Button busy={busy} disabled={!files.length} icon={Camera} onClick={upload}>{t('Upload photos')}</Button></>}>
     <ErrorBox message={error} />
     <p className="mb-3 text-sm text-gray-600">{fmtDate(visit.visit_date)} · {humanize(visit.purpose)}</p>
     <Field label={t('Choose photos')}><Input type="file" accept="image/*" multiple onChange={(e) => setFiles(Array.from(e.target.files || []))} /></Field>
     {files.length > 0 && <p className="text-xs text-gray-500">{files.map((file) => file.name).join(', ')}</p>}
+    <Field label={t('Photos already attached')}><MediaGallery entityType="home_visit" entityId={visit.id} refreshKey={uploaded} /></Field>
   </Modal>
 }
 

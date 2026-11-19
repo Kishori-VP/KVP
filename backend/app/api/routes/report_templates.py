@@ -9,13 +9,12 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from pymongo.errors import DuplicateKeyError
 
 from app.core.deps import Db, Stakeholder
 from app.db import collections as c
-from app.api.routes.reports import export_response, parse_formats
+from app.api.routes.reports import export_response, file_response, parse_formats
 from app.services import audit, template_attachments
 from app.services.exporters import ExportFormat
 from app.services.report_delivery import generate_and_share
@@ -186,7 +185,7 @@ async def run_template(
     p = report["period"]
     safe = "".join(ch if ch.isalnum() else "_" for ch in tpl["name"])[:40]
     return export_response(report, chosen, f"{safe}_{p['start']:%Y%m%d}-{p['end']:%Y%m%d}",
-                           template_attachments.load_all(tpl))
+                           await template_attachments.load_all(db, tpl))
 
 
 @router.post("/templates/{template_id}/share")
@@ -210,7 +209,7 @@ async def share_template(template_id: str, body: TemplateShare, db: Db, actor: S
 @router.post("/templates/{template_id}/attachments", status_code=status.HTTP_201_CREATED)
 async def add_attachment(template_id: str, db: Db, actor: Stakeholder, file: UploadFile = File(...)):
     tpl = await get_or_404(db[c.REPORT_TEMPLATES], template_id, "Report template", {"is_active": True})
-    entry = await template_attachments.save(file, tpl.get("attachments") or [], actor)
+    entry = await template_attachments.save(db, file, tpl.get("attachments") or [], actor)
     await db[c.REPORT_TEMPLATES].update_one({"_id": tpl["_id"]}, {"$push": {"attachments": entry},
                                                                   "$set": {"updated_at": utcnow()}})
     await audit.log(db, actor, "config_change", "report_template", tpl["_id"],
@@ -229,10 +228,10 @@ async def _attachment(db, template_id: str, attachment_id: str) -> tuple[dict, d
 @router.get("/templates/{template_id}/attachments/{attachment_id}")
 async def download_attachment(template_id: str, attachment_id: str, db: Db, _: Stakeholder):
     _, entry = await _attachment(db, template_id, attachment_id)
-    path = template_attachments.file_path(entry)
-    if not path.exists():
+    data = await template_attachments.read(db, entry)
+    if data is None:
         raise HTTPException(status.HTTP_410_GONE, "Attachment file is missing")
-    return FileResponse(path, media_type=entry["content_type"], filename=entry["original_name"])
+    return file_response(data, entry["content_type"], entry["original_name"])
 
 
 @router.delete("/templates/{template_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -243,6 +242,6 @@ async def remove_attachment(template_id: str, attachment_id: str, db: Db, actor:
     await db[c.REPORT_TEMPLATES].update_one({"_id": tpl["_id"]}, {"$pull": {"attachments": {"id": attachment_id}},
                                                                   "$set": {"updated_at": utcnow()}})
     # Reports already generated keep their own copy, so the template's file can go.
-    template_attachments.file_path(entry).unlink(missing_ok=True)
+    await template_attachments.remove(db, entry)
     await audit.log(db, actor, "config_change", "report_template", tpl["_id"],
                     f"Removed '{entry['original_name']}' from report template '{tpl['name']}'")

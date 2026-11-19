@@ -1,3 +1,4 @@
+import { getCoords, prepareUpload } from '../lib/upload'
 import { confirmDelete } from '../components/ConfirmDelete'
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, Download, Send, Trash2, Upload } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
@@ -141,43 +142,47 @@ function Media({ ev, onChange }) {
           const u = URL.createObjectURL(r.data)
           created.push(u)
           if (alive) setUrls((p) => ({ ...p, [m.id]: u }))
-        } catch { /* ignore broken file */ }
+        } catch {
+          if (alive) setUrls((p) => ({ ...p, [m.id]: null })) // file missing
+        }
       }
     })()
     return () => { alive = false; created.forEach(URL.revokeObjectURL) }
   }, [ev.media])
-  const upload = async (file) => {
+  const upload = async (files) => {
     setBusy(true)
     setError(null)
-    const fd = new FormData()
-    fd.append('file', file)
-    const send = async (coords) => {
-      if (coords) { fd.append('lat', coords.latitude); fd.append('lng', coords.longitude); fd.append('accuracy_m', coords.accuracy) }
+    const coords = await getCoords()
+    const problems = []
+    for (const original of files) {
       try {
+        const file = await prepareUpload(original)
+        const fd = new FormData()
+        fd.append('file', file)
+        if (coords) { fd.append('lat', coords.latitude); fd.append('lng', coords.longitude); fd.append('accuracy_m', coords.accuracy) }
         const r = await api.post(`/events/${ev.id}/media`, fd)
-        if (r.data.duplicate) setError(t('This photo was already uploaded to this event.'))
-        onChange()
+        if (r.data.duplicate) problems.push(t('{name}: already uploaded to this event.', { name: original.name }))
       } catch (e) {
-        setError(errorMessage(e))
-      } finally {
-        setBusy(false)
+        problems.push(`${original.name}: ${errorMessage(e)}`)
       }
     }
-    if (navigator.geolocation) navigator.geolocation.getCurrentPosition((p) => send(p.coords), () => send(null), { timeout: 5000 })
-    else send(null)
+    setBusy(false)
+    if (problems.length) setError(problems.join('\n'))
+    onChange()
   }
   return (
     <Card title={`${t('Photos & media')} (${ev.media?.length || 0})`} actions={
       <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-700">
         <Upload className="h-4 w-4" /> {busy ? t('Uploading…') : t('Upload')}
-        <input type="file" accept="image/*,video/mp4,application/pdf" className="sr-only" disabled={busy} onChange={(e) => e.target.files[0] && upload(e.target.files[0])} />
+        <input type="file" multiple accept="image/*,video/mp4,application/pdf" className="sr-only" disabled={busy}
+          onChange={(e) => { const files = [...e.target.files]; e.target.value = ''; if (files.length) upload(files) }} />
       </label>
     }>
       <ErrorBox message={error} />
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {(ev.media || []).map((m) => (
           <figure key={m.id} className="overflow-hidden rounded-lg border border-black/10">
-            {urls[m.id] ? <img src={urls[m.id]} alt={m.caption || m.original_name} className="h-32 w-full object-cover" /> : <div className="flex h-32 items-center justify-center bg-gray-50 text-xs text-gray-500">{m.content_type}</div>}
+            {urls[m.id] ? <a href={urls[m.id]} target="_blank" rel="noreferrer"><img src={urls[m.id]} alt={m.caption || m.original_name} className="h-32 w-full object-cover" /></a> : <div className="flex h-32 items-center justify-center bg-gray-50 px-2 text-center text-xs text-gray-500">{urls[m.id] === null ? t('File not available') : m.content_type?.startsWith('image/') ? t('Loading…') : (m.original_name || m.content_type)}</div>}
             <figcaption className="px-2 py-1 text-[11px] text-gray-500">
               {fmtDateTime(m.uploaded_at)} {m.location ? `· ${t('GPS')} ✓` : <Badge tone="yellow">{t('No GPS')}</Badge>}
             </figcaption>

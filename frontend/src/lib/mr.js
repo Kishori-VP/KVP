@@ -1580,4 +1580,10 @@ export default {
   "Are you sure you want to delete the attachment {name}?": "तुम्हाला खात्री आहे की {name} ही जोडणी हटवायची आहे?",
   "Are you sure you want to delete this provider?": "तुम्हाला खात्री आहे की हा प्रदाता हटवायचा आहे?",
   "Are you sure you want to delete this group?": "तुम्हाला खात्री आहे की हा गट हटवायचा आहे?",
+  "{name} is too large ({mb} MB). The limit is 4 MB, so please choose a smaller file.": "{name} खूप मोठी आहे ({mb} MB). मर्यादा 4 MB आहे, कृपया लहान फाइल निवडा.",
+  "The file is too large to upload (limit 4 MB). Please choose a smaller file.": "फाइल अपलोड करण्यासाठी खूप मोठी आहे (मर्यादा 4 MB). कृपया लहान फाइल निवडा.",
+  "{name}: already uploaded to this event.": "{name}: या कार्यक्रमात आधीच अपलोड केले आहे.",
+  "File not available": "फाइल उपलब्ध नाही",
+  "No photos attached.": "कोणतेही फोटो जोडलेले नाहीत.",
+  "Photos already attached": "आधीच जोडलेले फोटो",
 };

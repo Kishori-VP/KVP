@@ -87,6 +87,7 @@ api.interceptors.response.use(
 /** Human-readable message from a FastAPI error response. */
 export function errorMessage(err) {
   const detail = err?.response?.data?.detail
+  if (!detail && err?.response?.status === 413) return t('The file is too large to upload (limit 4 MB). Please choose a smaller file.')
   if (!detail) return err?.message || t('Something went wrong')
 
   const cleanMsg = (msg) => {
@@ -112,11 +113,18 @@ export function errorMessage(err) {
 export async function download(url, params = {}, fallbackName = 'download') {
   const res = await api.get(url, { params, responseType: 'blob' })
   const cd = res.headers['content-disposition'] || ''
-  const match = cd.match(/filename="?([^"]+)"?/)
+  // Prefer the UTF-8 form (filename*=UTF-8''…), which keeps Marathi and other non-ASCII names.
+  const utf8 = cd.match(/filename\*=UTF-8''([^;]+)/i)
+  const plain = cd.match(/filename="?([^";]+)"?/)
+  let name = fallbackName
+  try {
+    if (utf8) name = decodeURIComponent(utf8[1])
+    else if (plain) name = plain[1]
+  } catch { /* malformed header: keep the fallback */ }
   const href = URL.createObjectURL(res.data)
   const a = document.createElement('a')
   a.href = href
-  a.download = match ? match[1] : fallbackName
+  a.download = name
   document.body.appendChild(a)
   a.click()
   a.remove()

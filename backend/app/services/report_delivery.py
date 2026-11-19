@@ -13,7 +13,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from app.core.config import settings
 from app.core.permissions import Role
 from app.db import collections as c
-from app.services import exporters, notifications, template_attachments
+from app.services import exporters, filestore, notifications, template_attachments
 from app.services.reports import apply_template, build_report
 from app.utils.dates import local_tz, period_bounds, previous_period, today_local, utcnow
 
@@ -89,22 +89,18 @@ async def generate_and_share(
     if template:
         report = apply_template(report, template)
     now = utcnow()
-    folder = settings.reports_dir / f"{now:%Y/%m}"
-    folder.mkdir(parents=True, exist_ok=True)
     stem = f"{report_type}_{report['period']['start']:%Y%m%d}-{report['period']['end']:%Y%m%d}_{now:%H%M%S}"
     files, attachments = [], []
     for fmt in formats:
         data, mime, ext = exporters.render(report, fmt)
-        path = folder / f"{stem}.{ext}"
-        path.write_bytes(data)
-        files.append({"format": ext, "path": path.relative_to(settings.reports_dir).as_posix(), "size_bytes": len(data),
-                      "content_type": mime})
-        attachments.append((path.name, data, mime))
+        name = f"{stem}.{ext}"
+        gridfs_id = await filestore.put(db, name, data, kind="generated_report")
+        files.append({"format": ext, "name": name, "gridfs_id": gridfs_id, "size_bytes": len(data), "content_type": mime})
+        attachments.append((name, data, mime))
     # The template's own PDF / Word attachments are copied so the generated report keeps them.
-    for i, (name, data, mime) in enumerate(template_attachments.load_all(template), start=1):
-        path = folder / f"{stem}_attachment{i}{Path(name).suffix}"
-        path.write_bytes(data)
-        files.append({"format": "attachment", "name": name, "path": path.relative_to(settings.reports_dir).as_posix(),
+    for i, (name, data, mime) in enumerate(await template_attachments.load_all(db, template), start=1):
+        gridfs_id = await filestore.put(db, f"{stem}_attachment{i}{Path(name).suffix}", data, kind="generated_report")
+        files.append({"format": "attachment", "name": name, "gridfs_id": gridfs_id,
                       "size_bytes": len(data), "content_type": mime})
         attachments.append((name, data, mime))
 
