@@ -109,6 +109,42 @@ class VercelPathNormalizer:
         await self.asgi_app(scope, receive, send)
 
 
+class AISyncAfterWrite:
+    """After a successful create/edit/delete, feed the change to the Ask AI index.
+
+    Runs once the response has been sent and is capped in time; a failure never affects the request.
+    The change stream catches every write since the last sync, so nothing is lost if one run is skipped.
+    """
+
+    WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+    SKIP = ("/ai/", "/auth/", "/push/", "/health")
+
+    def __init__(self, asgi_app):
+        self.asgi_app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or scope.get("method") not in self.WRITE_METHODS:
+            await self.asgi_app(scope, receive, send)
+            return
+        status_code = 0
+
+        async def capture(message):
+            nonlocal status_code
+            if message["type"] == "http.response.start":
+                status_code = message["status"]
+            await send(message)
+
+        await self.asgi_app(scope, receive, capture)
+        path = scope.get("path", "")
+        if status_code < 400 and settings.gemini_api_key.strip() and not any(s in path for s in self.SKIP):
+            from app.services.ai_index import sync_changes
+            try:
+                await asyncio.wait_for(sync_changes(get_database(), budget=6.0), 8.0)
+            except Exception:
+                log.warning("AI index update after %s %s skipped", scope.get("method"), path, exc_info=True)
+
+
+app.add_middleware(AISyncAfterWrite)
 app.add_middleware(VercelPathNormalizer)
 
 app.include_router(api_router, prefix=settings.api_v1_prefix)

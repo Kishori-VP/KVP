@@ -68,53 +68,15 @@ export default function AdminAssistant() {
   const [error, setError] = useState('')
   const bottomRef = useRef(null)
   const inputRef = useRef(null)
-  const pollTimerRef = useRef(null)
-
-  function startPollingReindex() {
-    if (pollTimerRef.current) return
-    pollTimerRef.current = setInterval(async () => {
-      try {
-        const res = await api.get('/ai/reindex/status')
-        const data = res.data || {}
-        if (data.is_running) {
-          setReindexing(true)
-          const pct = data.total > 0 ? Math.round((data.progress / data.total) * 100) : 0
-          setReindexProgress(
-            data.total > 0
-              ? `${data.progress}/${data.total} (${pct}%)`
-              : 'Indexing…'
-          )
-        } else {
-          clearInterval(pollTimerRef.current)
-          pollTimerRef.current = null
-          setReindexing(false)
-          setReindexProgress('')
-          await loadStatus()
-          if (data.message && data.message !== 'Idle' && data.message !== 'Ready') {
-            setMessages((previous) => [
-              ...previous,
-              {
-                role: 'assistant',
-                content: data.message,
-              },
-            ])
-          }
-        }
-      } catch {
-        // network blip during polling, keep polling
-      }
-    }, 1500)
-  }
+  const syncStopRef = useRef(false)
+  const syncingRef = useRef(false)
 
   async function loadStatus() {
     try {
       const response = await api.get('/ai/status')
       setStatus(response.data)
       setError('')
-      if (response.data?.is_reindexing) {
-        setReindexing(true)
-        startPollingReindex()
-      }
+      if (response.data?.is_reindexing) runSync(false) // carry on a sync that was left half-way
       return response.data
     } catch (err) {
       setError(errorMessage(err))
@@ -124,9 +86,7 @@ export default function AdminAssistant() {
 
   useEffect(() => {
     loadStatus()
-    return () => {
-      if (pollTimerRef.current) clearInterval(pollTimerRef.current)
-    }
+    return () => { syncStopRef.current = true }
   }, [])
 
   useEffect(() => {
@@ -143,31 +103,49 @@ export default function AdminAssistant() {
     }
   }, [open, minimized])
 
-  async function handleReindex(force = false) {
-    if (reindexing) return
-
+  // The server syncs in short slices (so no request hits the time limit); keep calling until it is done.
+  async function runSync(force) {
+    if (syncingRef.current) return
+    syncingRef.current = true
+    syncStopRef.current = false
     setReindexing(true)
-    setReindexProgress(force ? 'Rebuilding…' : 'Checking…')
+    setReindexProgress(force ? t('Rebuilding…') : t('Checking…'))
     setError('')
-
+    let failures = 0
+    let first = force
     try {
-      const response = await api.post(`/ai/reindex${force ? '?force=true' : ''}`)
-      const result = response.data || {}
-      if (result.message) {
-        setMessages((previous) => [
-          ...previous,
-          {
-            role: 'assistant',
-            content: result.message,
-          },
-        ])
+      while (!syncStopRef.current) {
+        let data
+        try {
+          data = (await api.post(`/ai/reindex${first ? '?force=true' : ''}`)).data || {}
+          first = false
+          failures = 0
+        } catch (err) {
+          if (++failures >= 3) throw err // a slice can time out; the server saved its progress, so retry
+          continue
+        }
+        if (data.total > 0) {
+          const pct = Math.min(100, Math.round((data.progress / data.total) * 100))
+          setReindexProgress(`${data.progress.toLocaleString()}/${data.total.toLocaleString()} (${pct}%)`)
+        }
+        if (data.done) {
+          setMessages((previous) => [...previous, { role: 'assistant', content: data.message }])
+          break
+        }
+        if (data.busy) await new Promise((r) => setTimeout(r, 3000))
       }
-      startPollingReindex()
+      await loadStatus()
     } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      syncingRef.current = false
       setReindexing(false)
       setReindexProgress('')
-      setError(errorMessage(err))
     }
+  }
+
+  function handleReindex(force = false) {
+    if (!reindexing) runSync(force)
   }
 
   async function handleSend(event) {

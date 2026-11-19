@@ -149,7 +149,16 @@ async def run_jobs_once(db: AsyncDatabase) -> dict:
         "case_escalations": await _case_escalations(db),
         "volunteer_reminders": await _volunteer_reminders(db),
         "scheduled_reports_run": await run_due_schedules(db),
+        "ai_index_changes": await _ai_index_changes(db),
     }
+
+
+async def _ai_index_changes(db: AsyncDatabase) -> int:
+    """Catch up the Ask AI index with records written outside the API (scripts, imports)."""
+    if not settings.gemini_api_key.strip():
+        return 0
+    from app.services.ai_index import sync_changes
+    return (await sync_changes(db, budget=20.0)).get("records", 0)
 
 
 async def scheduler_loop(get_db) -> None:
