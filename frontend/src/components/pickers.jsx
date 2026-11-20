@@ -1,40 +1,60 @@
 import { bilingual, localName, t } from '../lib/i18n'
 import { useFetch, useLookups, useTalukas, useVillages, useVolunteers } from '../lib/hooks'
+import { useAuth } from '../lib/auth'
 import { Field, Input, Select } from './ui'
 
-export function VillageSelect({ value, onChange, placeholder = t('All villages'), talukaId, ...props }) {
-  const villages = useVillages()
+/** Ids of the villages a volunteer (or user) works in. */
+export function villageIdsOf(person) {
+  if (!person) return []
+  if (person.village_ids?.length) return person.village_ids.map(String)
+  if (person.villages?.length) return person.villages.map((v) => String(v.id || v._id))
+  return person.village_id ? [String(person.village_id)] : []
+}
+
+export function VillageSelect({ value, onChange, placeholder = t('All villages'), talukaId, villages: customVillages, ...props }) {
+  const allVillages = useVillages()
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
+  const assignedIds = isVolunteer ? villageIdsOf(user) : null
+
+  let source = customVillages || allVillages
+  if (isVolunteer && (!source || source.length === 0) && user?.villages?.length) {
+    source = user.villages
+  }
+
+  const villages = (assignedIds && assignedIds.length > 0)
+    ? source.filter((v) => assignedIds.includes(String(v.id || v._id)))
+    : (isVolunteer && assignedIds && assignedIds.length === 0 ? [] : source)
+
   const opts = villages
     .filter((v) => !talukaId || v.taluka_id === talukaId)
-    .map((v) => ({ value: v.id, label: bilingual(v.name, v.name_mr) }))
+    .map((v) => ({ value: String(v.id || v._id), label: bilingual(v.name, v.name_mr) }))
   return <Select options={opts} placeholder={placeholder} value={value || ''} onChange={(e) => onChange(e.target.value)} {...props} />
 }
 
 /** Pick any number of villages (a volunteer can work in several). Value: array of village ids. */
 export function VillageMultiSelect({ value = [], onChange, villages: only }) {
   const all = useVillages()
-  const villages = only ? all.filter((v) => only.includes(v.id)) : all
+  const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
+  const assignedIds = isVolunteer ? villageIdsOf(user) : null
+  const allowed = only ? only.map(String) : assignedIds
+  const villages = allowed ? all.filter((v) => allowed.includes(String(v.id || v._id))) : all
   const toggle = (id) => onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id])
   if (!villages.length) return <p className="text-xs text-gray-500">{t('No villages available.')}</p>
   return (
     <div className="flex max-h-48 flex-wrap gap-2 overflow-y-auto">
       {villages.map((v) => (
         <label
-          key={v.id}
-          className={`cursor-pointer rounded-full border px-3 py-1 text-xs ${value.includes(v.id) ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-gray-300 text-gray-700'}`}
+          key={v.id || v._id}
+          className={`cursor-pointer rounded-full border px-3 py-1 text-xs ${value.includes(v.id || v._id) ? 'border-brand-500 bg-brand-50 text-brand-800' : 'border-gray-300 text-gray-700'}`}
         >
-          <input type="checkbox" className="sr-only" checked={value.includes(v.id)} onChange={() => toggle(v.id)} />
+          <input type="checkbox" className="sr-only" checked={value.includes(v.id || v._id)} onChange={() => toggle(v.id || v._id)} />
           {bilingual(v.name, v.name_mr)}
         </label>
       ))}
     </div>
   )
-}
-
-/** Ids of the villages a volunteer (or user) works in. */
-export function villageIdsOf(person) {
-  if (!person) return []
-  return person.village_ids?.length ? person.village_ids : person.village_id ? [person.village_id] : []
 }
 
 export function TalukaSelect({ value, onChange, placeholder = t('All talukas') }) {

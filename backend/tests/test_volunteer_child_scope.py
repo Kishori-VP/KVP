@@ -75,6 +75,10 @@ def test_volunteer_sees_only_own_village_children(client, mongo, admin):
         "village_id": vb["id"], "group_type": "bal_panchayat", "home_village_only": True}))["items"]
     assert [x["id"] for x in picker] == [bp_b["id"]]
 
+    # --- village list for volunteer: only assigned village B is returned, not village A
+    vol_villages = ok(client.get(f"{API}/villages", headers=vol))
+    assert [v["id"] for v in vol_villages] == [vb["id"]]
+
     # --- admins are unchanged and see both villages
     for h in (admin, a1):
         kids = {k["name"] for k in ok(client.get(f"{API}/children", headers=h, params={"q": tag}))["items"]}

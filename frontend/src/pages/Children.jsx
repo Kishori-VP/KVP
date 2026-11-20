@@ -3,11 +3,11 @@ import { confirmDelete } from '../components/ConfirmDelete'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import ChildModal from '../components/ChildModal'
-import { GroupSelect, VillageSelect } from '../components/pickers'
-import { Badge, Button, Card, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, Table } from '../components/ui'
+import { GroupSelect, VillageSelect, villageIdsOf } from '../components/pickers'
+import { Badge, Button, Card, ErrorBox, PageHeader, Pagination, Select, Spinner, Table } from '../components/ui'
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { useAction, useFetch } from '../lib/hooks'
+import { useFetch } from '../lib/hooks'
 import { locale, localName, t } from '../lib/i18n'
 
 const EMPTY = { q: '', village_id: '', group_id: '', registered: '', gender: '' }
@@ -17,7 +17,10 @@ export default function Children() {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const canManage = isSuperAdmin || user?.role === 'admin_1'
-  const [filters, setFilters] = useState(EMPTY)
+  const isVolunteer = user?.role === 'volunteer'
+  const myVillageIds = isVolunteer ? villageIdsOf(user) : []
+  const initialVillageId = isVolunteer && myVillageIds.length === 1 ? myVillageIds[0] : ''
+  const [filters, setFilters] = useState(() => ({ ...EMPTY, village_id: initialVillageId }))
   const [page, setPage] = useState(1)
   const [modal, setModal] = useState(null)
   const set = (k, v) => { setFilters((p) => ({ ...p, [k]: v, ...(k === 'village_id' ? { group_id: '' } : {}) })); setPage(1) }
@@ -52,8 +55,12 @@ export default function Children() {
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input className="w-full rounded-lg border border-gray-300 py-2.5 sm:py-2 pl-9 pr-3 text-base sm:text-sm" placeholder={t('Search name…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
-          {/* The village list is already limited to a volunteer's assigned villages by the API. */}
-          <VillageSelect value={filters.village_id} onChange={(v) => set('village_id', v)} />
+          {/* Volunteers only see their assigned villages in the village filter. */}
+          <VillageSelect
+            value={filters.village_id}
+            onChange={(v) => set('village_id', v)}
+            placeholder={isVolunteer && myVillageIds.length > 1 ? t('All my villages') : t('All villages')}
+          />
           <GroupSelect villageId={filters.village_id} groupType="bal_panchayat" homeVillageOnly placeholder={t('All Bal Panchayats')} value={filters.group_id} onChange={(v) => set('group_id', v)} />
           <Select
             options={[

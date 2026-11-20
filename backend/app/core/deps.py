@@ -131,9 +131,12 @@ SuperAdmin = Annotated[dict, Depends(require_super_admin)]
 def user_village_ids(user: dict) -> list[ObjectId]:
     """Current villages of a volunteer. A volunteer can work in several villages."""
     ids = user.get("village_ids")
-    if ids is None:  # records written before multi-village support
+    if not ids:  # records written before multi-village support or empty list
         ids = [user["village_id"]] if user.get("village_id") else []
-    return [v if isinstance(v, ObjectId) else ObjectId(v) for v in ids]
+    else:
+        if user.get("village_id") and user["village_id"] not in ids:
+            ids = [*ids, user["village_id"]]
+    return [v if isinstance(v, ObjectId) else ObjectId(v) for v in ids if v]
 
 
 def can_access_village(user: dict, village_id) -> bool:

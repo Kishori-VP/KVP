@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import api, { getToken, setToken } from './api'
+import { invalidateRefData } from './hooks'
 
 const AuthContext = createContext(null)
 
@@ -10,10 +11,14 @@ export function AuthProvider({ children }) {
   const logout = useCallback(() => {
     setToken(null)
     setUser(null)
+    invalidateRefData()
   }, [])
 
   useEffect(() => {
-    const onLogout = () => setUser(null)
+    const onLogout = () => {
+      setUser(null)
+      invalidateRefData()
+    }
     window.addEventListener('kvp:logout', onLogout)
     if (getToken()) {
       api
@@ -26,6 +31,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   const login = async (identifier, password) => {
+    invalidateRefData()
     const r = await api.post('/auth/login', { identifier, password })
     setToken(r.data.access_token)
     setUser(r.data.user)

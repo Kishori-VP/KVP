@@ -34,6 +34,22 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # ---------------------------------------------------------
 
 
+async def _build_user_output(db, user: dict) -> dict:
+    output = serialize(user)
+    vids = user.get("village_ids") or ([user["village_id"]] if user.get("village_id") else [])
+    if vids:
+        villages = await db[c.VILLAGES].find({"_id": {"$in": vids}}, {"name": 1, "name_mr": 1}).sort("name", 1).to_list()
+        output["villages"] = serialize(villages)
+        if user.get("village_id"):
+            village = next((v for v in villages if v["_id"] == user["village_id"]), None)
+            if not village:
+                village = await db[c.VILLAGES].find_one({"_id": user["village_id"]}, {"name": 1, "name_mr": 1})
+            output["village"] = serialize(village)
+        elif villages:
+            output["village"] = serialize(villages[0])
+    return output
+
+
 async def _authenticate(
     db,
     identifier: str,
@@ -91,7 +107,7 @@ async def _authenticate(
     return TokenResponse(
         access_token=token,
         expires_in=expires_in,
-        user=serialize(user),
+        user=await _build_user_output(db, user),
     )
 
 
@@ -145,20 +161,7 @@ async def me(
     db: Db,
 ):
     """Return the currently authenticated user."""
-    output = serialize(user)
-
-    if user.get("village_id"):
-        village = await db[c.VILLAGES].find_one(
-            {"_id": user["village_id"]},
-            {"name": 1, "name_mr": 1},
-        )
-        output["village"] = serialize(village)
-        ids = user.get("village_ids") or [user["village_id"]]
-        output["villages"] = serialize(
-            await db[c.VILLAGES].find({"_id": {"$in": ids}}, {"name": 1, "name_mr": 1}).sort("name", 1).to_list()
-        )
-
-    return output
+    return await _build_user_output(db, user)
 
 
 # ---------------------------------------------------------

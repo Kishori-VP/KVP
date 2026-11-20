@@ -93,6 +93,7 @@ export default {
   "All talukas": "सर्व तालुके",
   "All types": "सर्व प्रकार",
   "All village contacts": "गावातील सर्व संपर्क",
+  "All my villages": "माझी सर्व गावे",
   "All villages": "सर्व गावे",
   "All volunteers": "सर्व स्वयंसेवक",
   "Already have an account? Log in": "आधीच खाते आहे का? लॉग इन करा",
