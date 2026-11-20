@@ -192,6 +192,25 @@ def group_scope(user: dict, village_id=None) -> dict:
     return {"$or": [{"village_id": {"$in": vids}}, {"member_village_ids": {"$in": vids}}]}
 
 
+def bal_panchayat_scope(user: dict, village_id=None) -> dict:
+    """Mongo filter for groups whose children (members) the user may see.
+
+    Bal Panchayat members are stored on the group without a village of their own, so the group's
+    home village decides: a volunteer sees the children of groups based in their assigned villages,
+    not of other villages' groups that merely list one of their villages as a member village.
+    Admins are unchanged (group_scope); an optional village_id narrows to one (accessible) village."""
+    if user.get("role") in ADMIN_ROLES:
+        return group_scope(user, village_id)
+    vids = user_village_ids(user)
+    if village_id and ObjectId(str(village_id)) in vids:
+        vids = [ObjectId(str(village_id))]
+    return {"village_id": {"$in": vids}}
+
+
+def can_see_group_members(user: dict, group: dict) -> bool:
+    return user.get("role") in ADMIN_ROLES or group.get("village_id") in user_village_ids(user)
+
+
 def narrow_to_village(query: dict, user: dict, village_id, field: str = "village_id") -> None:
     """Apply an optional ?village_id= filter. Volunteers can narrow to one of their own villages;
     any other village is ignored, so they still only see their own villages."""

@@ -6,7 +6,10 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query, status
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import CurrentUser, Db, Pagination, Stakeholder, group_scope, user_village_ids, village_scope
+from app.core.deps import (
+    ADMIN_ROLES, CurrentUser, Db, Pagination, Stakeholder, bal_panchayat_scope, can_see_group_members, group_scope,
+    user_village_ids, village_scope,
+)
 from app.core.permissions import Role
 from app.db import collections as c
 from app.schemas.master import (
@@ -376,8 +379,12 @@ async def list_groups(
     group_type: GroupType | None = None,
     responsible_volunteer_id: ObjectIdStr | None = None,
     include_inactive: bool = False,
+    home_village_only: bool = Query(False, description="Only groups based in the village(s), not shared into them"),
 ):
-    query: dict = {"is_deleted": {"$ne": True}, **group_scope(user, village_id)}
+    scope = bal_panchayat_scope(user, village_id) if home_village_only else group_scope(user, village_id)
+    if home_village_only and village_id and user.get("role") in ADMIN_ROLES:
+        scope = {"village_id": oid(village_id)}
+    query: dict = {"is_deleted": {"$ne": True}, **scope}
     if taluka_id:
         query["taluka_id"] = oid(taluka_id)
     if group_type:
@@ -401,7 +408,7 @@ async def list_children(
     registered: bool | None = Query(None, description="true: linked to a registered girl; false: not registered"),
 ):
     """Every child in a Bal Panchayat, boys included (members are kept on the group)."""
-    match: dict = {**group_scope(user, village_id), "group_type": "bal_panchayat"}
+    match: dict = {"is_deleted": {"$ne": True}, **bal_panchayat_scope(user, village_id), "group_type": "bal_panchayat"}
     if group_id:
         match["_id"] = oid(group_id)
     child: dict = {}
@@ -440,10 +447,13 @@ async def list_children(
 async def get_group(group_id: str, db: Db, user: CurrentUser):
     group = await get_or_404(db[c.GROUPS], group_id, "Group", {"is_deleted": {"$ne": True}, **group_scope(user)})
     girls = await db[c.GIRLS].find(
-        {"$or": [{"group_id": group["_id"]}, {"bal_panchayat_id": group["_id"]}], "is_deleted": {"$ne": True}},
+        {"$or": [{"group_id": group["_id"]}, {"bal_panchayat_id": group["_id"]}], "is_deleted": {"$ne": True},
+         **village_scope(user)},
         {"girl_code": 1, "name": 1, "name_en": 1, "name_mr": 1, "dob": 1, "age": 1},
     ).sort("girl_code", 1).to_list()
     # Bal Panchayat lists include boys, who are not registered beneficiaries; every child is kept as a member.
+    if not can_see_group_members(user, group):
+        group["members"] = []  # another village's group shared into theirs: its children stay hidden
     members = group.get("members", [])
     return {**serialize(group), "girls": serialize(girls), "girl_count": len(girls), "member_count": len(members)}
 
