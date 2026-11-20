@@ -321,7 +321,7 @@ export default function Layout() {
           </div>
         </header>
 
-        <main className={cx('min-h-0 min-w-0 flex-1 overflow-y-auto px-3.5 py-4 sm:px-6 sm:py-6', user?.role === 'volunteer' ? 'pb-24 lg:pb-6' : 'pb-6')}>
+        <main className={cx('min-h-0 min-w-0 flex-1 overflow-y-auto px-3.5 py-4 sm:px-6 sm:py-6', user?.role === 'volunteer' ? 'pb-24 lg:pb-6' : 'pb-28')}>{/* admins: room to scroll past the floating Ask AI button */}
           <Suspense fallback={<Spinner />}>
             <Outlet />
           </Suspense>
