@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, LogIn, Mail, Phone, Sparkles, UserPlus } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, LogIn, Mail, Phone, Sparkles, UserPlus } from 'lucide-react'
 import logo from '../assets/SEDT_logo.png'
 import loginBg from '../assets/login_bg.webp'
 import { Button, ErrorBox, Field, Input } from '../components/ui'
@@ -20,6 +20,8 @@ export default function Login() {
 
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
+  // Shown by default so field staff can check what they typed; the eye button hides it.
+  const [showPassword, setShowPassword] = useState(true)
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -154,13 +156,28 @@ export default function Login() {
                 />
               </Field>
               <Field label={t('Password')}>
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                  required
-                />
+                <div className="relative">
+                  <Input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    style={{ paddingRight: '2.5rem' }}
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? t('Hide password') : t('Show password')}
+                    title={showPassword ? t('Hide password') : t('Show password')}
+                    className="absolute inset-y-0 right-0 flex items-center px-3 text-gray-500 hover:text-gray-800"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </Field>
               <Button
                 type="submit"

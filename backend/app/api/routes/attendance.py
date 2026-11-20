@@ -253,7 +253,10 @@ async def list_attendance(
     start_date: date | None = None,
     end_date: date | None = None,
     volunteer_id: ObjectIdStr | None = None,
+    include_photos: bool = True,
 ):
+    """Attendance records. ``include_photos=false`` drops the NoteCam images (large data URLs) and
+    adds ``has_check_in_photo`` / ``has_check_out_photo`` flags instead, for light listings."""
     query: dict = {}
     if start_date or end_date:
         query["attendance_date"] = {}
@@ -263,7 +266,20 @@ async def list_attendance(
             query["attendance_date"]["$lte"] = datetime.combine(end_date, datetime.max.time(), tzinfo=timezone.utc)
     if volunteer_id:
         query["volunteer_id"] = oid(volunteer_id)
-    docs = await db[c.VOLUNTEER_ATTENDANCE].find(query).sort([("attendance_date", -1), ("volunteer_name", 1)]).limit(1000).to_list()
+    if include_photos:
+        docs = await db[c.VOLUNTEER_ATTENDANCE].find(query).sort([("attendance_date", -1), ("volunteer_name", 1)]).limit(1000).to_list()
+        return serialize(docs)
+    pipeline = [
+        {"$match": query},
+        {"$sort": {"attendance_date": -1, "volunteer_name": 1}},
+        {"$limit": 1000},
+        {"$addFields": {
+            "has_check_in_photo": {"$gt": [{"$ifNull": ["$check_in_photo", None]}, None]},
+            "has_check_out_photo": {"$gt": [{"$ifNull": ["$check_out_photo", None]}, None]},
+        }},
+        {"$project": {"check_in_photo": 0, "check_out_photo": 0}},
+    ]
+    docs = await (await db[c.VOLUNTEER_ATTENDANCE].aggregate(pipeline)).to_list()
     return serialize(docs)
 
 
