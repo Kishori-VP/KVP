@@ -57,8 +57,10 @@ export function VolunteerSelect({ value, onChange, villageId, placeholder = t('A
   return <Select options={opts} placeholder={placeholder} value={value || ''} onChange={(e) => onChange(e.target.value)} />
 }
 
-export function GroupSelect({ value, onChange, villageId, placeholder = t('All groups'), groupType = 'kishori' }) {
-  const { data } = useFetch(villageId ? '/groups' : null, { village_id: villageId, group_type: groupType, page_size: 200 })
+export function GroupSelect({ value, onChange, villageId, placeholder = t('All groups'), groupType = 'kishori', homeVillageOnly = false }) {
+  const { data } = useFetch(villageId ? '/groups' : null, {
+    village_id: villageId, group_type: groupType, page_size: 200, ...(homeVillageOnly ? { home_village_only: true } : {}),
+  })
   return (
     <Select
       options={(data?.items || []).map((g) => ({ value: g.id, label: localName(g) }))}

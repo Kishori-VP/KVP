@@ -52,8 +52,9 @@ export default function Children() {
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
             <input className="w-full rounded-lg border border-gray-300 py-2.5 sm:py-2 pl-9 pr-3 text-base sm:text-sm" placeholder={t('Search name…')} value={filters.q} onChange={(e) => set('q', e.target.value)} />
           </div>
-          {user?.role !== 'volunteer' && <VillageSelect value={filters.village_id} onChange={(v) => set('village_id', v)} />}
-          <GroupSelect villageId={filters.village_id} groupType="bal_panchayat" placeholder={t('All Bal Panchayats')} value={filters.group_id} onChange={(v) => set('group_id', v)} />
+          {/* The village list is already limited to a volunteer's assigned villages by the API. */}
+          <VillageSelect value={filters.village_id} onChange={(v) => set('village_id', v)} />
+          <GroupSelect villageId={filters.village_id} groupType="bal_panchayat" homeVillageOnly placeholder={t('All Bal Panchayats')} value={filters.group_id} onChange={(v) => set('group_id', v)} />
           <Select
             options={[
               { value: 'girl', label: t('Girls only (मुली)') },
