@@ -46,7 +46,10 @@ function isNoteCam(record) {
   )
 }
 
+const ROLE_LABELS = { admin_1: 'Admin-1', admin_2: 'Admin-2', admin: 'Admin-1', super_admin: 'Super Admin', stakeholder: 'Super Admin' }
+
 function makeRow(volunteer, existing) {
+  const role = volunteer.role || existing?.role || 'volunteer'
   const villageNames = volunteer.village_names?.length
     ? volunteer.village_names.join(', ')
     : (volunteer.village?.name || volunteer.village_name || '')
@@ -54,6 +57,7 @@ function makeRow(volunteer, existing) {
   return {
     volunteer_id: volunteer.id,
     name: volunteer.name || 'Unnamed Volunteer',
+    role,
     village_name: existing?.village_name || villageNames || 'Not assigned',
     village_id: existing?.village_id || volunteer.village_id || null,
     status: existing?.status || '',
@@ -256,21 +260,23 @@ export default function VolunteerAttendance() {
     setMessage('')
 
     try {
-      const [volunteerResponse, attendanceResponse] = await Promise.all([
-        api.get('/users', {
-          params: {
-            role: 'volunteer',
-            is_active: true,
-            page: 1,
-            page_size: 500,
-          },
-        }),
+      // Admin-1 / Admin-2 also mark their own NoteCam attendance, so they are listed with volunteers.
+      const usersByRole = (role) =>
+        api.get('/users', { params: { role, is_active: true, page: 1, page_size: 500 } })
+      const [volunteerResponse, admin1Response, admin2Response, attendanceResponse] = await Promise.all([
+        usersByRole('volunteer'),
+        usersByRole('admin_1'),
+        usersByRole('admin_2'),
         api.get('/attendance', {
           params: { start_date: date, end_date: date },
         }),
       ])
 
-      const volunteers = volunteerResponse.data.items || []
+      const volunteers = [
+        ...(volunteerResponse.data.items || []),
+        ...(admin1Response.data.items || []),
+        ...(admin2Response.data.items || []),
+      ]
       const attendance = Array.isArray(attendanceResponse.data)
         ? attendanceResponse.data
         : attendanceResponse.data.items || []
@@ -286,7 +292,7 @@ export default function VolunteerAttendance() {
         .filter((record) => !volunteerIds.has(String(record.volunteer_id)))
         .map((record) =>
           makeRow(
-            { id: String(record.volunteer_id), name: record.volunteer_name, village_id: record.village_id },
+            { id: String(record.volunteer_id), name: record.volunteer_name, village_id: record.village_id, role: record.role },
             record,
           ),
         )
@@ -369,6 +375,7 @@ export default function VolunteerAttendance() {
     const data = rows.map((row) => ({
       Date: date,
       'Volunteer Name': row.name,
+      Role: ROLE_LABELS[row.role] || 'Volunteer',
       Village: row.village_name || 'Not assigned',
       Status: STATUSES.find((item) => item.value === row.status)?.label || 'Not recorded',
       'Check-in': row.check_in || '',
@@ -471,7 +478,14 @@ export default function VolunteerAttendance() {
                 {rows.map((row) => (
                   <tr key={row.volunteer_id} className="border-b last:border-0 hover:bg-gray-50/70">
                     <td className="p-3 align-top">
-                      <div className="font-semibold text-gray-900">{row.name}</div>
+                      <div className="flex flex-wrap items-center gap-1.5 font-semibold text-gray-900">
+                        {row.name}
+                        {ROLE_LABELS[row.role] && (
+                          <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                            {t(ROLE_LABELS[row.role])}
+                          </span>
+                        )}
+                      </div>
                       <div className="mt-1 flex items-center gap-1 text-xs text-gray-600">
                         <MapPin className="h-3.5 w-3.5 text-brand-700 shrink-0" />
                         <span>{row.village_name}</span>

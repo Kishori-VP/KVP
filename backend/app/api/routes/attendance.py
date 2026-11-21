@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 from pymongo.errors import DuplicateKeyError
 
-from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Stakeholder, user_village_ids
+from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Stakeholder, is_admin_2, user_village_ids
 from app.core.permissions import Role
 from app.db import collections as c
 from app.services import audit
@@ -64,6 +64,11 @@ class AttendanceBatch(BaseModel):
     entries: list[AttendanceEntry] = Field(min_length=1, max_length=500)
 
 
+def _can_override(user: dict) -> bool:
+    """Admins (except read-only Admin-2) may back-date self attendance and set the time."""
+    return user.get("role") in ADMIN_ROLES and not is_admin_2(user)
+
+
 @router.get("/today")
 async def get_my_today_attendance(db: Db, user: CurrentUser):
     """Get the current user's (Volunteer or Admin) attendance status for today."""
@@ -87,10 +92,12 @@ async def get_my_today_attendance(db: Db, user: CurrentUser):
 
 @router.post("/check-in")
 async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
-    """Self-service check-in with NoteCam photo and GPS capture."""
-    from app.core.deps import check_not_read_only
-    check_not_read_only(user)
-    is_admin = user.get("role") in ADMIN_ROLES
+    """Self-service check-in with NoteCam photo and GPS capture.
+
+    Volunteers, Admin-1 and Admin-2 all mark their own daily attendance here. Admin-2 is otherwise
+    read-only, so it may only record its *own* attendance and follows the volunteer rules (today only,
+    server time); Super Admin / Admin-1 may back-date or set the time."""
+    is_admin = _can_override(user)
     if not is_admin:
         if body.attendance_date and body.attendance_date != today_local():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Self check-in is only allowed for today's date")
@@ -166,10 +173,8 @@ async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
 
 @router.post("/check-out")
 async def check_out(body: CheckOutRequest, db: Db, user: CurrentUser):
-    """Self-service check-out with NoteCam photo and GPS capture."""
-    from app.core.deps import check_not_read_only
-    check_not_read_only(user)
-    is_admin = user.get("role") in ADMIN_ROLES
+    """Self-service check-out with NoteCam photo and GPS capture (see ``check_in`` for role rules)."""
+    is_admin = _can_override(user)
     if not is_admin:
         if body.attendance_date and body.attendance_date != today_local():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Self check-out is only allowed for today's date")

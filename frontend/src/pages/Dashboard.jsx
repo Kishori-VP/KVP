@@ -10,6 +10,7 @@ import { fmtNum, humanize } from '../lib/format'
 import { useAuth } from '../lib/auth'
 import { useFetch } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
+import VolunteerCheckIn from './VolunteerCheckIn'
 
 const VILLAGE_STATUS_COLOR = { on_track: STATUS.good, delayed: STATUS.warning, no_recent_activity: STATUS.critical }
 const SEVERITY_COLOR = { critical: STATUS.critical, high: STATUS.serious, medium: STATUS.warning, low: '#898781' }
@@ -319,6 +320,8 @@ export default function Dashboard() {
   const [taluka, setTaluka] = useState('')
   const [period, setPeriod] = useState('monthly')
   const isStakeholder = user?.role === 'stakeholder' || user?.role === 'super_admin'
+  // Admin-1 / Admin-2 mark their own daily NoteCam attendance, same as volunteers.
+  const takesAttendance = user?.role === 'admin_1' || user?.role === 'admin_2' || user?.role === 'admin'
   return (
     <div className="space-y-4">
       <PageHeader
@@ -331,6 +334,7 @@ export default function Dashboard() {
           </div>
         }
       />
+      {takesAttendance && <VolunteerCheckIn embedded />}
       <Kpis taluka={taluka} period={period} />
       <AlertsCard taluka={taluka} />
       <div className="grid gap-4 xl:grid-cols-3">

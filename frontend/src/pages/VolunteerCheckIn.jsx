@@ -44,8 +44,14 @@ function PunchCard({ label, time, photo, gps }) {
   )
 }
 
-export default function VolunteerCheckIn() {
+/**
+ * NoteCam daily check-in / check-out. Volunteers get it as their home page; Admin-1 / Admin-2 get it
+ * `embedded` as a card on the Dashboard. Admins have no village assignment, so the volunteer
+ * dashboard lookup is skipped for them.
+ */
+export default function VolunteerCheckIn({ embedded = false }) {
   const { user } = useAuth()
+  const isVolunteer = user?.role === 'volunteer'
   const [selectedVillageId, setSelectedVillageId] = useState('')
   const [noteCamOpen, setNoteCamOpen] = useState(false)
   const [noteCamAction, setNoteCamAction] = useState('CHECK-IN')
@@ -53,7 +59,8 @@ export default function VolunteerCheckIn() {
   const [todayLoading, setTodayLoading] = useState(true)
 
   // Only needed for the volunteer's assigned villages / assignment status.
-  const { data, error, loading, reload } = useFetch('/volunteers/me/dashboard')
+  const { data: volunteerData, error, loading, reload } = useFetch(isVolunteer ? '/volunteers/me/dashboard' : null)
+  const data = isVolunteer ? volunteerData : { assigned: true, villages: [], village: null }
 
   const fetchToday = async () => {
     try {
@@ -97,7 +104,7 @@ export default function VolunteerCheckIn() {
     setNoteCamOpen(true)
   }
 
-  if ((loading && !data) || todayLoading) return <Spinner />
+  if ((loading && !volunteerData && isVolunteer) || todayLoading) return embedded ? <Card title={t('My attendance')}><Spinner /></Card> : <Spinner />
 
   const villages = data?.villages || (data?.village ? [data.village] : [])
   const record = today?.record
@@ -105,13 +112,20 @@ export default function VolunteerCheckIn() {
   const checkedOut = Boolean(today?.checked_out)
 
   return (
-    <div className="space-y-5 pb-16 lg:pb-5">
+    <div className={embedded ? 'space-y-3 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm' : 'space-y-5 pb-16 lg:pb-5'}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <PageHeader
-          title={t('Attendance')}
-          subtitle={`${t('NoteCam daily check-in and check-out')} · ${fmtDate(today?.attendance_date)}`}
-        />
-        <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => { reload(); fetchToday() }}>
+        {embedded ? (
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">{t('My attendance')}</h2>
+            <p className="text-xs text-gray-500">{`${t('NoteCam daily check-in and check-out')} · ${fmtDate(today?.attendance_date)}`}</p>
+          </div>
+        ) : (
+          <PageHeader
+            title={t('Attendance')}
+            subtitle={`${t('NoteCam daily check-in and check-out')} · ${fmtDate(today?.attendance_date)}`}
+          />
+        )}
+        <Button size="sm" variant="secondary" icon={RefreshCw} onClick={() => { if (isVolunteer) reload(); fetchToday() }}>
           {t('Refresh')}
         </Button>
       </div>
@@ -156,7 +170,9 @@ export default function VolunteerCheckIn() {
                 </div>
                 <div>
                   <h3 className="text-lg font-bold">{t('Checked In at')} {record?.check_in}</h3>
-                  <p className="mt-1 text-xs text-white/80">📍 {record?.village_name || getVillageName(data.village)}</p>
+                  {(record?.village_name || getVillageName(data.village)) && (
+                    <p className="mt-1 text-xs text-white/80">📍 {record?.village_name || getVillageName(data.village)}</p>
+                  )}
                 </div>
                 <Button
                   variant="light"
@@ -176,9 +192,11 @@ export default function VolunteerCheckIn() {
                     <div className="mt-0.5 text-sm font-semibold">
                       {t('In')}: {record?.check_in} · {t('Out')}: {record?.check_out}
                     </div>
-                    <div className="mt-0.5 text-xs text-emerald-600">
-                      📍 {record?.village_name || getVillageName(data.village)}
-                    </div>
+                    {(record?.village_name || getVillageName(data.village)) && (
+                      <div className="mt-0.5 text-xs text-emerald-600">
+                        📍 {record?.village_name || getVillageName(data.village)}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <span className="rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
