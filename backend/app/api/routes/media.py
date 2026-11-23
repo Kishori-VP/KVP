@@ -1,16 +1,17 @@
 """Image & media management (PRD 4.12) for visits, cases, girls and reports."""
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 
-from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Stakeholder, require_permission, village_scope
+from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Pagination, Stakeholder, require_permission, village_scope
 from app.core.permissions import Role
 from app.db import collections as c
 from app.services import audit, storage
+from app.services.events import local_day_bounds
 from app.utils.mongo import ObjectIdStr, get_or_404, oid, serialize
 
 router = APIRouter(prefix="/media", tags=["media"])
@@ -91,6 +92,69 @@ async def list_media(db: Db, user: CurrentUser, entity_type: EntityType = Query(
     if user["role"] == Role.VOLUNTEER:
         query["sensitive"] = False
     return serialize(await db[c.MEDIA].find(query).sort("uploaded_at", -1).to_list())
+
+
+LIBRARY_ROLES = (Role.SUPER_ADMIN.value, Role.ADMIN_1.value)
+LIBRARY_LABEL_FIELDS = {"event": "title", "case": "title", "girl": "name"}
+
+
+@router.get("/library")
+async def media_library(
+    db: Db,
+    user: CurrentUser,
+    pg: Pagination,
+    village_id: ObjectIdStr | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+):
+    """Every uploaded photo and file across the programme, newest first, filterable by village
+    and upload date. Super Admin and Admin-1 only. Media has no village of its own, so the
+    village comes from the record it is attached to (event, home visit, case, girl, report)."""
+    if user["role"] not in LIBRARY_ROLES:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The media library is for Super Admin and Admin-1")
+    query: dict = {}
+    if start_date or end_date:
+        s, e = local_day_bounds(start_date or date(2000, 1, 1), end_date or date(2100, 1, 1))
+        query["uploaded_at"] = {"$gte": s, "$lt": e}
+    if village_id:
+        owners = []
+        for etype, coll in storage.ENTITY_COLLECTIONS.items():
+            ids = await db[coll].distinct("_id", {"village_id": oid(village_id)})
+            if ids:
+                owners.append({"entity_type": etype, "entity_id": {"$in": ids}})
+        if not owners:
+            return {"items": [], "total": 0, "page": pg.page, "page_size": pg.page_size}
+        query["$or"] = owners
+    total = await db[c.MEDIA].count_documents(query)
+    docs = await db[c.MEDIA].find(query).sort([("uploaded_at", -1), ("_id", -1)]) \
+        .skip((pg.page - 1) * pg.page_size).limit(pg.page_size).to_list()
+
+    # Village and a readable label for each file, from the record it belongs to.
+    parents: dict = {}
+    for etype, coll in storage.ENTITY_COLLECTIONS.items():
+        ids = [d["entity_id"] for d in docs if d["entity_type"] == etype]
+        if ids:
+            fields = {"village_id": 1, LIBRARY_LABEL_FIELDS.get(etype, "village_id"): 1}
+            async for p in db[coll].find({"_id": {"$in": ids}}, fields):
+                parents[(etype, p["_id"])] = p
+    village_ids = {p.get("village_id") for p in parents.values()} - {None}
+    villages = {v["_id"]: v for v in await db[c.VILLAGES].find({"_id": {"$in": list(village_ids)}},
+                                                                {"name": 1, "name_mr": 1}).to_list()}
+    uploaders = {u["_id"]: u.get("name") for u in await db[c.USERS].find(
+        {"_id": {"$in": list({d.get("uploaded_by") for d in docs} - {None})}}, {"name": 1}).to_list()}
+    items = []
+    for d in docs:
+        parent = parents.get((d["entity_type"], d["entity_id"])) or {}
+        village = villages.get(parent.get("village_id")) or {}
+        items.append({
+            **serialize(d),
+            "village_id": str(parent["village_id"]) if parent.get("village_id") else None,
+            "village_name": village.get("name"),
+            "village_name_mr": village.get("name_mr"),
+            "entity_label": parent.get(LIBRARY_LABEL_FIELDS.get(d["entity_type"], "")),
+            "uploaded_by_name": uploaders.get(d.get("uploaded_by")),
+        })
+    return {"items": items, "total": total, "page": pg.page, "page_size": pg.page_size}
 
 
 @router.get("/{media_id}")

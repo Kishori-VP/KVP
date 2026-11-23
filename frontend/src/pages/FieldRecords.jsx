@@ -376,7 +376,7 @@ export default function FieldRecords() {
       <PageHeader title={t('Visits, calls and daily records')} subtitle={t('Home visits, external calls and daily activity reports')}
         actions={<>
           <Button variant="secondary" icon={Plus} onClick={() => setModal('visit')}>{t('Home visit')}</Button>
-          <Button variant="secondary" icon={PhoneCall} onClick={() => setModal('call')}>{t('Record a call')}</Button>
+          {user?.role !== 'admin_2' && <Button variant="secondary" icon={PhoneCall} onClick={() => setModal('call')}>{t('Record a call')}</Button>}
           <Button icon={Plus} onClick={() => setModal('report')}>{t('Daily report')}</Button>
         </>} />
       <Tabs tabs={[{ value: 'visits', label: t('Home visits') }, { value: 'calls', label: t('External calls') }, { value: 'reports', label: t('Daily activity reports') }]} value={tab} onChange={(v) => { setTab(v); setPage(1) }} />

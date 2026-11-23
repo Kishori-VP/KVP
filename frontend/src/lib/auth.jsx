@@ -41,6 +41,9 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>
 }
 
+/** Roles that may open the media library ("stakeholder" / "admin" are legacy names). */
+export const MEDIA_ROLES = ['super_admin', 'stakeholder', 'admin_1', 'admin']
+
 export function useAuth() {
   return useContext(AuthContext)
 }

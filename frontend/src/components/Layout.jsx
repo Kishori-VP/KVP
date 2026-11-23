@@ -9,6 +9,7 @@ import {
   GraduationCap,
   HeartPulse,
   History,
+  Images,
   LayoutDashboard,
   LogOut,
   MapPinned,
@@ -25,7 +26,7 @@ import {
 import { Suspense, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import logo from '../assets/SEDT_logo.png'
-import { useAuth } from '../lib/auth'
+import { MEDIA_ROLES, useAuth } from '../lib/auth'
 import { humanize } from '../lib/format'
 import { useFetch } from '../lib/hooks'
 import { LANGUAGES, t, useLang } from '../lib/i18n'
@@ -33,6 +34,7 @@ import { Spinner, cx } from './ui'
 import AdminAssistant from '../pages/AdminAssistant'
 import MobileBottomNav from './MobileBottomNav'
 import NoteCamModal from './NoteCamModal'
+import { fmtCountdown, useCheckoutCountdown } from '../lib/attendance'
 
 const NAV = [
   {
@@ -49,6 +51,8 @@ const NAV = [
       { to: '/cases', label: 'Cases', icon: HeartPulse },
       { to: '/events', label: 'Events', icon: CalendarDays },
       { to: '/field', label: 'Field records', icon: ClipboardList },
+      { to: '/external-girls', label: 'External girls', icon: GraduationCap },
+      { to: '/media', label: 'Media library', icon: Images, roles: MEDIA_ROLES },
     ],
   },
   {
@@ -167,7 +171,8 @@ function Sidebar({ onNavigate, unread = 0, navItems, roleLabel }) {
 export default function Layout() {
   const { user, logout } = useAuth()
   const { lang, setLang } = useLang()
-  const navItems = user?.role === 'volunteer' ? VOLUNTEER_NAV : NAV
+  const navItems = (user?.role === 'volunteer' ? VOLUNTEER_NAV : NAV)
+    .map((g) => ({ ...g, items: g.items.filter((i) => !i.roles || i.roles.includes(user?.role)) }))
   const roleLabel =
     user?.role === 'volunteer'
       ? 'Volunteer workspace'
@@ -196,6 +201,7 @@ export default function Layout() {
 
   const isCheckedIn = Boolean(todayAtt?.checked_in)
   const isCheckedOut = Boolean(todayAtt?.checked_out)
+  const checkoutCountdown = useCheckoutCountdown(todayAtt)
 
   useEffect(() => {
     reload()
@@ -333,11 +339,14 @@ export default function Layout() {
           onOpenMenu={() => setOpen(true)}
           onOpenCheckIn={() => {
             if (isCheckedOut) return
+            if (isCheckedIn && checkoutCountdown.locked) return
             setNoteCamAction(isCheckedIn ? 'CHECK-OUT' : 'CHECK-IN')
             setNoteCamOpen(true)
           }}
           checkedIn={isCheckedIn}
           checkedOut={isCheckedOut}
+          checkoutLocked={checkoutCountdown.locked}
+          checkoutRemaining={fmtCountdown(checkoutCountdown.remainingMs)}
         />
       )}
 

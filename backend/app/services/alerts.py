@@ -13,6 +13,7 @@ from app.services.lookups import MANDATORY_CONTACT_CATEGORIES
 from app.services.targets import with_progress
 from app.utils.dates import day_range, to_date, to_dt, today_local, utcnow
 from app.utils.mongo import serialize
+from app.services.events import NOT_ONGOING
 
 
 def _villages_label(u: dict, names: dict) -> str | None:
@@ -48,7 +49,7 @@ async def compute_alerts(db: AsyncDatabase, village_ids: list | None = None) -> 
                 overdue_reports.append({"type": "missing_daily_reports", "volunteer_id": v["_id"], "volunteer": v["name"],
                                         "village": _villages_label(v, villages), "missing_dates": missing,
                                         "count": len(missing)})
-    async for ev in db[c.EVENTS].find({"status": "scheduled", "end_at": {"$lt": now}, **vscope}, {"attendance": 0}):
+    async for ev in db[c.EVENTS].find({"status": "scheduled", "end_at": {"$lt": now}, **NOT_ONGOING, **vscope}, {"attendance": 0}):
         overdue_reports.append({"type": "event_report_overdue", "event_id": ev["_id"], "title": ev["title"],
                                 "village": villages.get(ev["village_id"]),
                                 "volunteer": users.get(ev.get("responsible_volunteer_id")),

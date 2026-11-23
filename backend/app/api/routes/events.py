@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from app.core.deps import ADMIN_ROLES, CurrentUser, Db, Pagination, Stakeholder, can_access_village, require_permission, user_village_ids, village_scope, narrow_to_village
 from app.core.permissions import Role
@@ -25,9 +26,14 @@ from app.services.beneficiaries import touch_participation
 from app.services.events import (
     DEFAULT_POST_CHECKLIST,
     DEFAULT_PRE_CHECKLIST,
+    MEETING_EVENT_TYPES,
     display_status,
     event_window,
+    groups_pending,
     local_day_bounds,
+    meeting_event_doc,
+    month_bounds_utc,
+    monthly_planner_rows,
     remind_participants,
     status_query,
     summarize_attendance,
@@ -38,7 +44,7 @@ from app.utils.dates import local_tz, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, oids, serialize
 
 router = APIRouter(prefix="/events", tags=["events"])
-DisplayStatus = Literal["upcoming", "today", "overdue", "completed", "cancelled"]
+DisplayStatus = Literal["upcoming", "today", "ongoing", "overdue", "completed", "cancelled"]
 
 
 def event_out(ev: dict, full: bool = False) -> dict:
@@ -154,25 +160,90 @@ async def create_event(body: EventCreate, db: Db, actor: CurrentUser):
     return event_out(doc, full=True)
 
 
-@router.post("/auto-schedule-monthly")
-async def trigger_auto_schedule_monthly_meetings(
+class PlannedMeeting(BaseModel):
+    group_id: ObjectIdStr
+    meeting_date: date
+    start_time: str = Field("10:00", pattern=r"^\d{2}:\d{2}$")
+    end_time: str | None = Field(None, pattern=r"^\d{2}:\d{2}$")
+    responsible_volunteer_id: ObjectIdStr | None = None
+
+
+class MonthlyPlan(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    meetings: list[PlannedMeeting] = Field(min_length=1, max_length=1000)
+
+
+@router.get("/monthly-planner")
+async def get_monthly_planner(
     db: Db,
-    actor: Stakeholder,
-    year: int | None = Query(None, description="Year (default: current year)"),
+    _: Stakeholder,
+    year: int | None = Query(None, ge=2000, le=2100, description="Year (default: current year)"),
     month: int | None = Query(None, ge=1, le=12, description="Month (default: current month)"),
 ):
-    from app.services.events import auto_schedule_monthly_meetings
-    from app.utils.dates import today_local
-    t = today_local()
-    target_year = year or t.year
-    target_month = month or t.month
-    res = await auto_schedule_monthly_meetings(db, target_year, target_month)
-    await audit.log(
-        db, actor, "auto_schedule", "event", None,
-        f"Auto-scheduled {res['created']} monthly meetings for {target_year}-{target_month:02d}",
-        meta=res
-    )
-    return res
+    """Kishori / Bal Panchayat groups for the monthly meeting planner, with a suggested slot per group
+    and any meeting already scheduled that month. Nothing is created here."""
+    today = today_local()
+    year, month = year or today.year, month or today.month
+    rows = await monthly_planner_rows(db, year, month)
+    return {"year": year, "month": month, "today": today.isoformat(), "groups": rows,
+            "already_planned": sum(1 for r in rows if r["existing_event_id"])}
+
+
+@router.post("/monthly-planner")
+async def create_monthly_plan(body: MonthlyPlan, db: Db, actor: Stakeholder):
+    """Create the monthly meetings the admin picked in the planner (one per group, skipping groups
+    that already have that month's meeting)."""
+    from app.core.deps import check_not_read_only
+    check_not_read_only(actor)
+    today = today_local()
+    s_utc, e_utc = month_bounds_utc(body.year, body.month)
+    group_ids = [oid(m.group_id) for m in body.meetings]
+    if len(set(group_ids)) != len(group_ids):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Each group can have only one meeting in the plan")
+    groups = {g["_id"]: g for g in await db[c.GROUPS].find({
+        "_id": {"$in": group_ids}, "group_type": {"$in": list(MEETING_EVENT_TYPES)},
+        "is_active": True, "is_deleted": {"$ne": True}}).to_list()}
+    errors = []
+    for m in body.meetings:
+        if oid(m.group_id) not in groups:
+            errors.append(f"Group {m.group_id} is not an active Kishori / Bal Panchayat group")
+        elif (m.meeting_date.year, m.meeting_date.month) != (body.year, body.month):
+            errors.append(f"{groups[oid(m.group_id)]['name']}: date must be in {body.year}-{body.month:02d}")
+        elif m.meeting_date < today:
+            errors.append(f"{groups[oid(m.group_id)]['name']}: date is in the past")
+        elif m.end_time and m.end_time <= m.start_time:
+            errors.append(f"{groups[oid(m.group_id)]['name']}: end time must be after start time")
+    if errors:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "; ".join(errors))
+
+    created, skipped = [], []
+    for m in body.meetings:
+        g = groups[oid(m.group_id)]
+        etype = MEETING_EVENT_TYPES[g["group_type"]]
+        if await db[c.EVENTS].find_one({"group_ids": g["_id"], "event_type": etype, "is_deleted": {"$ne": True},
+                                        "start_at": {"$gte": s_utc, "$lt": e_utc}}, {"_id": 1}):
+            skipped.append({"group_id": str(g["_id"]), "group_name": g.get("name"), "reason": "already planned"})
+            continue
+        vol = None
+        if m.responsible_volunteer_id:
+            vol = await db[c.USERS].find_one({"_id": oid(m.responsible_volunteer_id), "role": "volunteer", "is_active": True})
+            if not vol:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                    f"{g.get('name')}: responsible volunteer not found")
+        vol_id = vol["_id"] if vol else g.get("responsible_volunteer_id")
+        doc = meeting_event_doc(g, m.meeting_date, m.start_time, m.end_time, vol_id, actor["_id"], body.year, body.month)
+        res = await db[c.EVENTS].insert_one(doc)
+        created.append({"id": str(res.inserted_id), "group_id": str(g["_id"]), "title": doc["title"],
+                        "start_at": doc["start_at"].isoformat()})
+        if vol_id and vol_id != actor["_id"]:
+            await notifications.notify(db, vol_id, "event_assigned", f"New event: {doc['title']}",
+                                       f"{m.meeting_date.isoformat()} {m.start_time} at {doc['location_name']}",
+                                       entity_type="event", entity_id=res.inserted_id)
+    await audit.log(db, actor, "create", "event", None,
+                    f"Planned {len(created)} monthly meetings for {body.year}-{body.month:02d}",
+                    meta={"created": len(created), "skipped": len(skipped)})
+    return {"created": len(created), "skipped": skipped, "events": created}
 
 
 @router.get("")
@@ -202,8 +273,9 @@ async def list_events(
         s, e = local_day_bounds(start_date or date(2000, 1, 1), end_date or date(2100, 1, 1))
         query["start_at"] = {**query.get("start_at", {}), "$gte": s, "$lt": e}
     total = await db[c.EVENTS].count_documents(query)
-    sort_dir = 1 if display in ("upcoming", "today") else -1
-    docs = await db[c.EVENTS].find(query).sort("start_at", sort_dir) \
+    # Same date order for every filter. Many events share a start time, so title and _id break
+    # the tie and keep pages stable (no event repeated or skipped between pages).
+    docs = await db[c.EVENTS].find(query).sort([("start_at", 1), ("title", 1), ("_id", 1)]) \
         .skip((pg.page - 1) * pg.page_size).limit(pg.page_size).to_list()
     return {"items": [event_out(d) for d in docs], "total": total, "page": pg.page, "page_size": pg.page_size}
 
@@ -225,7 +297,7 @@ async def calendar(
     narrow_to_village(query, user, village_id)
     if event_type:
         query["event_type"] = event_type
-    docs = await db[c.EVENTS].find(query, {"attendance": 0}).sort("start_at", 1).to_list()
+    docs = await db[c.EVENTS].find(query, {"attendance": 0}).sort([("start_at", 1), ("title", 1), ("_id", 1)]).to_list()
     villages = {v["_id"]: v["name"] for v in await db[c.VILLAGES].find({}, {"name": 1}).to_list()}
     days: dict = defaultdict(list)
     counts: dict = defaultdict(int)
@@ -402,6 +474,37 @@ async def update_checklist(event_id: str, which: Literal["pre", "post"], body: C
     return event_out(await db[c.EVENTS].find_one({"_id": ev["_id"]}), full=True)
 
 
+class GroupsDone(BaseModel):
+    group_ids: list[ObjectIdStr] = Field(default_factory=list, description="Groups whose meeting is done")
+
+
+@router.put("/{event_id}/groups-done")
+async def update_groups_done(event_id: str, body: GroupsDone, db: Db,
+                             user: Annotated[dict, Depends(require_permission("events", "update"))]):
+    """Mark which groups of a village meeting have held their meeting. The meeting stays ongoing
+    until every group is done, then completes on its own."""
+    ev = await _load(db, event_id, user)
+    _require_open(ev)
+    if not ev.get("track_groups"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "This event does not track groups")
+    ids = list(dict.fromkeys(oids(body.group_ids)))
+    if set(ids) - set(ev.get("group_ids") or []):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Only the meeting's own groups can be marked done")
+    now = utcnow()
+    previous = {g["group_id"]: g for g in ev.get("groups_done") or []}
+    done = [previous.get(gid) or {"group_id": gid, "done_at": now, "done_by": user["_id"]} for gid in ids]
+    sets: dict = {"groups_done": done, "updated_at": now}
+    all_done = not groups_pending({**ev, "groups_done": done})
+    if all_done and ev["status"] == "scheduled":
+        sets.update(status="completed", completed_at=now)
+    elif not all_done and ev["status"] == "completed" and not ev.get("report"):
+        sets.update(status="scheduled", completed_at=None)
+    await db[c.EVENTS].update_one({"_id": ev["_id"]}, {"$set": sets})
+    await audit.log(db, user, "update", "event", ev["_id"],
+                    f"Groups done: {len(done)}/{len(ev.get('group_ids') or [])}")
+    return event_out(await db[c.EVENTS].find_one({"_id": ev["_id"]}), full=True)
+
+
 @router.put("/{event_id}/attendance")
 async def update_attendance(event_id: str, body: AttendanceUpdate, db: Db,
                             user: Annotated[dict, Depends(require_permission("events", "update"))]):
@@ -449,6 +552,9 @@ async def submit_report(event_id: str, body: EventReport, db: Db,
     _require_open(ev)
     if ev["start_at"] > utcnow():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A report cannot be submitted before the event starts")
+    if ev.get("track_groups") and groups_pending(ev):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                            "Mark every group's meeting as done before submitting the report")
     now = utcnow()
     report = {**body.model_dump(), "attendance": summarize_attendance(ev), "submitted_by": user["_id"],
               "submitted_at": (ev.get("report") or {}).get("submitted_at") or now, "last_edited_at": now}

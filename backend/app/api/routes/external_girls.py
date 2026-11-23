@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.deps import CurrentUser, Db, Pagination
+from app.core.deps import CurrentUser, Db, Pagination, check_not_read_only
 from app.db import collections as c
 from app.schemas.external_girls import (
     CallPurpose,
@@ -110,7 +110,8 @@ async def create_external_girl(
     db: Db,
     user: CurrentUser,
 ):
-    """Register a new external girl. Available to all users."""
+    """Register a new external girl. Admin-2 is read-only."""
+    check_not_read_only(user)
     now = utcnow()
     data = body.model_dump()
     if not data.get("name_en") and data.get("name"):
@@ -168,7 +169,8 @@ async def update_external_girl(
     db: Db,
     user: CurrentUser,
 ):
-    """Update external girl profile."""
+    """Update external girl profile. Admin-2 is read-only."""
+    check_not_read_only(user)
     before = await get_or_404(db[c.EXTERNAL_GIRLS], girl_id, "External girl")
     if before.get("is_deleted"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "External girl not found")
@@ -267,6 +269,7 @@ async def create_external_call(
     Includes observations and notes (with speech to text on frontend),
     risk indicators, purpose and status, but excludes location, photo and people met.
     """
+    check_not_read_only(user)
     girl = await get_or_404(db[c.EXTERNAL_GIRLS], body.external_girl_id, "External girl")
     now = utcnow()
     call_dt = to_dt(body.call_date)
@@ -324,7 +327,8 @@ async def update_external_call(
     db: Db,
     user: CurrentUser,
 ):
-    """Update call record."""
+    """Update call record. Admin-2 is read-only."""
+    check_not_read_only(user)
     before = await get_or_404(db[c.EXTERNAL_CALLS], call_id, "External call")
     from app.core.deps import ADMIN_ROLES
     if user.get("role") not in ADMIN_ROLES and before.get("caller_id") != user["_id"] and before.get("created_by") != user["_id"]:

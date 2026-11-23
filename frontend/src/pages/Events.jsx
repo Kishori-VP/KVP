@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { CalendarRange, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { GroupedBars } from '../components/charts'
+import MonthlyMeetingPlanner from '../components/MonthlyMeetingPlanner'
 import { GroupMultiSelect, LookupSelect, VillageSelect, VolunteerSelect } from '../components/pickers'
 import { Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Pagination, Select, Spinner, StatusBadge, Table, Tabs, Textarea, cx } from '../components/ui'
 import api from '../lib/api'
@@ -65,7 +66,7 @@ function monthGrid(year, month) {
   return cells
 }
 
-const STATUS_STYLE = { completed: 'bg-green-50 text-green-800', overdue: 'bg-orange-50 text-orange-800', cancelled: 'bg-gray-100 text-gray-500 line-through', today: 'bg-brand-50 text-brand-800', upcoming: 'bg-blue-50 text-blue-800' }
+const STATUS_STYLE = { completed: 'bg-green-50 text-green-800', overdue: 'bg-orange-50 text-orange-800', cancelled: 'bg-gray-100 text-gray-500 line-through', today: 'bg-brand-50 text-brand-800', ongoing: 'bg-brand-50 text-brand-800', upcoming: 'bg-blue-50 text-blue-800' }
 const PER_CELL = 3
 
 function CalendarView({ villageId }) {
@@ -168,21 +169,8 @@ export default function Events() {
   const [f, setF] = useState({ status: '', village_id: '', event_type: '' })
   const [page, setPage] = useState(1)
   const [creating, setCreating] = useState(false)
-  const [autoScheduling, setAutoScheduling] = useState(false)
+  const [planning, setPlanning] = useState(false)
   const { data, error, loading, reload } = useFetch(tab === 'list' ? '/events' : null, { ...f, page, page_size: 25 })
-
-  const handleAutoSchedule = async () => {
-    setAutoScheduling(true)
-    try {
-      const res = await api.post('/events/auto-schedule-monthly')
-      alert(t('Auto-scheduled {n} monthly meetings for this month.', { n: res.data.created }))
-      if (tab === 'list') reload()
-    } catch (e) {
-      alert(e.response?.data?.detail || e.message)
-    } finally {
-      setAutoScheduling(false)
-    }
-  }
 
   return (
     <div>
@@ -192,8 +180,8 @@ export default function Events() {
         actions={canCreate && (
           <div className="flex w-full flex-wrap gap-2 sm:w-auto [&>button]:flex-1 sm:[&>button]:flex-none">
             {!isVolunteer && (
-              <Button variant="secondary" busy={autoScheduling} onClick={handleAutoSchedule}>
-                {t('Auto-Schedule Monthly Meetings')}
+              <Button variant="secondary" icon={CalendarRange} onClick={() => setPlanning(true)}>
+                {t('Plan Monthly Meetings')}
               </Button>
             )}
             <Button icon={Plus} onClick={() => setCreating(true)}>{t('Schedule event')}</Button>
@@ -204,7 +192,7 @@ export default function Events() {
       {tab === 'list' && (
         <Card padded={false}>
           <div className="grid gap-2 border-b border-gray-100 p-3 sm:grid-cols-3">
-            <Select options={['upcoming', 'today', 'overdue', 'completed', 'cancelled']} placeholder={t('Any status')} value={f.status} onChange={(e) => { setF({ ...f, status: e.target.value }); setPage(1) }} />
+            <Select options={['upcoming', 'today', 'ongoing', 'overdue', 'completed', 'cancelled']} placeholder={t('Any status')} value={f.status} onChange={(e) => { setF({ ...f, status: e.target.value }); setPage(1) }} />
             <VillageSelect value={f.village_id} onChange={(v) => { setF({ ...f, village_id: v }); setPage(1) }} />
             <LookupSelect type="event_type" value={f.event_type} onChange={(v) => { setF({ ...f, event_type: v }); setPage(1) }} placeholder={t('Any type')} />
           </div>
@@ -226,6 +214,11 @@ export default function Events() {
       )}
       {tab === 'calendar' && <CalendarView villageId={f.village_id} />}
       {tab === 'pvc' && !isVolunteer && <PlannedVsConducted />}
+      <MonthlyMeetingPlanner
+        open={planning}
+        onClose={() => setPlanning(false)}
+        onCreated={() => { if (tab === 'list') reload() }}
+      />
       <Modal open={creating} title={t('Schedule event')} onClose={() => setCreating(false)}>
         <EventForm onSaved={(e) => { setCreating(false); nav(`/events/${e.id}`) }} onCancel={() => setCreating(false)} />
       </Modal>

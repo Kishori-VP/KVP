@@ -11,7 +11,7 @@ from app.db import collections as c
 from app.services import activity, metrics
 from app.services.alerts import compute_alerts
 from app.services.beneficiaries import OPEN_CASE_STATUSES, birth_year_range_for_band
-from app.services.events import local_day_bounds
+from app.services.events import NOT_ONGOING, local_day_bounds
 from app.services.targets import with_progress
 from app.utils.dates import PeriodType, period_bounds, to_dt, today_local, utcnow
 from app.utils.mongo import ObjectIdStr, oid, serialize
@@ -79,7 +79,7 @@ async def summary(
             {"role": Role.VOLUNTEER.value, "is_active": True, "village_id": None}) if vids is None else 0,
         "events_conducted": await db[c.EVENTS].count_documents({"status": "completed", "start_at": {"$gte": ls, "$lt": le}, **_vmatch(vids)}),
         "events_upcoming": await db[c.EVENTS].count_documents({"status": "scheduled", "end_at": {"$gte": now}, **_vmatch(vids)}),
-        "events_overdue": await db[c.EVENTS].count_documents({"status": "scheduled", "end_at": {"$lt": now}, **_vmatch(vids)}),
+        "events_overdue": await db[c.EVENTS].count_documents({"status": "scheduled", "end_at": {"$lt": now}, **NOT_ONGOING, **_vmatch(vids)}),
         "home_visits": act["home_visits"],
         "group_meetings": act["group_meetings"],
         "girls_reached": act["girls_covered"],

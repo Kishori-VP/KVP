@@ -4,7 +4,7 @@ import { ConfirmDeleteHost } from './components/ConfirmDelete'
 import Layout from './components/Layout'
 import { Spinner } from './components/ui'
 import api from './lib/api'
-import { AuthProvider, useAuth } from './lib/auth'
+import { AuthProvider, MEDIA_ROLES, useAuth } from './lib/auth'
 import { LanguageProvider, t } from './lib/i18n'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -61,6 +61,7 @@ const GirlDetail = lazy(() => import('./pages/GirlDetail'))
 const Girls = lazy(() => import('./pages/Girls'))
 const Children = lazy(() => import('./pages/Children'))
 const MasterData = lazy(() => import('./pages/MasterData'))
+const MediaLibrary = lazy(() => import('./pages/MediaLibrary'))
 const Messages = lazy(() => import('./pages/Messages'))
 const Notifications = lazy(() => import('./pages/Notifications'))
 const Reports = lazy(() => import('./pages/Reports'))
@@ -100,6 +101,12 @@ function SuperAdminOnly({ children }) {
 }
 
 const StakeholderOnly = AdminOnly
+
+/** Super Admin and Admin-1 only (not Admin-2, not volunteers). */
+function SuperAdminOrAdmin1({ children }) {
+  const { user } = useAuth()
+  return MEDIA_ROLES.includes(user?.role) ? children : <Navigate to="/" replace />
+}
 
 function VolunteerOnly({ children }) {
   const { user } = useAuth()
@@ -143,6 +150,7 @@ export default function App() {
             <Route path="master" element={<StakeholderOnly><MasterData /></StakeholderOnly>} />
             <Route path="villages" element={<StakeholderOnly><Villages /></StakeholderOnly>} />
             <Route path="villages/:id" element={<StakeholderOnly><VillageDetail /></StakeholderOnly>} />
+            <Route path="media" element={<SuperAdminOrAdmin1><MediaLibrary /></SuperAdminOrAdmin1>} />
             <Route path="groups/:id" element={<VolunteerGroupDetail />} />
             <Route path="contacts" element={<RoleSwitch stakeholder={<Contacts />} volunteer={<VolunteerContacts />} />} />
             <Route path="reports" element={<RoleSwitch stakeholder={<Reports />} volunteer={<VolunteerReports />} />} />

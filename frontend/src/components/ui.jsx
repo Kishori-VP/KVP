@@ -74,7 +74,7 @@ const TONES = {
 const STATUS_TONE = {
   active: 'green', approved: 'green', completed: 'green', achieved: 'green', on_track: 'green', synced: 'green',
   verified: 'green', resolved: 'green', normal: 'green', sent: 'green', logged: 'green', closed: 'gray',
-  upcoming: 'blue', scheduled: 'blue', planned: 'blue', today: 'brand', open: 'blue', in_progress: 'brand',
+  upcoming: 'blue', scheduled: 'blue', planned: 'blue', today: 'brand', ongoing: 'brand', open: 'blue', in_progress: 'brand',
   pending: 'yellow', at_risk: 'yellow', delayed: 'yellow', mild: 'yellow', medium: 'yellow', skipped: 'gray',
   overdue: 'orange', escalated: 'orange', high: 'orange', moderate: 'orange', inactive: 'gray', cancelled: 'gray',
   missed: 'red', rejected: 'red', critical: 'red', severe: 'red', failed: 'red', no_recent_activity: 'red', low: 'gray',
@@ -116,12 +116,12 @@ export function Field({ label, hint, children, className, group }) {
 
 const INPUT = 'w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 sm:py-2 text-base sm:text-sm shadow-sm outline-none transition placeholder:text-gray-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-gray-50'
 
-export function Input(props) {
-  return <input className={INPUT} {...props} />
+export function Input({ className, ...props }) {
+  return <input className={cx(INPUT, className)} {...props} />
 }
 
-export function Textarea(props) {
-  return <textarea className={INPUT} rows={3} {...props} />
+export function Textarea({ className, ...props }) {
+  return <textarea className={cx(INPUT, className)} rows={3} {...props} />
 }
 
 /** options: [{value, label}] or strings */
@@ -300,7 +300,7 @@ export function Modal({ open, title, onClose, children, footer, wide }) {
       <div
         className={cx(
           'w-full max-h-[92dvh] sm:max-h-[calc(100vh-3rem)] flex flex-col rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl transition-all pb-[env(safe-area-inset-bottom)] sm:pb-0',
-          wide ? 'max-w-3xl' : 'max-w-lg',
+          wide === 'xl' ? 'max-w-5xl' : wide ? 'max-w-3xl' : 'max-w-lg',
         )}
         onMouseDown={(e) => e.stopPropagation()}
         role="dialog"

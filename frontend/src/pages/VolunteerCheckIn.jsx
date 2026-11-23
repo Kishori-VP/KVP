@@ -1,8 +1,9 @@
-import { Camera, CheckCircle2, Clock, MapPin, RefreshCw } from 'lucide-react'
+import { Camera, CheckCircle2, Clock, Hourglass, Lock, MapPin, RefreshCw } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Button, Card, ErrorBox, PageHeader, Spinner } from '../components/ui'
 import NoteCamModal from '../components/NoteCamModal'
 import api from '../lib/api'
+import { fmtCountdown, useCheckoutCountdown } from '../lib/attendance'
 import { useAuth } from '../lib/auth'
 import { fmtDate } from '../lib/format'
 import { useFetch } from '../lib/hooks'
@@ -57,6 +58,7 @@ export default function VolunteerCheckIn({ embedded = false }) {
   const [noteCamAction, setNoteCamAction] = useState('CHECK-IN')
   const [today, setToday] = useState(null)
   const [todayLoading, setTodayLoading] = useState(true)
+  const countdown = useCheckoutCountdown(today)
 
   // Only needed for the volunteer's assigned villages / assignment status.
   const { data: volunteerData, error, loading, reload } = useFetch(isVolunteer ? '/volunteers/me/dashboard' : null)
@@ -88,7 +90,7 @@ export default function VolunteerCheckIn({ embedded = false }) {
       if (!saved) return
       const item = JSON.parse(saved)
       if (Date.now() - (item.timestamp || 0) >= 5 * 60 * 1000) return
-      if (today?.checked_out) {
+      if (today?.checked_out || (item.action === 'CHECK-OUT' && countdown.locked)) {
         sessionStorage.removeItem('kvp_notecam_pending')
         return
       }
@@ -100,6 +102,7 @@ export default function VolunteerCheckIn({ embedded = false }) {
 
   const openNoteCam = (action) => {
     if (today?.checked_out) return
+    if (action === 'CHECK-OUT' && countdown.locked) return
     setNoteCamAction(action)
     setNoteCamOpen(true)
   }
@@ -174,14 +177,47 @@ export default function VolunteerCheckIn({ embedded = false }) {
                     <p className="mt-1 text-xs text-white/80">📍 {record?.village_name || getVillageName(data.village)}</p>
                   )}
                 </div>
-                <Button
-                  variant="light"
-                  onClick={() => openNoteCam('CHECK-OUT')}
-                  className="w-full px-5 py-3 font-bold shadow transition active:scale-95 sm:w-auto"
-                >
-                  <Camera className="mr-2 h-5 w-5" />
-                  {t('NoteCam Check-Out')}
-                </Button>
+                {countdown.locked ? (
+                  <>
+                    <div className="w-full max-w-sm rounded-xl bg-white/10 p-4">
+                      <div className="flex items-center justify-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/80">
+                        <Hourglass className="h-3.5 w-3.5" /> {t('Time left until check-out')}
+                      </div>
+                      <div className="tabular mt-1 font-mono text-4xl font-bold tracking-wider" role="timer" aria-live="off">
+                        {fmtCountdown(countdown.remainingMs)}
+                      </div>
+                      <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/20">
+                        <div className="h-full rounded-full bg-emerald-400 transition-all" style={{ width: `${countdown.progressPct}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-white/80">
+                        {t('Minimum {n} hours on duty.', { n: countdown.minHours })}{' '}
+                        {t('Check-out opens at {time}.', {
+                          time: countdown.allowedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                        })}
+                      </p>
+                    </div>
+                    <Button
+                      variant="light"
+                      disabled
+                      className="w-full px-5 py-3 font-bold opacity-70 shadow sm:w-auto"
+                      title={t('Check-out opens at {time}.', {
+                        time: countdown.allowedAt?.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      })}
+                    >
+                      <Lock className="mr-2 h-5 w-5" />
+                      {t('Check-out locked')}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="light"
+                    onClick={() => openNoteCam('CHECK-OUT')}
+                    className="w-full px-5 py-3 font-bold shadow transition active:scale-95 sm:w-auto"
+                  >
+                    <Camera className="mr-2 h-5 w-5" />
+                    {t('NoteCam Check-Out')}
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-3 border border-emerald-200 bg-emerald-50 p-5 text-emerald-900">

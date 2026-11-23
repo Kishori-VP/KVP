@@ -10,6 +10,37 @@ import { lookupLabel, useAction, useFetch, useLookups } from '../lib/hooks'
 import { locale, localName, t } from '../lib/i18n'
 import { useAuth } from '../lib/auth'
 
+/** Village meeting covering several groups: tick each group as its meeting is held, then Save. */
+function GroupsDone({ ev, onSaved, readOnly }) {
+  const saved = (ev.groups_done || []).map((g) => g.group_id)
+  const doneAt = Object.fromEntries((ev.groups_done || []).map((g) => [g.group_id, g.done_at]))
+  const [done, setDone] = useState(saved)
+  const { busy, error, run } = useAction()
+  useEffect(() => setDone((ev.groups_done || []).map((g) => g.group_id)), [ev])
+  const locked = readOnly || ev.status === 'cancelled'
+  const changed = done.length !== saved.length || done.some((id) => !saved.includes(id))
+  const save = () => run(async () => { await api.put(`/events/${ev.id}/groups-done`, { group_ids: done }); onSaved() }).catch(() => {})
+  return (
+    <Card className="lg:col-span-2" title={t('Groups covered')}
+      actions={!readOnly && <Button size="sm" busy={busy} disabled={!changed || locked} onClick={save}>{t('Save')}</Button>}>
+      <ErrorBox message={error} />
+      <p className="mb-3 text-xs text-gray-500">
+        {t('{done} of {total} groups done.', { done: saved.length, total: ev.groups?.length || 0 })}{' '}
+        {t('The meeting stays ongoing until every group is marked done.')}
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(ev.groups || []).map((g) => (
+          <div key={g.id} className="flex items-center gap-2">
+            <Checkbox checked={done.includes(g.id)} disabled={locked} label={localName(g)}
+              onChange={(e) => setDone(e.target.checked ? [...done, g.id] : done.filter((id) => id !== g.id))} />
+            {doneAt[g.id] && <span className="text-xs text-gray-400">{fmtDateTime(doneAt[g.id])}</span>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
 function Checklist({ ev, which, onSaved }) {
   const [items, setItems] = useState(ev[`${which}_checklist`])
   const [newItem, setNewItem] = useState('')
@@ -305,6 +336,7 @@ export default function EventDetail() {
       <div ref={stepperRef} className="scroll-mt-4"><StageStepper value={tab} onChange={setTab} done={stageDone} /></div>
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-2">
+          {ev.track_groups && <GroupsDone ev={ev} onSaved={onSaved} readOnly={isReadOnly} />}
           <Card title={t('Event')}>
             <DefinitionList items={[
               ['Location', ev.location_name], ['Responsible volunteer', ev.responsible_volunteer?.name], ['Invited groups', ev.groups?.map((g) => g.name).join(', ')],

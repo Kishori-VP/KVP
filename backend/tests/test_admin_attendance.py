@@ -1,6 +1,8 @@
 """Admin-1 / Admin-2 mark their own daily NoteCam attendance, same as volunteers."""
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+
+from bson import ObjectId
 
 API = "/api/v1"
 GPS = {"lat": 19.0760, "lng": 72.8777, "accuracy_m": 12}
@@ -18,7 +20,7 @@ def _login(client, admin, name, phone, role):
     return {"Authorization": f"Bearer {tok['access_token']}"}
 
 
-def test_admin_roles_take_attendance(client, admin):
+def test_admin_roles_take_attendance(client, admin, mongo):
     a1 = _login(client, admin, "Attendance Admin One", "9000000901", "admin_1")
     a2 = _login(client, admin, "Attendance Admin Two", "9000000902", "admin_2")
 
@@ -29,6 +31,18 @@ def test_admin_roles_take_attendance(client, admin):
         assert rec["role"] == role and rec["status"] == "present" and rec["check_in"]
         # attendance is taken once per day
         assert client.post(f"{API}/attendance/check-in", headers=headers, json={"gps": GPS}).status_code == 400
+        # minimum 5 hours on duty before check-out; /today exposes the countdown target
+        status = ok(client.get(f"{API}/attendance/today", headers=headers))
+        allowed = datetime.fromisoformat(status["checkout_allowed_at"])
+        checked_in = datetime.fromisoformat(status["record"]["check_in_at"])
+        assert status["min_work_hours"] == 5 and allowed - checked_in == timedelta(hours=5)
+        early = client.post(f"{API}/attendance/check-out", headers=headers, json={"gps": GPS})
+        assert early.status_code == 400 and "Minimum 5 hours" in early.json()["detail"]
+        # simulate 5 hours having passed
+        mongo.volunteer_attendance.update_one(
+            {"_id": ObjectId(rec["id"])},
+            {"$set": {"check_in_at": datetime.now(timezone.utc) - timedelta(hours=5, minutes=1)}})
+        assert ok(client.get(f"{API}/attendance/today", headers=headers))["checkout_allowed_at"] < status["server_now"]
         out = ok(client.post(f"{API}/attendance/check-out", headers=headers,
                              json={"gps": GPS, "photo": "data:image/jpeg;base64,BBBB"}))
         assert out["check_out"]

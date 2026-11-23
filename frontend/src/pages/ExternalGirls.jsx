@@ -248,16 +248,18 @@ function GirlProfileModal({ girlId, onClose, onEditGirl }) {
           <Button variant="secondary" onClick={onClose}>
             {t('Close')}
           </Button>
-          <Button
-            variant="secondary"
-            icon={Pencil}
-            onClick={() => {
-              onClose()
-              onEditGirl(g)
-            }}
-          >
-            {t('Edit')}
-          </Button>
+          {onEditGirl && (
+            <Button
+              variant="secondary"
+              icon={Pencil}
+              onClick={() => {
+                onClose()
+                onEditGirl(g)
+              }}
+            >
+              {t('Edit')}
+            </Button>
+          )}
         </div>
       }
     >
@@ -382,6 +384,8 @@ function GirlProfileModal({ girlId, onClose, onEditGirl }) {
 /** Main External Girls Directory Page (Pure Record View) */
 export default function ExternalGirls() {
   const { user } = useAuth()
+  const canWrite = user?.role !== 'admin_2' // Admin-2 has read-only access
+  const canDelete = user?.role === 'super_admin' || user?.role === 'stakeholder'
 
   // External girls list state
   const [q, setQ] = useState('')
@@ -421,14 +425,14 @@ export default function ExternalGirls() {
       <PageHeader
         title={t('External girls (बाह्य किशोरी)')}
         subtitle={t('Directory and records of girls and students outside regular village groups.')}
-        actions={
+        actions={canWrite && (
           <Button
             icon={Plus}
             onClick={() => setGirlModal('new')}
           >
             {t('Register external girl')}
           </Button>
-        }
+        )}
       />
 
       <Card padded={false}>
@@ -577,21 +581,25 @@ export default function ExternalGirls() {
                         title={t('View record details')}
                         onClick={() => setProfileGirlId(r.id)}
                       />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon={Pencil}
-                        title={t('Edit record')}
-                        onClick={() => setGirlModal(r)}
-                      />
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        icon={Trash2}
-                        className="text-red-600 hover:text-red-800"
-                        title={t('Delete record')}
-                        onClick={() => deleteGirl(r)}
-                      />
+                      {canWrite && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={Pencil}
+                          title={t('Edit record')}
+                          onClick={() => setGirlModal(r)}
+                        />
+                      )}
+                      {canDelete && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          icon={Trash2}
+                          className="text-red-600 hover:text-red-800"
+                          title={t('Delete record')}
+                          onClick={() => deleteGirl(r)}
+                        />
+                      )}
                     </div>
                   ),
                 },
@@ -625,10 +633,10 @@ export default function ExternalGirls() {
         <GirlProfileModal
           girlId={profileGirlId}
           onClose={() => setProfileGirlId(null)}
-          onEditGirl={(g) => {
+          onEditGirl={canWrite ? (g) => {
             setProfileGirlId(null)
             setGirlModal(g)
-          }}
+          } : null}
         />
       )}
     </div>

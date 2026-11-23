@@ -1,5 +1,5 @@
 """Attendance register and self-service NoteCam GPS Check-In / Check-Out."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, status
@@ -15,6 +15,8 @@ from app.utils.mongo import ObjectIdStr, oid, serialize
 
 router = APIRouter(prefix="/attendance", tags=["attendance"])
 AttendanceStatus = Literal["present", "absent", "late", "leave"]
+# Minimum time on duty between NoteCam check-in and check-out (self-service, today's attendance).
+MIN_WORK_HOURS = 5
 
 
 class GpsCoordinates(BaseModel):
@@ -69,24 +71,49 @@ def _can_override(user: dict) -> bool:
     return user.get("role") in ADMIN_ROLES and not is_admin_2(user)
 
 
+def _checked_in_at(record: dict | None) -> datetime | None:
+    """Exact check-in moment. Older records only stored the "hh:mm AM" string, so fall back to it."""
+    if not record or not record.get("check_in"):
+        return None
+    at = record.get("check_in_at")
+    if isinstance(at, datetime):
+        return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+    day = record.get("attendance_date")
+    try:
+        clock = datetime.strptime(str(record["check_in"]).strip(), "%I:%M %p").time()
+    except ValueError:
+        return None
+    if not isinstance(day, datetime):
+        return None
+    return datetime.combine(day.date(), clock, tzinfo=local_tz()).astimezone(timezone.utc)
+
+
+def _checkout_allowed_at(record: dict | None) -> datetime | None:
+    at = _checked_in_at(record)
+    return at + timedelta(hours=MIN_WORK_HOURS) if at else None
+
+
+def _remaining_text(seconds: float) -> str:
+    minutes = max(1, int(-(-seconds // 60)))
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
+
+
 @router.get("/today")
 async def get_my_today_attendance(db: Db, user: CurrentUser):
     """Get the current user's (Volunteer or Admin) attendance status for today."""
     today = today_local()
     when = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
     record = await db[c.VOLUNTEER_ATTENDANCE].find_one({"volunteer_id": user["_id"], "attendance_date": when})
-    if not record:
-        return {
-            "attendance_date": today.isoformat(),
-            "checked_in": False,
-            "checked_out": False,
-            "record": None,
-        }
+    allowed_at = _checkout_allowed_at(record)
     return {
         "attendance_date": today.isoformat(),
-        "checked_in": bool(record.get("check_in")),
-        "checked_out": bool(record.get("check_out")),
-        "record": serialize(record),
+        "checked_in": bool(record and record.get("check_in")),
+        "checked_out": bool(record and record.get("check_out")),
+        "record": serialize(record) if record else None,
+        "min_work_hours": MIN_WORK_HOURS,
+        "checkout_allowed_at": allowed_at.isoformat() if allowed_at else None,
+        "server_now": utcnow().isoformat(),
     }
 
 
@@ -153,6 +180,8 @@ async def check_in(body: CheckInRequest, db: Db, user: CurrentUser):
         "attendance_date": when,
         "status": "present",
         "check_in": check_in_str,
+        # Exact moment for the minimum-duty timer; an admin-entered time is parsed from "check_in" instead.
+        "check_in_at": None if (is_admin and body.check_in_time) else now,
         "check_in_photo": body.photo,
         "check_in_gps": gps_dict,
         "updated_at": now,
@@ -200,6 +229,15 @@ async def check_out(body: CheckOutRequest, db: Db, user: CurrentUser):
         )
 
     now = utcnow()
+    # Minimum duty time applies to today's self check-out (an admin back-filling a past day is exempt).
+    allowed_at = _checkout_allowed_at(existing)
+    if allowed_at and today == today_local() and now < allowed_at:
+        local_allowed = allowed_at.astimezone(local_tz()).strftime("%I:%M %p")
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Minimum {MIN_WORK_HOURS} hours are required before check-out. You can check out after "
+            f"{local_allowed} ({_remaining_text((allowed_at - now).total_seconds())} remaining).",
+        )
     now_in_ist = datetime.now(local_tz())
     check_out_str = (body.check_out_time if is_admin and body.check_out_time else None) or now_in_ist.strftime("%I:%M %p")
 

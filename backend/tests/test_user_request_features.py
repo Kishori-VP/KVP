@@ -1,6 +1,6 @@
 """Tests for the three user requested features:
 1. Balpanchayat member name cleaning and gender assignment
-2. Auto-scheduled monthly meetings for all Balpanchayat and Kishori groups
+2. Monthly meeting planner for Balpanchayat and Kishori groups (replaces the auto-scheduler)
 3. Home visit 6-month cooldown logic in /girls endpoint
 """
 
@@ -74,16 +74,97 @@ def test_child_create_and_gender(client, admin):
     assert boys_only["total"] == 2
 
 
-def test_auto_schedule_monthly_meetings_api(client, admin):
-    # Trigger auto-schedule monthly meetings endpoint
-    res = ok(client.post(f"{API}/events/auto-schedule-monthly", headers=admin, params={"year": 2026, "month": 11}))
-    assert "created" in res
-    assert res["year"] == 2026
-    assert res["month"] == 11
+def test_suggested_meeting_date():
+    from app.services.events import suggested_meeting_date
+    assert suggested_meeting_date(None, 2026, 12) is None
+    # 2nd Tuesday of December 2026 is the 8th
+    assert suggested_meeting_date({"day_of_week": 1, "week_of_month": 2}, 2026, 12) == date(2026, 12, 8)
+    # "5th Monday" falls back to the last Monday when the month has only four
+    assert suggested_meeting_date({"day_of_week": 0, "week_of_month": 5}, 2026, 2) == date(2026, 2, 23)
 
-    # Idempotent re-run
-    res2 = ok(client.post(f"{API}/events/auto-schedule-monthly", headers=admin, params={"year": 2026, "month": 11}))
-    assert res2["created"] == 0
+
+def test_monthly_meeting_planner_api(client, admin):
+    # The old one-click auto-scheduler is gone.
+    assert client.post(f"{API}/events/auto-schedule-monthly", headers=admin).status_code in (404, 405)
+
+    today = date.today()
+    year, month = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+    t = ok(client.post(f"{API}/talukas", headers=admin, json={"name": "Planner Taluka", "name_mr": "प", "district": "Parbhani"}), 201)
+    v = ok(client.post(f"{API}/villages", headers=admin, json={"name": "Planner Village", "name_mr": "गाव", "taluka_id": t["id"]}), 201)
+    g = ok(client.post(f"{API}/groups", headers=admin, json={
+        "name": "Planner Kishori", "village_id": v["id"],
+        "meeting_schedule": {"frequency": "monthly", "day_of_week": 1, "week_of_month": 2, "time": "11:30"}}), 201)
+
+    plan = ok(client.get(f"{API}/events/monthly-planner", headers=admin, params={"year": year, "month": month}))
+    row = next(r for r in plan["groups"] if r["group_id"] == g["id"])
+    assert row["event_type"] == "kishori_meeting" and row["suggested_time"] == "11:30"
+    assert row["suggested_date"] and row["existing_event_id"] is None
+    # Opening the planner creates nothing.
+    assert ok(client.get(f"{API}/events/monthly-planner", headers=admin, params={"year": year, "month": month}))["already_planned"] == plan["already_planned"]
+
+    body = {"year": year, "month": month, "meetings": [
+        {"group_id": g["id"], "meeting_date": row["suggested_date"], "start_time": "11:30", "end_time": "13:00"}]}
+    res = ok(client.post(f"{API}/events/monthly-planner", headers=admin, json=body))
+    assert res["created"] == 1 and res["skipped"] == []
+    ev = ok(client.get(f"{API}/events/{res['events'][0]['id']}", headers=admin))
+    assert ev["event_type"] == "kishori_meeting" and ev["start_time"] == "11:30" and ev["planned"] is True
+
+    # Same group again that month is skipped, and the planner shows it as planned.
+    again = ok(client.post(f"{API}/events/monthly-planner", headers=admin, json=body))
+    assert again["created"] == 0 and again["skipped"][0]["reason"] == "already planned"
+    row = next(r for r in ok(client.get(f"{API}/events/monthly-planner", headers=admin,
+                                        params={"year": year, "month": month}))["groups"] if r["group_id"] == g["id"])
+    assert row["existing_event_id"] == res["events"][0]["id"]
+
+    # Dates must be in the planned month and not in the past.
+    bad_month = {**body, "meetings": [{**body["meetings"][0], "meeting_date": f"{year}-{month:02d}-01"}], "month": month % 12 + 1}
+    assert client.post(f"{API}/events/monthly-planner", headers=admin, json=bad_month).status_code == 422
+    past = {"year": today.year, "month": today.month, "meetings": [
+        {"group_id": g["id"], "meeting_date": (today.replace(day=1) - timedelta(days=1)).isoformat()}]}
+    assert client.post(f"{API}/events/monthly-planner", headers=admin, json=past).status_code == 422
+
+    # Admin-2 (read-only) can view the planner but not create meetings.
+    ok(client.post(f"{API}/users", headers=admin, json={
+        "name": "Planner Admin Two", "phone": "9000000950", "password": "admin2-pass-1", "role": "admin_2"}), 201)
+    tok = ok(client.post(f"{API}/auth/login", json={"identifier": "9000000950", "password": "admin2-pass-1"}))
+    a2 = {"Authorization": f"Bearer {tok['access_token']}"}
+    ok(client.get(f"{API}/events/monthly-planner", headers=a2))
+    assert client.post(f"{API}/events/monthly-planner", headers=a2, json=body).status_code == 403
+
+
+def test_group_tracked_meeting_stays_ongoing_until_all_groups_done(client, admin, mongo):
+    from datetime import UTC, datetime
+    t = ok(client.post(f"{API}/talukas", headers=admin, json={"name": "Track Taluka", "name_mr": "त", "district": "Parbhani"}), 201)
+    v = ok(client.post(f"{API}/villages", headers=admin, json={"name": "Track Village", "name_mr": "गाव", "taluka_id": t["id"]}), 201)
+    g1 = ok(client.post(f"{API}/groups", headers=admin, json={"name": "Track A", "village_id": v["id"]}), 201)
+    g2 = ok(client.post(f"{API}/groups", headers=admin, json={"name": "Track B", "village_id": v["id"]}), 201)
+    other = ok(client.post(f"{API}/groups", headers=admin, json={"name": "Elsewhere", "village_id": v["id"]}), 201)
+    start = datetime.now(UTC) - timedelta(days=3)
+    eid = mongo.events.insert_one({
+        "title": "Track meeting", "event_type": "kishori_meeting", "village_id": ObjectId(v["id"]),
+        "start_at": start, "end_at": start + timedelta(hours=2), "start_time": "16:00", "end_time": "18:00",
+        "status": "scheduled", "planned": True, "track_groups": True, "groups_done": [],
+        "group_ids": [ObjectId(g1["id"]), ObjectId(g2["id"])], "attendance": [], "other_participants": {},
+        "expected_participants": 0, "pre_checklist": [], "post_checklist": [], "report": None,
+        "expenditure": {"items": [], "total": 0}, "approval": {"status": "not_required"}, "reschedule_history": [],
+    }).inserted_id
+    url = f"{API}/events/{eid}"
+
+    # Past its time but groups pending: ongoing, not overdue, and the report can't close it.
+    assert ok(client.get(url, headers=admin))["display_status"] == "ongoing"
+    ids = lambda st: {e["id"] for e in ok(client.get(f"{API}/events", headers=admin, params={"status": st}))["items"]}
+    assert str(eid) in ids("ongoing") and str(eid) not in ids("overdue")
+    assert client.post(f"{url}/report", headers=admin, json={"summary": "x"}).status_code == 422
+    assert client.put(f"{url}/groups-done", headers=admin, json={"group_ids": [other["id"]]}).status_code == 422
+
+    ev = ok(client.put(f"{url}/groups-done", headers=admin, json={"group_ids": [g1["id"]]}))
+    assert ev["status"] == "scheduled" and ev["display_status"] == "ongoing" and len(ev["groups_done"]) == 1
+
+    # Last group done: the meeting completes on its own.
+    ev = ok(client.put(f"{url}/groups-done", headers=admin, json={"group_ids": [g1["id"], g2["id"]]}))
+    assert ev["status"] == "completed"
+    # Un-marking a group (no report yet) reopens it.
+    assert ok(client.put(f"{url}/groups-done", headers=admin, json={"group_ids": [g2["id"]]}))["status"] == "scheduled"
 
 
 def test_home_visit_cooldown_api(client, admin, mongo):
@@ -139,3 +220,10 @@ def test_home_visit_cooldown_api(client, admin, mongo):
     found_expired = [g for g in girls_expired["items"] if g["id"] == gid]
     assert len(found_expired) == 1, "Girl should automatically reappear in dropdown after 6-month cooldown expires!"
     assert found_expired[0]["is_home_visit_eligible"] is True
+
+
+def test_events_list_sorted_by_date_for_every_filter(client, admin):
+    for status in (None, "upcoming", "today", "ongoing", "overdue", "completed", "cancelled"):
+        params = {"page_size": 100, **({"status": status} if status else {})}
+        starts = [e["start_at"] for e in ok(client.get(f"{API}/events", headers=admin, params=params))["items"]]
+        assert starts == sorted(starts), status

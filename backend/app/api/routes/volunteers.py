@@ -12,7 +12,7 @@ from app.schemas.users import AssignRequest, GroupAssignment, HandoverRequest, R
 from app.services import activity, assignments, audit, metrics, notifications
 from app.services.app_settings import get_setting
 from app.services.beneficiaries import OPEN_CASE_STATUSES
-from app.services.events import local_day_bounds
+from app.services.events import NOT_ONGOING, local_day_bounds
 from app.services.targets import handle_reassignment, with_progress
 from app.utils.dates import (
     day_range,
@@ -166,7 +166,7 @@ async def submission_status(
             {"volunteer_id": v["_id"], "report_date": {"$gte": s, "$lt": e}}, {"report_date": 1})}
         missing = [d for d in due if d not in submitted]
         pending_event_reports = await db[c.EVENTS].count_documents(
-            {"responsible_volunteer_id": v["_id"], "status": "scheduled", "end_at": {"$lt": utcnow()}})
+            {"responsible_volunteer_id": v["_id"], "status": "scheduled", "end_at": {"$lt": utcnow()}, **NOT_ONGOING})
         rows.append({
             "volunteer_id": str(v["_id"]), "name": v["name"], "phone": v["phone"],
             "village_name": _village_label(v, villages),
@@ -246,7 +246,7 @@ async def my_dashboard(db: Db, user: CurrentUser, village_id: ObjectIdStr | None
     }).sort("start_at", 1).limit(6).to_list()
     overdue_events = await db[c.EVENTS].find({
         "village_id": in_mine, "status": "scheduled", "responsible_volunteer_id": user["_id"],
-        "end_at": {"$lt": now},
+        "end_at": {"$lt": now}, **NOT_ONGOING,
     }).sort("end_at", -1).limit(6).to_list()
     upcoming_visits = await db[c.HOME_VISITS].find({
         "village_id": in_mine, "volunteer_id": user["_id"], "status": "planned",
@@ -662,7 +662,7 @@ async def volunteer_dashboard(volunteer_id: str, db: Db, _: Stakeholder):
     overdue_cases = await db[c.CASES].find({"assigned_to": vid, "status": {"$in": OPEN_CASE_STATUSES},
                                             "due_date": {"$lt": to_dt(today)}}, {"timeline": 0}).to_list()
     overdue_events = await db[c.EVENTS].find({"responsible_volunteer_id": vid, "status": "scheduled",
-                                              "end_at": {"$lt": now}}, {"attendance": 0}).to_list()
+                                              "end_at": {"$lt": now}, **NOT_ONGOING}, {"attendance": 0}).to_list()
     missed_visits = await db[c.HOME_VISITS].find({"volunteer_id": vid, "status": "planned",
                                                   "visit_date": {"$lt": to_dt(today)}}).to_list()
     return {

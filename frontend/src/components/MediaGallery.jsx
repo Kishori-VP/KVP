@@ -28,8 +28,8 @@ export function useMediaUrls(media) {
   return urls
 }
 
-/** Thumbnails of the given media records; click one to open it full size. */
-export function MediaGrid({ media, empty }) {
+/** Thumbnails of the given media records; click one to open it full size. `meta(m)` adds a line under each. */
+export function MediaGrid({ media, empty, meta }) {
   const urls = useMediaUrls(media)
   if (!media?.length) return empty ? <p className="text-sm text-gray-500">{empty}</p> : null
   return (
@@ -56,6 +56,7 @@ export function MediaGrid({ media, empty }) {
                 {m.caption || `${m.location.lat.toFixed(4)}, ${m.location.lng.toFixed(4)}`}
               </figcaption>
             )}
+            {meta && <div className="border-t border-black/5 px-2 py-1 text-[11px] leading-snug text-gray-600">{meta(m)}</div>}
           </figure>
         )
       })}

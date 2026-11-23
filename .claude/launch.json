@@ -43,6 +43,14 @@
         "backend/app"
       ],
       "port": 8001
+    },
+    {
+      "name": "backend-local-preview",
+      "runtimeExecutable": "backend/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "C:/Users/thora/AppData/Local/Temp/claude/f619c6a901869a9c/a5d6fe13-c7cc-4ff0-a837-b8aab2be3e93/scratchpad/local_backend.py"
+      ],
+      "port": 8001
     }
   ]
 }
