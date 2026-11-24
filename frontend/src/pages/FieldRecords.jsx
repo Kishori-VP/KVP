@@ -19,8 +19,9 @@ function useFieldAdmins() {
   return [...(a1?.items || []), ...(a2?.items || [])]
 }
 const isFieldAdmin = (p) => p?.role === 'admin_1' || p?.role === 'admin_2'
-// The shared "Program(me) Coordinator" account is not offered on the daily report form.
-const isCoordinatorAccount = (p) => /program+e?\s*co-?ordinator/i.test(p?.name || '')
+// Accounts not offered on the daily report form (matched by name, English or Marathi).
+const HIDDEN_ON_DAILY_REPORT = [/program+e?\s*co-?ordinator/i, /ganga\s*mane/i, /गंगा\s*माने/, /manmat/i, /मन्मथ|मनमत/]
+const isHiddenOnDailyReport = (p) => HIDDEN_ON_DAILY_REPORT.some((rx) => rx.test(p?.name || '') || rx.test(p?.name_mr || ''))
 
 const RISKS = ['child_marriage_risk', 'school_dropout_risk', 'health_concern', 'anaemia_concern', 'gender_discrimination']
 
@@ -114,7 +115,7 @@ function ActivityReportModal({ open, onClose, onSaved }) {
   const villages = useVillages()
   const [f, setF] = useState({ report_date: todayISO(), activities: [], group_ids: [], girls_present: 0, home_visits_count: 0, home_visit_girl_ids: [], volunteer_id: '', village_id: '', topics_discussed: '', other_meetings: '' })
   const { busy, error, run } = useAction()
-  const people = [...vols.filter((v) => !isCoordinatorAccount(v)), ...admins]
+  const people = [...vols, ...admins].filter((p) => !isHiddenOnDailyReport(p))
   const personOptions = people.map((p) => ({
     value: p.id,
     label: isFieldAdmin(p) ? `${p.name} (${p.role === 'admin_1' ? 'Admin-1' : 'Admin-2'})` : (p.village_name ? `${p.name} (${p.village_name})` : p.name),
