@@ -1,5 +1,6 @@
 import MediaGallery from '../components/MediaGallery'
 import { prepareUpload } from '../lib/upload'
+import { getPreciseGpsLocation } from '../lib/notecam'
 import { Camera, Eye, MapPin, Mic, Phone, PhoneCall, Plus, Save, Square } from 'lucide-react'
 import CallModal from '../components/CallModal'
 import { useEffect, useRef, useState } from 'react'

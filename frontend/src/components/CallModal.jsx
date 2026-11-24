@@ -48,6 +48,7 @@ const RISK_KEYS = [
   ['health_concern', 'Health concern (आरोग्य समस्या)'],
   ['anaemia_concern', 'Anaemia concern (अ‍ॅनिमिया चिंता)'],
   ['gender_discrimination', 'Gender discrimination (लैंगिक भेदभाव)'],
+  ['educational_help', 'Educational Help'],
 ]
 
 export default function CallModal({ externalGirl, onClose, onSaved }) {
@@ -92,6 +93,7 @@ export default function CallModal({ externalGirl, onClose, onSaved }) {
     health_concern: false,
     anaemia_concern: false,
     gender_discrimination: false,
+    educational_help: false,
     other: '',
   })
 

@@ -68,6 +68,32 @@ export function VillageModal({ village, onClose, onSaved }) {
   )
 }
 
+export function TalukaModal({ onClose, onSaved }) {
+  const [f, setF] = useState({ name: '', name_mr: '', district: 'Parbhani' })
+  const { busy, error, run } = useAction()
+  const save = () => run(async () => {
+    await api.post('/talukas', f)
+    invalidateRefData()
+    onSaved()
+  }).catch(() => {})
+  return (
+    <Modal open title={t('Add taluka')} onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button>
+          <Button busy={busy} disabled={!f.name || !f.district} onClick={save}>{t('Add taluka')}</Button>
+        </>
+      }>
+      <ErrorBox message={error} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={t('Taluka name *')}><Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label={t('District *')}><Input value={f.district} onChange={(e) => setF({ ...f, district: e.target.value })} /></Field>
+        <Field label="तालुका"><Input value={f.name_mr} onChange={(e) => setF({ ...f, name_mr: e.target.value })} /></Field>
+      </div>
+    </Modal>
+  )
+}
+
 function Talukas() {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'

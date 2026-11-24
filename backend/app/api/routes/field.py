@@ -25,11 +25,20 @@ from app.utils.mongo import ObjectIdStr, diff, get_or_404, oid, oids, paginate, 
 router = APIRouter(tags=["field activity"])
 
 
-async def _volunteer(db, volunteer_id, user: dict) -> dict:
-    vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": Role.VOLUNTEER.value})
+# Admin-1 / Admin-2 also do field work, so a daily report can be filed for them too.
+FIELD_ADMIN_ROLES = (Role.ADMIN_1.value, Role.ADMIN_2.value)
+
+
+def _is_field_admin(person: dict) -> bool:
+    return person.get("role") in FIELD_ADMIN_ROLES
+
+
+async def _volunteer(db, volunteer_id, user: dict, allow_admins: bool = False) -> dict:
+    roles = [Role.VOLUNTEER.value, *FIELD_ADMIN_ROLES] if allow_admins else [Role.VOLUNTEER.value]
+    vol = await db[c.USERS].find_one({"_id": oid(volunteer_id), "role": {"$in": roles}})
     if not vol:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Volunteer not found")
-    if not user_village_ids(vol):
+    if not _is_field_admin(vol) and not user_village_ids(vol):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Volunteer has no assigned village")
     if user["role"] == Role.VOLUNTEER and vol["_id"] != user["_id"]:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Volunteers can only record their own activity")
@@ -38,6 +47,14 @@ async def _volunteer(db, volunteer_id, user: dict) -> dict:
 
 async def _record_village(db, vol: dict, village_id) -> dict:
     """The village a new record belongs to: the one chosen, or her only village."""
+    if _is_field_admin(vol):
+        # Admins are not tied to villages: they pick any programme village for the report.
+        if not village_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose the village (village_id)")
+        village = await db[c.VILLAGES].find_one({"_id": oid(village_id)}, {"taluka_id": 1, "name": 1})
+        if not village:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Village not found")
+        return village
     vids = user_village_ids(vol)
     if village_id:
         if oid(village_id) not in vids:
@@ -236,7 +253,7 @@ async def create_activity_report(body: ActivityReportCreate, db: Db,
         existing = await db[c.ACTIVITY_REPORTS].find_one({"client_record_id": body.client_record_id, "submitted_by": user["_id"]})
         if existing:
             return serialize(existing)
-    vol = await _volunteer(db, body.volunteer_id, user)
+    vol = await _volunteer(db, body.volunteer_id, user, allow_admins=True)
     if body.report_date > today_local():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Report date cannot be in the future")
     for code in body.activities:

@@ -61,14 +61,23 @@ export function useRefData(url, params) {
   const [data, setData] = useState(cache.get(k) || null)
   useEffect(() => {
     let alive = true
-    if (!cache.has(k)) {
+    const load = () => {
       api.get(url, { params }).then((r) => {
-        cache.set(k, r.data)
-        if (alive) setData(r.data)
+        if (alive) {
+          cache.set(k, r.data)
+          setData(r.data)
+        }
       }).catch(() => {})
     }
+    if (!cache.has(k)) load()
+    const onInvalidate = () => {
+      cache.delete(k)
+      load()
+    }
+    window.addEventListener('ref-data-invalidated', onInvalidate)
     return () => {
       alive = false
+      window.removeEventListener('ref-data-invalidated', onInvalidate)
     }
   }, [k]) // eslint-disable-line react-hooks/exhaustive-deps
   return data
@@ -76,6 +85,7 @@ export function useRefData(url, params) {
 
 export function invalidateRefData() {
   cache.clear()
+  window.dispatchEvent(new Event('ref-data-invalidated'))
 }
 
 export const useVillages = () => { const d = useRefData('/villages'); return Array.isArray(d) ? d : [] }

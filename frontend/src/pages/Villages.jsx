@@ -3,8 +3,9 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { TalukaSelect } from '../components/pickers'
 import { Badge, Button, Card, ErrorBox, PageHeader, Select, Spinner, StatusBadge, Table, Tabs } from '../components/ui'
+import { useAuth } from '../lib/auth'
 import { useFetch } from '../lib/hooks'
-import { Locations, VillageModal } from './MasterData'
+import { Locations, TalukaModal, VillageModal } from './MasterData'
 import { t } from '../lib/i18n'
 
 function VillageList() {
@@ -46,15 +47,24 @@ function VillageList() {
 }
 
 export default function Villages() {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin' || user?.role === 'stakeholder'
   const [tab, setTab] = useState('list')
   const [adding, setAdding] = useState(false)
+  const [addingTaluka, setAddingTaluka] = useState(false)
   return (
     <div>
       <PageHeader title={t('Villages')} subtitle={t('Programme villages, their taluka, location and coverage. Volunteers are assigned from the Volunteers page.')}
-        actions={<Button icon={Plus} onClick={() => setAdding(true)}>{t('Add village')}</Button>} />
+        actions={
+          <div className="flex gap-2">
+            {isSuperAdmin && <Button variant="secondary" icon={Plus} onClick={() => setAddingTaluka(true)}>{t('Add taluka')}</Button>}
+            <Button icon={Plus} onClick={() => setAdding(true)}>{t('Add village')}</Button>
+          </div>
+        } />
       <Tabs tabs={[{ value: 'list', label: t('All villages') }, { value: 'locations', label: t('Set locations') }]} value={tab} onChange={setTab} />
       {tab === 'list' ? <VillageList key={String(adding)} /> : <Locations />}
       {adding && <VillageModal village={null} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); setTab('list') }} />}
+      {addingTaluka && <TalukaModal onClose={() => setAddingTaluka(false)} onSaved={() => setAddingTaluka(false)} />}
     </div>
   )
 }

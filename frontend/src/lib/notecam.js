@@ -4,7 +4,12 @@
  * timestamp, action (Check-In/Out), and user details directly onto the photo canvas.
  */
 
-export function getPreciseGpsLocation() {
+/**
+ * Get the device position quickly and never hang.
+ * A coarse (network) fix and a high-accuracy GPS watch run in parallel. Resolves as soon as a fix
+ * is within `goodAccuracyM`, otherwise after `maxWaitMs` with the most accurate fix seen so far.
+ */
+export function getPreciseGpsLocation({ goodAccuracyM = 50, maxWaitMs = 10000 } = {}) {
   return new Promise((resolve) => {
     if (!navigator.geolocation) {
       resolve({
@@ -14,51 +19,62 @@ export function getPreciseGpsLocation() {
       return
     }
 
-    // High accuracy attempt
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        resolve({
-          coords: {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracy_m: Math.round(pos.coords.accuracy || 0),
-            captured_at: new Date().toISOString(),
-          },
-          error: null,
-        })
-      },
-      (err) => {
-        // Fallback to standard accuracy if high accuracy timed out or was unavailable
-        if (err.code === 3 || err.code === 2) {
-          navigator.geolocation.getCurrentPosition(
-            (fallbackPos) => {
-              resolve({
-                coords: {
-                  lat: fallbackPos.coords.latitude,
-                  lng: fallbackPos.coords.longitude,
-                  accuracy_m: Math.round(fallbackPos.coords.accuracy || 0),
-                  captured_at: new Date().toISOString(),
-                },
-                error: null,
-              })
-            },
-            (fallbackErr) => {
-              let msg = 'Could not acquire GPS location.'
-              if (fallbackErr.code === 1) msg = 'Location permission denied. Please allow location access in your browser settings.'
-              else if (fallbackErr.code === 2) msg = 'GPS signal unavailable. Please ensure device location / GPS is turned ON.'
-              else if (fallbackErr.code === 3) msg = 'GPS request timed out. Please retry in an open area.'
-              resolve({ coords: null, error: msg })
-            },
-            { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 }
-          )
-        } else {
-          let msg = 'Location access error.'
-          if (err.code === 1) msg = 'Location permission denied. Please allow location access in your browser settings.'
-          resolve({ coords: null, error: msg })
-        }
-      },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
-    )
+    let best = null
+    let lastErr = null
+    let done = false
+    let watchId = null
+    let timer = null
+
+    const toCoords = (pos) => ({
+      lat: pos.coords.latitude,
+      lng: pos.coords.longitude,
+      accuracy_m: Math.round(pos.coords.accuracy || 0),
+      captured_at: new Date().toISOString(),
+    })
+
+    const errorMessage = (err) => {
+      if (err?.code === 1) return 'Location permission denied. Please allow location access in your browser settings.'
+      if (err?.code === 2) return 'GPS signal unavailable. Please ensure device location / GPS is turned ON.'
+      if (err?.code === 3) return 'GPS request timed out. Please retry in an open area.'
+      return 'Could not acquire GPS location.'
+    }
+
+    const finish = (result) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      if (watchId != null) navigator.geolocation.clearWatch(watchId)
+      resolve(result)
+    }
+
+    const consider = (pos) => {
+      if (done) return
+      if (!best || (pos.coords.accuracy ?? Infinity) < (best.coords.accuracy ?? Infinity)) best = pos
+      if ((pos.coords.accuracy ?? Infinity) <= goodAccuracyM) finish({ coords: toCoords(best), error: null })
+    }
+
+    const onError = (err) => {
+      lastErr = err
+      if (err.code === 1) finish({ coords: null, error: errorMessage(err) })
+    }
+
+    // Precise GPS: keeps improving until it is good enough or we run out of time.
+    watchId = navigator.geolocation.watchPosition(consider, onError, {
+      enableHighAccuracy: true,
+      maximumAge: 15000,
+      timeout: maxWaitMs,
+    })
+    // Fast coarse fix (Wi-Fi / cell / recent cache) so there is always something to fall back on.
+    navigator.geolocation.getCurrentPosition(consider, onError, {
+      enableHighAccuracy: false,
+      maximumAge: 60000,
+      timeout: maxWaitMs,
+    })
+
+    // Hard stop: also covers an ignored permission prompt, where the browser calls no callback.
+    timer = setTimeout(() => {
+      finish(best ? { coords: toCoords(best), error: null } : { coords: null, error: errorMessage(lastErr || { code: 3 }) })
+    }, maxWaitMs)
   })
 }
 

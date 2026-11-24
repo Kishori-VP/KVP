@@ -8,8 +8,19 @@ import { Badge, Button, Card, Checkbox, ErrorBox, Field, Input, Modal, PageHeade
 import api from '../lib/api'
 import { useAuth } from '../lib/auth'
 import { fmtDate, humanize, todayISO } from '../lib/format'
-import { useAction, useFetch, useLookups, useVillages, useVolunteers, lookupLabel } from '../lib/hooks'
+import { useAction, useFetch, useLookups, useRefData, useVillages, useVolunteers, lookupLabel } from '../lib/hooks'
 import { localName, t } from '../lib/i18n'
+
+// Admin-1 / Admin-2 also file daily reports, so they are listed with volunteers on that form.
+const ADMIN_QUERY = (role) => ({ role, is_active: true, page: 1, page_size: 200 })
+function useFieldAdmins() {
+  const a1 = useRefData('/users', ADMIN_QUERY('admin_1'))
+  const a2 = useRefData('/users', ADMIN_QUERY('admin_2'))
+  return [...(a1?.items || []), ...(a2?.items || [])]
+}
+const isFieldAdmin = (p) => p?.role === 'admin_1' || p?.role === 'admin_2'
+// The shared "Program(me) Coordinator" account is not offered on the daily report form.
+const isCoordinatorAccount = (p) => /program+e?\s*co-?ordinator/i.test(p?.name || '')
 
 const RISKS = ['child_marriage_risk', 'school_dropout_risk', 'health_concern', 'anaemia_concern', 'gender_discrimination']
 
@@ -98,13 +109,20 @@ function HomeVisitModal({ open, onClose, onSaved }) {
 
 function ActivityReportModal({ open, onClose, onSaved }) {
   const vols = useVolunteers()
+  const admins = useFieldAdmins()
   const acts = useLookups('activity_type')
   const villages = useVillages()
   const [f, setF] = useState({ report_date: todayISO(), activities: [], group_ids: [], girls_present: 0, home_visits_count: 0, home_visit_girl_ids: [], volunteer_id: '', village_id: '', topics_discussed: '', other_meetings: '' })
   const { busy, error, run } = useAction()
-  const vol = vols.find((v) => v.id === f.volunteer_id)
-  const assignedVillages = (vol?.village_ids?.length ? vol.village_ids : (vol?.village_id ? [vol.village_id] : []))
-  const volVillageId = f.village_id || (assignedVillages.length > 0 ? assignedVillages[0] : (vol?.village_id || ''))
+  const people = [...vols.filter((v) => !isCoordinatorAccount(v)), ...admins]
+  const personOptions = people.map((p) => ({
+    value: p.id,
+    label: isFieldAdmin(p) ? `${p.name} (${p.role === 'admin_1' ? 'Admin-1' : 'Admin-2'})` : (p.village_name ? `${p.name} (${p.village_name})` : p.name),
+  }))
+  const vol = people.find((v) => v.id === f.volunteer_id)
+  const adminPicked = isFieldAdmin(vol)
+  const assignedVillages = adminPicked ? [] : (vol?.village_ids?.length ? vol.village_ids : (vol?.village_id ? [vol.village_id] : []))
+  const volVillageId = adminPicked ? f.village_id : (f.village_id || (assignedVillages.length > 0 ? assignedVillages[0] : (vol?.village_id || '')))
   const { data: groups } = useFetch(volVillageId ? '/groups' : null, { village_id: volVillageId, page_size: 200 })
 
   const submit = () => run(async () => {
@@ -127,10 +145,13 @@ function ActivityReportModal({ open, onClose, onSaved }) {
 
   return (
     <Modal open={open} title={t('Daily activity report (दैनिक अहवाल)')} onClose={onClose} wide
-      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.volunteer_id || !f.activities.length} onClick={submit}>{t('Save report')}</Button></>}>
+      footer={<><Button variant="secondary" onClick={onClose}>{t('Cancel')}</Button><Button busy={busy} disabled={!f.volunteer_id || !f.activities.length || (adminPicked && !f.village_id)} onClick={submit}>{t('Save report')}</Button></>}>
       <ErrorBox message={error} />
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={t('Volunteer *')}><VolunteerSelect value={f.volunteer_id} onChange={(v) => setF({ ...f, volunteer_id: v, village_id: '', group_ids: [], home_visit_girl_ids: [] })} placeholder={t('Select…')} /></Field>
+        <Field label={t('Volunteer *')}><Select options={personOptions} value={f.volunteer_id} onChange={(e) => setF({ ...f, volunteer_id: e.target.value, village_id: '', group_ids: [], home_visit_girl_ids: [] })} placeholder={t('Select…')} /></Field>
+        {adminPicked && (
+          <Field label={t('Village *')}><VillageSelect value={f.village_id} onChange={(v) => setF({ ...f, village_id: v, group_ids: [], home_visit_girl_ids: [] })} placeholder={t('Select…')} /></Field>
+        )}
         {assignedVillages.length > 1 && (
           <Field label={t('Village *')}>
             <select className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm" value={volVillageId} onChange={(e) => setF({ ...f, village_id: e.target.value, group_ids: [], home_visit_girl_ids: [] })}>
@@ -246,12 +267,13 @@ function VisitDetailModal({ visit, onClose, onUpdated }) {
 
 function ReportDetailModal({ report, onClose, onUpdated }) {
   const vols = useVolunteers()
+  const admins = useFieldAdmins()
   const villages = useVillages()
   const acts = useLookups('activity_type')
   const { busy, run } = useAction()
   if (!report) return null
 
-  const vol = vols.find((v) => v.id === report.volunteer_id)
+  const vol = [...vols, ...admins].find((v) => v.id === report.volunteer_id)
   const vil = villages.find((v) => (v.id || v._id) === report.village_id)
   const actMap = Object.fromEntries(acts.map((a) => [a.code, lookupLabel(acts, a.code)]))
 
@@ -345,7 +367,8 @@ export default function FieldRecords() {
   const [selectedReport, setSelectedReport] = useState(null)
   const [selectedVisit, setSelectedVisit] = useState(null)
   const vols = useVolunteers()
-  const volName = (id) => vols.find((v) => v.id === id)?.name || '—'
+  const admins = useFieldAdmins()
+  const volName = (id) => [...vols, ...admins].find((v) => v.id === id)?.name || '—'
   const url = tab === 'visits' ? '/home-visits' : tab === 'calls' ? '/external-calls' : '/activity-reports'
 
   const deleteCall = async (callId) => {
