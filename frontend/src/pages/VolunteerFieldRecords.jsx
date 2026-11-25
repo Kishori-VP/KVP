@@ -243,7 +243,9 @@ function VoiceTextarea({ label, value, onChange }) {
 }
 
 function VisitEditor({ user, onClose, onSaved, submitRecord }) {
-  const [form, setForm] = useState({ visit_date: todayISO(), status: 'completed', purpose: 'routine', girl_ids: [], met_with: ['girl'], observations: '', notes: '', is_historical: false })
+  const assignedVillages = user?.villages || (user?.village ? [user.village] : [])
+  const initialVillageId = user?.village_id || (user?.village_ids && user.village_ids[0]) || (assignedVillages[0]?.id || assignedVillages[0]?._id) || ''
+  const [form, setForm] = useState({ visit_date: todayISO(), village_id: initialVillageId, status: 'completed', purpose: 'routine', girl_ids: [], met_with: ['girl'], observations: '', notes: '', is_historical: false })
   const [risks, setRisks] = useState({ child_marriage_risk: false, school_dropout_risk: false, health_concern: false, anaemia_concern: false, gender_discrimination: false, other: '' })
   const [gps, setGps] = useState(null)
   const selectedGirlId = form.girl_ids[0] || ''
@@ -292,7 +294,7 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
       {user?.villages?.length > 1 && (
         <Field label={t('Village *')}>
           <select
-            value={form.village_id || user.villages[0].id}
+            value={form.village_id}
             onChange={(e) => setForm({ ...form, village_id: e.target.value, girl_ids: [] })}
             className="w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-brand-500 focus:outline-none"
           >
@@ -306,7 +308,7 @@ function VisitEditor({ user, onClose, onSaved, submitRecord }) {
       <Field label={t('Purpose')}><Select options={['routine', 'follow_up', 'case_follow_up', 'enrolment', 'other']} value={form.purpose} onChange={(e) => setForm({ ...form, purpose: e.target.value })} /></Field>
       <Field label={t('People met')}><div className="flex flex-wrap gap-3">{['girl', 'mother', 'father', 'guardian', 'other_family'].map((person) => <Checkbox key={person} label={t(humanize(person))} checked={form.met_with.includes(person)} onChange={() => toggleMet(person)} />)}</div></Field>
     </div>
-    <Field label={t('Girls involved')}><GirlMultiPicker villageId={user?.village_id} value={form.girl_ids} onChange={(ids) => setForm({ ...form, girl_ids: ids })} /></Field>
+    <Field label={t('Girls involved')}><GirlMultiPicker villageId={form.village_id || user?.village_id} value={form.girl_ids} onChange={(ids) => setForm({ ...form, girl_ids: ids })} /></Field>
     {selectedGirlId && <Card title={t('Recent history for selected girl')}>
       <div className="space-y-2">{(priorVisits?.items || []).map((visit) => <div key={visit.id} className="rounded-lg bg-gray-50 p-2 text-xs"><div className="font-medium text-gray-800">{fmtDate(visit.visit_date)} · {humanize(visit.purpose)} · {humanize(visit.status)}</div><div className="mt-1 whitespace-pre-wrap text-gray-600">{visit.observations || visit.notes || t('No observations recorded.')}</div></div>)}{!priorVisits?.items?.length && <p className="text-xs text-gray-500">{t('No previous visits recorded in this village for this girl.')}</p>}</div>
       {relatedCases?.items?.length > 0 && <div className="mt-3 border-t border-gray-100 pt-3"><div className="mb-1 text-xs font-semibold text-gray-700">{t('Open concerns')}</div>{relatedCases.items.map((item) => <div key={item.id} className="mb-1 text-xs text-gray-600">{item.case_code} · {item.title} · {humanize(item.status)}{item.next_action ? ` · ${item.next_action}` : ''}</div>)}</div>}
